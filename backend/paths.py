@@ -44,4 +44,4 @@ def get_html_path():
         base = sys._MEIPASS
     else:
         base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    return os.path.join(base, 'glm-chat.html')
+    return os.path.join(base, 'harbor.html')

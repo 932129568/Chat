@@ -1,4 +1,4 @@
-﻿# GLM-Chat v1.0.0 开发说明
+﻿# Harbor v1.0.0 开发说明
 
 ## 环境要求
 - Python 3.10+
@@ -12,15 +12,15 @@ pip install pywebview==5.4 pyinstaller
 python main.py
 
 ## 打包正常版
-python -m PyInstaller --onefile --windowed --clean --name "GLM-Chat" --icon "glm-chat.ico" --add-data "glm-chat.html;." --add-data "libs;libs" main.py --noconfirm
+python -m PyInstaller --onefile --windowed --clean --name "Harbor" --icon "harbor.ico" --add-data "harbor.html;." --add-data "libs;libs" main.py --noconfirm
 
 ## 打包调试版
-python -m PyInstaller --onefile --clean --name "GLM-Chat-Debug" --icon "glm-chat.ico" --add-data "glm-chat.html;." --add-data "libs;libs" main.py --noconfirm
+python -m PyInstaller --onefile --clean --name "Harbor-Debug" --icon "harbor.ico" --add-data "harbor.html;." --add-data "libs;libs" main.py --noconfirm
 
 ## 目录结构
 - main.py       后端 Python（pywebview API + 工具实现）
-- glm-chat.html 前端单文件（全部 UI + 逻辑）
-- glm-chat.ico  图标
+- harbor.html 前端单文件（全部 UI + 逻辑）
+- harbor.ico  图标
 - libs/         前端依赖库（marked / purify / flate / highlight）
 
 ## 配置目录
@@ -33,15 +33,15 @@ pytest tests/ -q     # 契约差分测试（legacy vs 重构后逐字节一致�
 ## 前端源码构建（v1.1 重构后新增）
 - 前端源码在 frontend/：index.template.html（骨架）+ src/*.js（按文件名顺序拼接）
 - 修改前端后必须重新构建：node frontend/build.js
-- 构建产物为根目录 glm-chat.html（pywebview 加载/打包的就是它）
-- 不要直接修改根目录的 glm-chat.html，改动会在下次构建时被覆盖
+- 构建产物为根目录 harbor.html（pywebview 加载/打包的就是它）
+- 不要直接修改根目录的 harbor.html，改动会在下次构建时被覆盖
 
 ## 目录结构（v1.1 重构后）
 - main.py            薄入口（装配 + 启动，<60 行）
 - backend/           后端包（api.py 门面 + services/ 八个 service + tools_schema.py）
 - frontend/          前端源码（模板 + src 模块 + build.js 零依赖构建脚本）
 - tests/             pytest 契约差分 + 安全测试（subprocess/ctypes/PIL/webview 全打桩，免 GUI）
-- main_v1.0.0_legacy.py / glm-chat.v1.0.0.html   v1.0.0 原始备份（行为对照基准）
+- main_v1.0.0_legacy.py / harbor.v1.0.0.html   v1.0.0 原始备份（行为对照基准）
 - VERSION            应用版本号单一数据源（自动更新比对用；发版时只改这个文件，勿在代码里手改版本号）
 
 ## 发版流程（v1.2 起）
@@ -62,5 +62,5 @@ provider_service（OpenAI 兼容端点测试）。
 （_V12_EXTRA 过滤，保证 get_api_info 输出与 legacy 逐字节一致）。
 新增测试：tests/test_v12_features.py（31 项，全打桩）。运行：pytest tests/ -q  → 62 passed。
 新配置文件：~/.glm-chat/guard.json（护栏）、~/.glm-chat/audit_log.jsonl（审计）；
-自动更新下载产物在系统临时目录 glm-chat-update/。
+自动更新下载产物在系统临时目录 harbor-update/。
 发版前自检：pytest tests/ -q && node frontend/build.js && python deliverables/design/check_contract.py

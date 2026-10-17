@@ -1,13 +1,13 @@
 #!/usr/bin/env node
 /**
- * GLM-Chat 前端构建（零依赖，仅用 Node 内置模块）。
+ * Harbor 前端构建（零依赖，仅用 Node 内置模块）。
  *
  * 源码在 frontend/src/*.js（按文件名顺序拼接回同一个 <script>，保持 v1.0.0 单脚本作用域语义），
- * 骨架在 frontend/index.template.html；产物是项目根目录的 glm-chat.html
+ * 骨架在 frontend/index.template.html；产物是项目根目录的 harbor.html
  * （pywebview 加载的文件，PyInstaller --add-data 打包的也是它）。
  *
  * 用法：node frontend/build.js
- * 规则：不要直接改根目录的 glm-chat.html——它是构建产物，改源码后重新构建。
+ * 规则：不要直接改根目录的 harbor.html——它是构建产物，改源码后重新构建。
  */
 'use strict';
 const fs = require('fs');
@@ -16,7 +16,7 @@ const path = require('path');
 const ROOT = path.resolve(__dirname, '..');
 const SRC_DIR = path.join(__dirname, 'src');
 const TEMPLATE = path.join(__dirname, 'index.template.html');
-const OUT = path.join(ROOT, 'glm-chat.html');
+const OUT = path.join(ROOT, 'harbor.html');
 const PLACEHOLDER = '/*__APP_SCRIPT__*/';
 
 function main() {

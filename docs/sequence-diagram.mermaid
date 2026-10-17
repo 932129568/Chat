@@ -1,4 +1,4 @@
-%% GLM-Chat v1.3 MCP · 关键流程时序图（提取自 architecture-and-tasks-v1.3-mcp-2026-10-15.md §4）
+%% Harbor v1.3 MCP · 关键流程时序图（提取自 architecture-and-tasks-v1.3-mcp-2026-10-15.md §4）
 
 %% ===== 4.1 服务器启用流程（R2/R5/R6，含环境预检测与测试连接）=====
 sequenceDiagram
@@ -110,6 +110,6 @@ sequenceDiagram
     K->>K: 版本协商：客户端不支持服务器响应版本 → 规范 SHOULD 断开
     K->>K: close transport（stdio：关 stdin→等→TERM→KILL）
     K-->>S: raise McpVersionError(server_version, supported=data.supported)
-    S-->>A: {error: 该 MCP 服务器支持协议版本 2024-11-05，GLM-Chat 支持 2025-06-18。请升级该服务器，或在设置中暂时禁用它。, supported:[…]}
+    S-->>A: {error: 该 MCP 服务器支持协议版本 2024-11-05，Harbor 支持 2025-06-18。请升级该服务器，或在设置中暂时禁用它。, supported:[…]}
     A-->>P: err(人话 + supported 列表)
     P-->>P: 红状态灯 + toast；enabled 不落盘

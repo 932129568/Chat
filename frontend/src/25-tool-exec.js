@@ -7,7 +7,7 @@
  */
 async function executeToolRaw(name, args) {
   if (!window.pywebview || !window.pywebview.api) {
-    return JSON.stringify({error: '请在 GLM-Chat.exe 桌面端中使用此功能'});
+    return JSON.stringify({error: '请在 Harbor.exe 桌面端中使用此功能'});
   }
   try { await callApi('set_current_sid', [currentSessionId]); } catch (e) {}
   args = args || {};   // 修复 ㊱：args 缺省兜底（原 pickPath 对 undefined 取属性虽不炸，但统一归一更稳）

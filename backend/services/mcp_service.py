@@ -702,7 +702,7 @@ class McpService:
 
     @staticmethod
     def _version_text(e: McpVersionError) -> str:
-        text = ('该 MCP 服务器支持协议版本 %s，GLM-Chat 支持 %s。请升级该服务器，'
+        text = ('该 MCP 服务器支持协议版本 %s，Harbor 支持 %s。请升级该服务器，'
                 '或在设置中暂时禁用它。' % (e.server_version, MCP_PROTOCOL_VERSION))
         if e.supported:
             text += '（服务器支持版本：%s）' % ', '.join(str(v) for v in e.supported)

@@ -2,7 +2,7 @@
 """进程服务：枚举与强杀（legacy Api L756-801 搬迁）。
 
 重构变更（用户授权）：kill_process 增加关键进程保护名单，
-禁止强杀系统关键进程与 GLM-Chat 自身（v1.0.0 `taskkill /F /T` 无任何护栏）。
+禁止强杀系统关键进程与 Harbor 自身（v1.0.0 `taskkill /F /T` 无任何护栏）。
 """
 import ctypes
 import json
@@ -117,7 +117,7 @@ class ProcessService:
             except Exception:
                 return None
             if pid_i in PROTECTED_PIDS or pid_i == os.getpid():
-                return f'pid={pid_i} 是系统关键进程或 GLM-Chat 自身，已拒绝强杀'
+                return f'pid={pid_i} 是系统关键进程或 Harbor 自身，已拒绝强杀'
         if name:
             if str(name).strip().lower() in PROTECTED_NAMES:
                 return f'进程 {name} 属于系统关键进程，已拒绝强杀'

@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""GLM-Chat v1.4「体验版」回归验证（prd-glmchat-v14-experience-2026-10-16）——QA 严过关。
+"""Harbor v1.4「体验版」回归验证（prd-glmchat-v14-experience-2026-10-16）——QA 严过关。
 
 覆盖（PRD §3 D 组 R1 要求）：
 - 后端行为级：UX-2 持久信任（trustedOps 读写/enforce/重置/名单优先）、
@@ -443,7 +443,7 @@ async function __main() {
   const out = {};
   const sessions = [
     { id: 's1', title: '旧会话', updatedAt: 2, messages: [
-      { role: 'user', content: '帮我看看 GLM-Chat 的缓存策略' },
+      { role: 'user', content: '帮我看看 Harbor 的缓存策略' },
       { role: 'assistant', content: '缓存命中价差 5 倍，前缀稳定最省钱' },
       { role: 'tool', content: '{"path": "a.txt"}' } ] },
     { id: 's2', title: '新会话', updatedAt: 1, messages: [
@@ -614,10 +614,10 @@ class TestV14ContractRedlines:
     def test_build_idempotent(self):
         p1 = subprocess.run([NODE, 'frontend/build.js'], cwd=PROJECT_ROOT,
                             capture_output=True, timeout=120)
-        h1 = _md5(os.path.join(PROJECT_ROOT, 'glm-chat.html'))
+        h1 = _md5(os.path.join(PROJECT_ROOT, 'harbor.html'))
         p2 = subprocess.run([NODE, 'frontend/build.js'], cwd=PROJECT_ROOT,
                             capture_output=True, timeout=120)
-        h2 = _md5(os.path.join(PROJECT_ROOT, 'glm-chat.html'))
+        h2 = _md5(os.path.join(PROJECT_ROOT, 'harbor.html'))
         assert p1.returncode == 0 and p2.returncode == 0
         assert h1 == h2, '构建不幂等'
 

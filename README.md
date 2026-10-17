@@ -1,4 +1,4 @@
-# GLM-Chat
+# Harbor
 
 本地优先的 GLM AI 对话客户端 —— 单文件 HTML + pywebview 桌面壳，零第三方运行时依赖（Python stdlib only），配置与数据全部留在本机 `~/.glm-chat/`。
 
@@ -63,7 +63,7 @@
 
 ### 方式一：直接运行 exe（推荐）
 
-1. 从 `dist/` 取 `GLM-Chat.exe`（PyInstaller onefile，约 24MB）
+1. 从 `dist/` 取 `Harbor.exe`（PyInstaller onefile，约 24MB）
 2. 双击运行（需 WebView2 Runtime，Windows 11 自带）
 3. 设置 → 模型服务商 → 填入 GLM API Key
 
@@ -80,8 +80,8 @@ python main.py
 
 ```bash
 pip install pyinstaller send2trash pillow
-python -m PyInstaller GLM-Chat.spec --noconfirm
-# 产物在 dist/GLM-Chat.exe
+python -m PyInstaller Harbor.spec --noconfirm
+# 产物在 dist/Harbor.exe
 ```
 
 ---
@@ -108,19 +108,19 @@ python -m PyInstaller GLM-Chat.spec --noconfirm
 | `~/.glm-chat/mcp_servers.json` | MCP 服务器（DPAPI 加密凭证） |
 | `~/.glm-chat/webdav.json` | WebDAV 配置（DPAPI 加密密码） |
 | `~/.glm-chat/audit_log.jsonl` | 工具调用审计日志 |
-| `~/.glm-chat/logs/glm-chat.log` | 运行日志 |
+| `~/.glm-chat/logs/harbor.log` | 运行日志 |
 
 ---
 
 ## 项目结构
 
 ```
-GLM-Chat/
+Harbor/
 ├── main.py                  # 入口（装配 backend + pywebview 窗口）
 ├── main_v1.0.0_legacy.py    # v1.0.0 legacy 单体（契约差分测试基线，勿删）
-├── GLM-Chat.spec            # PyInstaller 打包配置
+├── Harbor.spec            # PyInstaller 打包配置
 ├── VERSION                  # 应用版本号
-├── glm-chat.html            # 前端构建产物（node frontend/build.js 生成）
+├── harbor.html            # 前端构建产物（node frontend/build.js 生成）
 ├── backend/                 # Python 后端（门面 + services + 基础设施）
 │   ├── api.py               # js_api 门面（契约差分测试对象）
 │   └── services/            # 全部业务服务

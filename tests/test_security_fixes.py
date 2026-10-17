@@ -230,7 +230,7 @@ class TestLogging:
         os.makedirs(paths.CONFIG_DIR, exist_ok=True)
         with open(paths.RECENT_WS_FILE, 'w', encoding='utf-8') as f:
             f.write('{corrupted json')
-        with caplog.at_level(logging.WARNING, logger='glm_chat'):
+        with caplog.at_level(logging.WARNING, logger='harbor'):
             r = api.list_recent_ws()
         assert r == '[]'
         assert any('recent' in rec.message.lower() or '工作区' in rec.message
@@ -241,7 +241,7 @@ class TestLogging:
         os.makedirs(paths.CONFIG_DIR, exist_ok=True)
         with open(paths.WS_ENABLED_FILE, 'w', encoding='utf-8') as f:
             f.write('{bad')
-        with caplog.at_level(logging.WARNING, logger='glm_chat'):
+        with caplog.at_level(logging.WARNING, logger='harbor'):
             a = NewApi()
             v = a.get_ws_enabled('s1')
         assert json.loads(v)['enabled'] is True  # 默认全开（legacy 语义）

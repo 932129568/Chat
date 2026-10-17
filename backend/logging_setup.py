@@ -10,8 +10,8 @@ from logging.handlers import RotatingFileHandler
 
 from . import paths
 
-LOGGER_NAME = 'glm_chat'
-LOG_FILE_NAME = 'glm-chat.log'
+LOGGER_NAME = 'harbor'
+LOG_FILE_NAME = 'harbor.log'
 _FMT = '%(asctime)s %(levelname)s [%(threadName)s] %(message)s'
 
 

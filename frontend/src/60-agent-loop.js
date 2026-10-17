@@ -72,7 +72,7 @@ async function runAgentLoop(s, apiKey) {
       effectiveTools = await loadBackendTools(toolMode);
     } catch (e) {
       addMessage('assistant', '⚠️ 无法从后端加载工具定义（build_tools 失败）：' + e.message +
-        '\nAI 将不具备任何工具能力。请确认运行的是桌面端 GLM-Chat 并重新打包后重试。');
+        '\nAI 将不具备任何工具能力。请确认运行的是桌面端 Harbor 并重新打包后重试。');
       aiContent.closest('.message').remove();   // 修复 ㉙：提前 return 前清掉遗留的「正在输入」动画气泡
       return;
     }

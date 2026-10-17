@@ -15,7 +15,7 @@ import sys
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 TPL = os.path.join(ROOT, 'frontend', 'index.template.html')
-OUT = os.path.join(ROOT, 'glm-chat.html')
+OUT = os.path.join(ROOT, 'harbor.html')
 SRC_DIR = os.path.join(ROOT, 'frontend', 'src')
 
 # ---- 契约清单（来自 00-contract-brief.md）----
@@ -109,9 +109,9 @@ def main():
 
     # 7) 构建产物存在且比模板新
     if os.path.isfile(OUT):
-        print('[构建产物] glm-chat.html 存在 (%d 字节)' % os.path.getsize(OUT))
+        print('[构建产物] harbor.html 存在 (%d 字节)' % os.path.getsize(OUT))
     else:
-        fails.append('构建产物 glm-chat.html 不存在，请运行 node frontend/build.js')
+        fails.append('构建产物 harbor.html 不存在，请运行 node frontend/build.js')
 
     print('\n' + ('=' * 56))
     if fails:

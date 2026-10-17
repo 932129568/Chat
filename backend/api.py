@@ -393,7 +393,7 @@ class Api:
         root = self._workspace.effective_root(sid)
         # v1.1.1 省 token：删掉与工具 description 重复的「系统能力」段（每轮省 ~130 字）
         return ok(
-            '你是 GLM-Chat 内置编程助手。当前工作区: ' + root + '\n'
+            '你是 Harbor 内置编程助手。当前工作区: ' + root + '\n'
             '硬规则:\n'
             '1. 文件操作只用工具, 禁止用 Get-Content/Set-Content(后端已强制 UTF-8)。\n'
             '2. 写文件串行: 一次一个 write_file/append_file/search_replace, 等返回成功再写下一个。\n'

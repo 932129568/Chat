@@ -1,4 +1,4 @@
-# GLM-Chat v1.3「生态位」MCP 支持 · 增量架构设计与任务分解
+# Harbor v1.3「生态位」MCP 支持 · 增量架构设计与任务分解
 
 **日期**：2026-10-15
 **类型**：增量架构设计 + 实现任务分解（工程师实现依据）
@@ -551,7 +551,7 @@ sequenceDiagram
     K->>K: 版本协商：客户端不支持服务器响应版本 → 规范 SHOULD 断开
     K->>K: close transport（stdio：关 stdin→等→TERM→KILL）
     K-->>S: raise McpVersionError(server_version, supported=data.supported)
-    S-->>A: {error: 该 MCP 服务器支持协议版本 2024-11-05，GLM-Chat 支持 2025-06-18。请升级该服务器，或在设置中暂时禁用它。, supported:[…]}
+    S-->>A: {error: 该 MCP 服务器支持协议版本 2024-11-05，Harbor 支持 2025-06-18。请升级该服务器，或在设置中暂时禁用它。, supported:[…]}
     A-->>P: err(人话 + supported 列表)
     P-->>P: 红状态灯 + toast；enabled 不落盘
 ```
@@ -631,7 +631,7 @@ graph LR
    |---|---|
    | 握手失败/进程起不来 | 「无法启动 MCP 服务器（命令：x）。请确认该命令已安装且可在命令行运行。」 |
    | 缺运行时（which 失败） | 「未找到命令 npx（或 uvx）。请先安装 Node.js（https://nodejs.org）/ uv（https://astral.sh/uv）后重试。」 |
-   | 版本不匹配 | 「该 MCP 服务器支持协议版本 X，GLM-Chat 支持 2025-06-18。请升级该服务器，或在设置中暂时禁用它。」+ supported 列表 |
+   | 版本不匹配 | 「该 MCP 服务器支持协议版本 X，Harbor 支持 2025-06-18。请升级该服务器，或在设置中暂时禁用它。」+ supported 列表 |
    | 调用超时 | 「MCP 工具调用超时（60 秒），已发送取消。可重试或确认服务器是否卡死。」 |
    | 服务器崩溃 | 「MCP 服务器进程已崩溃（退出码 N），已自动重拉一次；仍失败请检查服务器后重试。」 |
    | 工具不存在（-32602） | 「服务器未提供该工具（可能已升级/卸载）。可在设置中刷新工具列表后重试。」 |
@@ -672,7 +672,7 @@ graph LR
 | 契约差分 | `pytest tests/test_api_contract.py -q` | legacy vs new 逐字节一致（build_tools 默认路径 + get_api_info + config.json） |
 | 全量测试 | `pytest tests/ -q` | 66 既有 + 新增全绿 |
 | UI 契约 | `python deliverables/design/check_contract.py` | PASS（40 id / 13 onclick / 43 callApi / 39 类 / 21 变量，只增不改） |
-| 前端构建 | `node frontend/build.js` | 34 模块 → glm-chat.html，幂等 |
+| 前端构建 | `node frontend/build.js` | 34 模块 → harbor.html，幂等 |
 | 隐身断言 | `test_v13_mcp.py::TestApiInfoHidesV13Methods` | 10 个新方法不在 methods 清单但全部可调用 |
 | 冒烟六步 | 导入 → 启用 → 确认 → 拒绝 → 审计 → 熔断 | 人工走查通过（本环境无外网/webview，留目标机） |
 | 版本号 | VERSION → 1.3.0 | APP_VERSION 动态读取生效；API_VERSION 不变 |

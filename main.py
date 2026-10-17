@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""GLM-Chat 入口：装配 backend 并启动 pywebview 窗口。
+"""Harbor 入口：装配 backend 并启动 pywebview 窗口。
 
 业务逻辑全部在 backend/ 包（门面 + services + 基础设施）；
 本文件只做装配与启动，`import main` 不产生副作用（webview 延迟导入）。
@@ -102,7 +102,7 @@ def main():
             # 修复（2026-10-17）：窗口标题显示**应用版本**（APP_VERSION，用户感知版本），
             # 不再是 API_VERSION（js_api 契约版本，被契约差分钉死永远 v1.0.0）——
             # 原标题让用户永远看到 v1.0.0，无法判断自己跑的版本/更新是否生效
-            'GLM Chat [v' + APP_VERSION + ']',
+            'Harbor [v' + APP_VERSION + ']',
             url=html_path,
             js_api=api,
             width=1180,
@@ -128,20 +128,20 @@ def main():
         webview.start()
     except Exception as e:
         try:
-            log.exception('GLM-Chat 启动失败')
+            log.exception('Harbor 启动失败')
         except Exception:
             pass
         # console=False 下用户双击“什么都没发生”是最差体验：弹原生框提示
         try:
             import ctypes
             ctypes.windll.user32.MessageBoxW(
-                0, 'GLM-Chat 启动失败：\n\n%s\n\n请确认已安装 WebView2 Runtime '
+                0, 'Harbor 启动失败：\n\n%s\n\n请确认已安装 WebView2 Runtime '
                    '（Windows 11 自带；否则到微软官网下载安装）。\n日志：%s'
-                   % (e, os.path.join(paths.LOG_DIR, 'glm-chat.log')),
-                'GLM-Chat 启动失败', 0x10)
+                   % (e, os.path.join(paths.LOG_DIR, 'harbor.log')),
+                'Harbor 启动失败', 0x10)
         except Exception:
             try:
-                print('GLM-Chat 启动失败:', e)
+                print('Harbor 启动失败:', e)
             except Exception:
                 pass
         raise SystemExit(1)

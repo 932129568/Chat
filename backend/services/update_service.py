@@ -27,11 +27,11 @@ import time
 from ..logging_setup import get_logger
 
 # 更新清单地址：优先从 config.json 的 update_manifest_url 读取（前端可配）。
-# ⚠ 此为占位默认源（github.com/glm-chat/glm-chat 并非真实仓库），分发前必须：
+# ⚠ 此为占位默认源（github.com/harbor/harbor 并非真实仓库），分发前必须：
 #   ① 把下面换成你的真实 Releases 地址，或在设置面板配置 update_manifest_url；
 #   ② 确认 VERSION 文件已同步为即将发布的版本号（单一数据源，勿在代码里手改版本号）。
-DEFAULT_MANIFEST_URL = 'https://github.com/glm-chat/glm-chat/releases/latest/download/update-manifest.json'
-UPDATE_DIR = os.path.join(tempfile.gettempdir(), 'glm-chat-update')
+DEFAULT_MANIFEST_URL = 'https://github.com/harbor/harbor/releases/latest/download/update-manifest.json'
+UPDATE_DIR = os.path.join(tempfile.gettempdir(), 'harbor-update')
 
 
 def _load_app_version():
@@ -84,7 +84,7 @@ class UpdateService:
         url = str(manifest_url or DEFAULT_MANIFEST_URL).strip()
         try:
             import urllib.request
-            req = urllib.request.Request(url, headers={'User-Agent': 'GLM-Chat/' + APP_VERSION})
+            req = urllib.request.Request(url, headers={'User-Agent': 'Harbor/' + APP_VERSION})
             with urllib.request.urlopen(req, timeout=10) as resp:
                 data = json.loads(resp.read().decode('utf-8'))
             if not isinstance(data, dict) or 'version' not in data:
@@ -142,8 +142,8 @@ class UpdateService:
             import urllib.request
             from .mcp_transport_http import urlopen_no_redirect   # 修复 W18：禁跟随重定向（防跨域引导）
             os.makedirs(UPDATE_DIR, exist_ok=True)
-            tmp_path = os.path.join(UPDATE_DIR, 'glm-chat-%s.exe.tmp' % (version or 'new'))
-            req = urllib.request.Request(url, headers={'User-Agent': 'GLM-Chat/' + APP_VERSION})
+            tmp_path = os.path.join(UPDATE_DIR, 'harbor-%s.exe.tmp' % (version or 'new'))
+            req = urllib.request.Request(url, headers={'User-Agent': 'Harbor/' + APP_VERSION})
             # 修复 W18：500MB 硬上限 + 整体 deadline（原无上限无死线，慢速流可写满磁盘）
             _MAX_BYTES = 500 * 1024 * 1024
             deadline = time.time() + 30 * 60
@@ -171,7 +171,7 @@ class UpdateService:
             digest = h.hexdigest()
             if sha256 and digest.lower() != sha256.lower():
                 raise ValueError('SHA256 校验失败（期望 %s，实际 %s）' % (sha256[:12], digest[:12]))
-            final_path = os.path.join(UPDATE_DIR, 'glm-chat-%s.exe' % (version or 'new'))
+            final_path = os.path.join(UPDATE_DIR, 'harbor-%s.exe' % (version or 'new'))
             os.replace(tmp_path, final_path)
             with self._lock:
                 self._state.update({'state': 'done', 'pct': 100, 'path': final_path})
@@ -293,7 +293,7 @@ def cleanup_old_backup(logger=None):
     """修复 建议㉖：启动时清理上次自更新残留的 .bak 与 sentinel（原 .bak 永久残留）。
 
     修复 建议⑤（二轮）：sentinel 是「上次更新成功」的唯一凭证——原写了没人读、
-    失败静默；现在读到即记日志（用户/支持者可从 glm-chat.log 确认更新成败）。
+    失败静默；现在读到即记日志（用户/支持者可从 harbor.log 确认更新成败）。
     返回被清理的文件数；仅在 frozen 模式下有意义。"""
     cleaned = 0
     try:
@@ -316,9 +316,9 @@ def cleanup_old_backup(logger=None):
                         pass
         # 修复 建议⑥（二轮）：清理历史版本 exe（原永不清理，UPDATE_DIR 无限膨胀）
         try:
-            keep = 'glm-chat-%s.exe' % APP_VERSION
+            keep = 'harbor-%s.exe' % APP_VERSION
             for fn in os.listdir(UPDATE_DIR):
-                if fn.startswith('glm-chat-') and fn.endswith('.exe') and fn != keep:
+                if fn.startswith('harbor-') and fn.endswith('.exe') and fn != keep:
                     os.remove(os.path.join(UPDATE_DIR, fn))
                     cleaned += 1
         except Exception:

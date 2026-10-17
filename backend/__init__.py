@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""GLM-Chat 后端包：分层架构（门面 + services + 基础设施）。
+"""Harbor 后端包：分层架构（门面 + services + 基础设施）。
 
 - api.py            对外契约层（pywebview js_api），零业务逻辑，纯委托
 - services/         业务层，按域拆分，构造注入依赖

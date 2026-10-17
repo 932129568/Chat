@@ -1119,7 +1119,7 @@ let __loads = 0;
 
   // 4) 版本不匹配 → 连接失败 toast + supported 列表 toast（R1 面板呈现）
   __toasts.length = 0;
-  __testResp = { error: '该 MCP 服务器支持协议版本 2024-11-05，GLM-Chat 支持 2025-06-18。',
+  __testResp = { error: '该 MCP 服务器支持协议版本 2024-11-05，Harbor 支持 2025-06-18。',
                  supported: ['2024-11-05', '2025-03-26'] };
   await mcpTestServer('old');
   const kinds = __toasts.map(t => t.kind);
@@ -1160,7 +1160,7 @@ class TestFrontendBuildArtifact:
     """构建产物须含新模块挂点（29-mcp / 62-mcp-exec / include_mcp 传参）。"""
 
     def test_html_contains_mcp_modules(self):
-        html = open(os.path.join(PROJECT_ROOT, 'glm-chat.html'),
+        html = open(os.path.join(PROJECT_ROOT, 'harbor.html'),
                     encoding='utf-8').read()
         assert 'mcpGuardCheck' in html and 'mcpExecTool' in html
         assert 'mcpParseName' in html and 'loadMcpServers' in html

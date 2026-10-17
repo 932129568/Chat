@@ -268,7 +268,7 @@ class CmdService:
             _apply_win32_signatures()
             r = ctypes.windll.user32.MessageBoxW(
                 0, f'AI 请求以管理员权限执行：\n\n{cmd}\n\n允许执行吗？',
-                'GLM-Chat · 管理员确认', 0x04 | 0x30)
+                'Harbor · 管理员确认', 0x04 | 0x30)
             if r != 6:
                 return ok({'info': '用户拒绝了本次管理员命令，请改用无需提权的方案。', 'skipped': True})
             # 修复 W7（二轮）：mkstemp 唯一名（pid+毫秒同毫秒并发互删对方文件）

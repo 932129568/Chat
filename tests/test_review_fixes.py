@@ -260,7 +260,7 @@ class TestC2CtypesSignatures:
 # ============================================================ S1：落盘日志
 class TestS1Logging:
     def test_rotating_handler_attached_and_no_duplicate(self, tmp_path):
-        logger = logging.getLogger('glm_chat')
+        logger = logging.getLogger('harbor')
         before = [h for h in logger.handlers if isinstance(h, RotatingFileHandler)]
         try:
             setup_logging(str(tmp_path))
@@ -269,7 +269,7 @@ class TestS1Logging:
             logger.info('QA_S1_PROBE_MESSAGE')
             for h in added:
                 h.flush()
-            content = io.open(os.path.join(str(tmp_path), 'glm-chat.log'),
+            content = io.open(os.path.join(str(tmp_path), 'harbor.log'),
                               encoding='utf-8').read()
             assert 'QA_S1_PROBE_MESSAGE' in content
             setup_logging(str(tmp_path))                       # 重复调用不叠加
@@ -1035,7 +1035,7 @@ class TestSourceLevelFixes:
         assert '_kill_tree' in inspect.getsource(CmdService._exec)
 
     def test_w2_spec_hiddenimports(self):
-        src = _src('GLM-Chat.spec')
+        src = _src('Harbor.spec')
         assert 'send2trash' in src and 'PIL.ImageGrab' in src and 'hiddenimports' in src
 
     def test_w7_w14_screenshot_service(self):

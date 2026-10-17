@@ -18,7 +18,7 @@ import time
 from ..logging_setup import get_logger
 
 MCP_PROTOCOL_VERSION = '2025-06-18'
-CLIENT_NAME = 'GLM-Chat'
+CLIENT_NAME = 'Harbor'
 CLIENT_VERSION = '1.3.0'
 
 # 超时常量（共享知识 5；tools/call 固定 60s = PRD 假设①）
@@ -37,7 +37,7 @@ class McpVersionError(Exception):
     def __init__(self, server_version, supported=None):
         self.server_version = server_version
         self.supported = supported or []
-        super().__init__('服务器协议版本 %r 不受支持（GLM-Chat 支持 %s）'
+        super().__init__('服务器协议版本 %r 不受支持（Harbor 支持 %s）'
                          % (server_version, MCP_PROTOCOL_VERSION))
 
 

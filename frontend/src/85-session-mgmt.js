@@ -140,9 +140,9 @@ function exportSessionMd(id, e) {
   const s = sessions.find(x => x.id === id);
   if (!s) { toast('会话不存在', 'warn'); return; }
   const lines = [];
-  lines.push('# ' + (s.title || 'GLM-Chat 会话'));
+  lines.push('# ' + (s.title || 'Harbor 会话'));
   lines.push('');
-  lines.push('> 导出自 GLM-Chat v' + (typeof APP_VERSION !== 'undefined' ? APP_VERSION : '1.4') +
+  lines.push('> 导出自 Harbor v' + (typeof APP_VERSION !== 'undefined' ? APP_VERSION : '1.4') +
     ' · ' + new Date().toLocaleString('zh-CN'));
   lines.push('');
   let toolCount = 0, usage = null;

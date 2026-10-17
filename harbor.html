@@ -6,14 +6,14 @@
 <!-- 修复 建议㊶（二轮）：渐进式 CSP 纵深——object-src/base-uri 禁插件与基址劫持；
      script/style 须 unsafe-inline（单文件全内联架构，不压可 Scripting 主轴线） -->
 <meta http-equiv="Content-Security-Policy" content="object-src 'none'; base-uri 'none'; form-action 'none'">
-<title>GLM Chat</title>
+<title>Harbor</title>
 <script src="libs/flate.js"></script>
 <script src="libs/marked.min.js"></script>
 <script src="libs/purify.min.js"></script>
 <script src="libs/highlight.min.js"></script>
 <style>
 /* ============================================================
-   GLM-Chat 设计系统 v4 — 精致静谧的现代工具感
+   Harbor 设计系统 v4 — 精致静谧的现代工具感
    令牌见 deliverables/design/v4（port-spec.md §1 为 CSS 起点）
    铁律：41 DOM id / 43 callApi / 13 onclick / 39 CSS 类名 / v2 全部变量 不得变更
    张力原则：氛围可以炫，内容必须稳 —— 极光只在 z-index:-1 背景层，
@@ -925,7 +925,7 @@ body.fx-off .panel,body.fx-off .message,body.fx-off .settings-panel.show{animati
   <div class="sidebar-brand">
     <div class="brand-logo">G</div>
     <div style="min-width:0">
-      <div class="brand-name">GLM Chat</div>
+      <div class="brand-name">Harbor</div>
       <div class="brand-sub" id="brandModel">glm-5.3-flash</div>
     </div>
   </div>
@@ -1953,7 +1953,7 @@ async function shotDedup(comp) {
  */
 async function executeToolRaw(name, args) {
   if (!window.pywebview || !window.pywebview.api) {
-    return JSON.stringify({error: '请在 GLM-Chat.exe 桌面端中使用此功能'});
+    return JSON.stringify({error: '请在 Harbor.exe 桌面端中使用此功能'});
   }
   try { await callApi('set_current_sid', [currentSessionId]); } catch (e) {}
   args = args || {};   // 修复 ㊱：args 缺省兜底（原 pickPath 对 undefined 取属性虽不炸，但统一归一更稳）
@@ -5101,7 +5101,7 @@ async function runAgentLoop(s, apiKey) {
       effectiveTools = await loadBackendTools(toolMode);
     } catch (e) {
       addMessage('assistant', '⚠️ 无法从后端加载工具定义（build_tools 失败）：' + e.message +
-        '\nAI 将不具备任何工具能力。请确认运行的是桌面端 GLM-Chat 并重新打包后重试。');
+        '\nAI 将不具备任何工具能力。请确认运行的是桌面端 Harbor 并重新打包后重试。');
       aiContent.closest('.message').remove();   // 修复 ㉙：提前 return 前清掉遗留的「正在输入」动画气泡
       return;
     }
@@ -6901,9 +6901,9 @@ function exportSessionMd(id, e) {
   const s = sessions.find(x => x.id === id);
   if (!s) { toast('会话不存在', 'warn'); return; }
   const lines = [];
-  lines.push('# ' + (s.title || 'GLM-Chat 会话'));
+  lines.push('# ' + (s.title || 'Harbor 会话'));
   lines.push('');
-  lines.push('> 导出自 GLM-Chat v' + (typeof APP_VERSION !== 'undefined' ? APP_VERSION : '1.4') +
+  lines.push('> 导出自 Harbor v' + (typeof APP_VERSION !== 'undefined' ? APP_VERSION : '1.4') +
     ' · ' + new Date().toLocaleString('zh-CN'));
   lines.push('');
   let toolCount = 0, usage = null;
