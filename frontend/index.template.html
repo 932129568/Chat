@@ -438,9 +438,12 @@ body.dark .eff-tag-s{background:var(--ok-bg);color:var(--ok);}
 /* 连接块是主块：横跨全宽 */
 .cm-block{grid-column:1/-1;}
 /* ===== 修复 UX-4（v1.4）：设置锚点导航（DOM/CSS 纯新增）===== */
+/* v4 修复割裂感：sticky 导航条改不透明底色（原 --header-bg 78% 半透明+毛玻璃，
+   上滑时卡片会透上来形成「模块浮在功能名字上方空余区」的幽灵效果）；
+   不透明 card-bg 完全遮挡滚动内容，导航条成为一整块实体 */
 .set-nav{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px;position:sticky;top:0;
-  z-index:5;padding:8px 0;background:var(--header-bg);backdrop-filter:blur(10px);
-  -webkit-backdrop-filter:blur(10px);border-bottom:1px solid var(--border);}
+  z-index:5;padding:8px 2px;background:var(--card-bg);
+  border-bottom:1px solid var(--border);}
 .set-nav-btn{height:26px;padding:0 11px;border:1px solid var(--border);border-radius:var(--radius-full);
   background:var(--card-bg);color:var(--text-2);font-size:12px;font-family:inherit;cursor:pointer;
   white-space:nowrap;}
