@@ -390,6 +390,19 @@ class Api:
     # ============ system prompt ============
     def build_system_prompt(self):
         sid = self._runtime.get_current_sid()
+        # 修复（2026-10-18）：工作区关闭时不得注入路径/宣称文件能力——原先无条件注入
+        # effective_root，导致快捷条显示「未启用工作区」但 AI 仍答「当前工作区: C:\...」
+        # 并声称能操作文件夹（工具被裁了，模型却以为有）。
+        # 注：本方法在契约 INTENTIONAL_DELTAS 白名单内，允许与 legacy 不同。
+        if not self._runtime.ws_enabled_for(sid, True):
+            return ok(
+                '你是 Harbor 内置编程助手。当前**未启用工作区**：不要假设或猜测任何工作区路径，'
+                '不要主动列出/创建/修改文件或文件夹；用户要求文件/文件夹操作时，'
+                '先请其打开输入框上方的「工作区」快捷条启用工作区。\n'
+                '硬规则:\n'
+                '1. 文件操作只用工具, 禁止用 Get-Content/Set-Content(后端已强制 UTF-8)。\n'
+                '2. 写文件串行: 一次一个 write_file/append_file/search_replace, 等返回成功再写下一个。\n'
+                '3. 超长命令输出会截断并给缓存 id, 需要全文用 read_more 分段取。')
         root = self._workspace.effective_root(sid)
         # v1.1.1 省 token：删掉与工具 description 重复的「系统能力」段（每轮省 ~130 字）
         return ok(

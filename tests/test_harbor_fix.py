@@ -517,3 +517,44 @@ class TestWorklogSourcePreserved:
         body = src[start:end].rstrip()
         html = io.open(BUILT_HTML, encoding='utf-8').read()
         assert body in html, '构建产物中的 normalizeSystemMessages 与源文件不一致'
+
+
+
+class TestSystemPromptWsGate:
+    """修复（2026-10-18）：工作区关闭时 build_system_prompt 不得注入路径/宣称文件能力。
+
+    用户实测：快捷条显示「未启用工作区」，AI 仍答「当前工作区: ...\glm」并声称能操作
+    文件夹（build_tools 已按 ws_enabled 裁剪，prompt 层却没跟上）。
+    """
+
+    def _api(self):
+        from backend.api import Api
+        return Api()
+
+    def test_disabled_ws_prompt_has_no_path(self):
+        api = self._api()
+        api.set_ws_enabled('', False)
+        out = api.build_system_prompt()
+        assert '未启用工作区' in out
+        assert '当前工作区: ' not in out, '关闭后不得再注入工作区路径'
+
+    def test_disabled_prompt_no_file_claim(self):
+        api = self._api()
+        api.set_ws_enabled('', False)
+        out = api.build_system_prompt()
+        assert '不要主动列出/创建/修改文件或文件夹' in out
+
+    def test_enabled_ws_prompt_keeps_path(self):
+        api = self._api()
+        api.set_ws_enabled('', True)
+        out = api.build_system_prompt()
+        assert '当前工作区: ' in out
+        assert '未启用工作区' not in out
+
+    def test_prompt_differs_between_states(self):
+        api = self._api()
+        api.set_ws_enabled('', True)
+        on = api.build_system_prompt()
+        api.set_ws_enabled('', False)
+        off = api.build_system_prompt()
+        assert on != off
