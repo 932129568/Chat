@@ -558,3 +558,36 @@ class TestSystemPromptWsGate:
         api.set_ws_enabled('', False)
         off = api.build_system_prompt()
         assert on != off
+
+
+class TestStopButtonImmediate:
+    """修复（2026-10-18）：点暂停未立即生效——原 abort 只中止 fetch，
+    工具执行阶段（同步 RPC）不受影响，工具批次与后续轮次照跑。
+
+    修复 = userStopped 标志 + 主循环轮次检查 + 工具批检查 + 按钮即时反馈。
+    """
+
+    def test_source_has_user_stopped_flag(self):
+        src = open('frontend/src/60-agent-loop.js', encoding='utf-8').read()
+        assert 'let userStopped = false;' in src
+        assert 'userStopped = true;' in src
+
+    def test_loop_checkpoints(self):
+        src = open('frontend/src/60-agent-loop.js', encoding='utf-8').read()
+        assert 'if (userStopped) { finished = true; break; }' in src, '主循环轮次检查点缺失'
+        assert 'if (userStopped) break;' in src, '工具批检查点缺失'
+
+    def test_button_immediate_feedback(self):
+        src = open('frontend/src/60-agent-loop.js', encoding='utf-8').read()
+        # 点击即置位 + 立即按钮态 + toast
+        i = src.find('sendBtn.onclick = () => {')
+        assert i > 0
+        seg = src[i:i + 500]
+        assert 'userStopped = true;' in seg
+        assert "sendBtn.textContent = '⏸'" in seg
+        assert '正在停止' in seg
+
+    def test_build_contains_flags(self):
+        html = open('harbor.html', encoding='utf-8').read()
+        assert 'let userStopped = false;' in html
+        assert '⏸ 已停止' in html
