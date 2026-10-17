@@ -420,10 +420,14 @@ body.dark .eff-tag-s{background:var(--ok-bg);color:var(--ok);}
 /* v4 重设计：由「文档流内挤压聊天区」改为「覆盖层」——打开不再推挤输入框，
    聊天原样停在后面；开=下滑淡入，关=上滑淡出（.hiding 走 v4SetOut） */
 .panel{position:relative;}
+/* v4 修复 sticky 包含块陷阱：原 padding-top:18px 使 sticky 导航条被约束在内容盒
+   （18px 起）——上滑时导航条吸到 18px 处，上方留出 18px 滚动视口空白带，模块卡片
+   卷进带子里「浮在功能名字上方」。拆掉顶部 padding（内容盒顶边=视口顶边），
+   呼吸感改由导航条自身 padding 提供，导航条完整吸顶无空档 */
 .settings-panel{position:absolute;inset:0;z-index:400;
   background:linear-gradient(var(--glass-bg),var(--glass-bg)),var(--glass-fallback);
   backdrop-filter:blur(var(--glass-blur));-webkit-backdrop-filter:blur(var(--glass-blur));
-  padding:18px 26px 32px;
+  padding:0 26px 32px;
   display:none;overflow-y:auto;}
 .settings-panel.show{display:block;animation:v4SetIn var(--dur-comp) var(--ease-out-soft);}
 @keyframes v4SetIn{from{opacity:0;transform:translateY(calc(-1*var(--shift-comp)))}to{opacity:1;transform:none}}
@@ -442,7 +446,7 @@ body.dark .eff-tag-s{background:var(--ok-bg);color:var(--ok);}
    上滑时卡片会透上来形成「模块浮在功能名字上方空余区」的幽灵效果）；
    不透明 card-bg 完全遮挡滚动内容，导航条成为一整块实体 */
 .set-nav{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px;position:sticky;top:0;
-  z-index:5;padding:8px 2px;background:var(--card-bg);
+  z-index:5;padding:10px 2px 8px;background:var(--card-bg);
   border-bottom:1px solid var(--border);}
 .set-nav-btn{height:26px;padding:0 11px;border:1px solid var(--border);border-radius:var(--radius-full);
   background:var(--card-bg);color:var(--text-2);font-size:12px;font-family:inherit;cursor:pointer;
