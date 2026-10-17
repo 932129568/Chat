@@ -2,6 +2,10 @@
 
 async function runAgentLoop(s, apiKey) {
   isStreaming = true;   // 修复 S20：同步置位移到最前（原在两个 await 之后，快速双发可起双循环）
+  // 修复（2026-10-18）：暂停标志。原 abortController.abort() 只中止 fetch 流，
+  // 工具执行阶段（同步 RPC）不受影响 → 用户点暂停后工具批次/后续轮次照跑。
+  // 现在：点暂停立即置位 + 两处循环检查点（主循环轮次 / 工具批）→ 当前批次跑完即停。
+  let userStopped = false;
   let aiContent = null;   // 修复 ㉗：前置代码移入 try，catch 需要访问 → 提升声明
   let partialContent = '';   // 修复 W21（二轮）：流中部分正文的函数级镜像——abort 时固化入历史（UI 与持久化不分叉）
   let _localWaitTimer = null;   // 修复 B3（v1.5）：本地首字节等待态计时器（函数级声明，异常路径也要清理）
@@ -13,7 +17,14 @@ async function runAgentLoop(s, apiKey) {
     const sendBtn = document.getElementById('sendBtn');
     sendBtn.textContent = '■';
     sendBtn.style.background = '#ff4d4f';
-    sendBtn.onclick = () => abortController.abort();
+    sendBtn.onclick = () => {
+      // 修复（2026-10-18）：点暂停立即置位 + 立即视觉反馈（原只 abort fetch，
+      // 工具执行阶段点下去像没反应——用户实测「点暂停时没有马上暂停」）
+      userStopped = true;
+      try { abortController.abort(); } catch (e) {}
+      sendBtn.textContent = '⏸';
+      try { if (typeof toast === 'function') toast('正在停止…（当前工具执行完即停）', 'warn'); } catch (e) {}
+    };
     document.getElementById('streamBar').classList.add('on');
     aiContent = addMessage('assistant', '');
     aiContent.innerHTML = '<div class="md-body"><div class="typing-dots"><span></span><span></span><span></span></div></div>';
@@ -125,6 +136,7 @@ async function runAgentLoop(s, apiKey) {
 
     let finishReason = null;
     for (let round = 0; round < 60; round++) {
+      if (userStopped) { finished = true; break; }   // 修复（2026-10-18）：暂停后不再发起新一轮
       // 修复 建议㉔（二轮）：finishReason 每轮复位——原跨轮次残留，上轮 length
       // 会让下轮正常结束也误触发截断续跑
       finishReason = null;
@@ -489,6 +501,7 @@ async function runAgentLoop(s, apiKey) {
       const toolResults = [];
       let batchPending = toolUis.slice();
       while (batchPending.length) {
+        if (userStopped) break;   // 修复（2026-10-18）：暂停后不再执行剩余工具批次
         const seqIdx = batchPending.findIndex(t => WRITE_SEQ_TOOLS.includes(t.tc.name));
         const batch = seqIdx >= 0 ? batchPending.slice(0, seqIdx + 1) : batchPending;
         const batchResults = await Promise.all(batch.map(async ({ tc, args, label, toolDiv }) => {
@@ -644,7 +657,13 @@ async function runAgentLoop(s, apiKey) {
       }
       renderSessionList();
     }
-    if (!finished) {
+    if (userStopped && aiContent) {
+      // 修复（2026-10-18）：工具执行阶段暂停（无 AbortError）的收尾提示
+      const note = document.createElement('div');
+      note.className = 'usage-info';
+      note.textContent = '⏸ 已停止（当前工具执行完后未再继续）';
+      aiContent.appendChild(note);
+    } else if (!finished) {
       const note = document.createElement('div');
       note.className = 'usage-info';
       note.textContent = '▮ 已达单次任务工具调用轮次上限(60)，如需继续，请发送「继续」。';
