@@ -5,7 +5,7 @@ async function sendMessage() {
   const text = input.value.trim();
   if (!text && attachments.length === 0) return;
   const apiKey = effectiveApiKey();
-  if (!apiKey) {
+  if (!apiKey && !localModeActive()) {   // 修复：本地模式无需 API Key（原误报）
     addMessage('error', '请先在「设置」中填入 API Key');
     document.getElementById('settingsPanel').classList.add('show');
     return;
@@ -108,7 +108,7 @@ async function regenerate() {
   // 修复 ㉘：重建全部历史消息（原只回放 user，历史 assistant 回复与工具摘要从界面消失）
   renderChatHistory(s);
   const apiKey = effectiveApiKey();
-  if (!apiKey) {
+  if (!apiKey && !localModeActive()) {   // 修复：本地模式无需 API Key（原误报）
     addMessage('error', '请先在「设置」中填入 API Key');
     document.getElementById('settingsPanel').classList.add('show');
     return;

@@ -39,8 +39,16 @@ function currentEndpointName() {
 /** 生效的 API Key：本地模式免 Key（本机服务器通常无鉴权）；自定义端点启用且填了 Key
  *  → 用服务商 Key；否则回退 GLM Key（#apiKey）。
  *  所有请求入口（发送/重新生成/压缩/断点续跑）统一走此函数，避免端点切了 Key 没切。 */
+/** 本地模式是否生效（勾选启用 + 有 base_url；本地端点无需 API Key）。
+ *  修复（2026-10-17）：此前 effectiveApiKey() 在本地模式返回 ''（fetch 层语义正确），
+ *  但 sendMessage 的两处校验把 '' 当「未配置」误报「请先填入 API Key」——
+ *  抽出本判断供发送前校验放行。 */
+function localModeActive() {
+  return !!(localState && localState.mode && localState.base_url);
+}
+
 function effectiveApiKey() {
-  if (localState && localState.mode && localState.base_url) return '';
+  if (localModeActive()) return '';
   if (providerState && providerState.enabled && providerState.key) return String(providerState.key).trim();
   const el = document.getElementById('apiKey');
   return el ? el.value.trim() : '';
