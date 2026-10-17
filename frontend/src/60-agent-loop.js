@@ -84,8 +84,12 @@ async function runAgentLoop(s, apiKey) {
     }
     // 智能档：按任务复杂度自动选模型与推理力度（思考 token 按输出计价，轻任务应关思考）
     const _route = resolveModelEffort(routeText, routedSet.size > ROUTE_ALWAYS.length);
-    const currentModel = isGlmEndpoint() ? _route.model
-      : (providerState.model || _route.model);          // v1.2 R6：自定义端点固定用配置的模型名
+    // 修复（2026-10-17）：本地模式必须用 localState.model——此前本地分支落到
+    // providerState.model || _route.model，回落到智能档的 GLM 模型名（glm-5.3-flash），
+    // 打到 Ollama 即 404 model not found。
+    const currentModel = localModeActive() ? (localState.model || _route.model)
+      : (isGlmEndpoint() ? _route.model
+        : (providerState.model || _route.model));          // v1.2 R6：自定义端点固定用配置的模型名
     if (_route.auto && isGlmEndpoint()) addSysTip(`智能档：${_route.tier} · ${_route.model} / 思考 ${_route.effort}`);
     else if (!isGlmEndpoint()) addSysTip(currentEndpointName() + ' / ' + currentModel);
 
