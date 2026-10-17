@@ -2,7 +2,9 @@
 function collectConfig() {
   return {
     api_key: document.getElementById('apiKey').value,
-    model: document.getElementById('modelSelect').value,
+    /* v4 合并块：模型可能是手动态（文本框），统一经 connectModelValue 取值 */
+    model: (typeof connectModelValue === 'function' ? connectModelValue() : '') ||
+      document.getElementById('modelSelect').value || 'auto',
     temperature: parseFloat(document.getElementById('temperature').value),
     top_p: parseFloat(document.getElementById('topP').value),
     max_tokens: parseInt(document.getElementById('maxTokens').value),
@@ -14,7 +16,7 @@ function collectConfig() {
     shot_quality: document.getElementById('shotQuality').value,
     saver_level: document.getElementById('saverLevel').value,
     session_budget: parseFloat(document.getElementById('sessionBudget').value) || 0,
-    /* v1.2 R1/R6：自动更新源 + 自定义服务商（合并写入 config.json，既有键不受影响） */
+    /* v1.2 R1/R6 → v4 单端点：更新源 + provider_* 主键组（预设 id/base_url/key/model/prices） */
     update_manifest_url: (document.getElementById('updateManifestUrl') || {}).value || '',
     ...collectProviderConfig(),
     /* v1.5 本地模型：local_* 键（运行期合法、测试期不触发——契约红线同 provider_*） */
@@ -24,11 +26,15 @@ function collectConfig() {
 /* ================= 智能档：模型 + 推理力度自动路由（v1.1.1 省 token） =================
  * 思路：思考(reasoning) token 按输出计价，是最贵的部分。轻任务不该开思考。
  * 模型保持最省的 flash；力度按任务复杂度分三档自动调节，用户也可手动锁定。
+ * v4：智能档只在「智谱 GLM 预设」下出现（模型下拉首项）；其他预设模型名是实义值，
+ * 直接透传（不参与自动路由），推理力度由端点能力决定是否发送。
  */
 const HEAVY_HINTS = /重构|架构|调试|排查|报错|错误|异常|分析|实现|优化|设计|算法|推导|证明|方案|对比|性能|安全|迁移|兼容|代码|函数|接口|数据库|正则|并发|测试|部署|review/i;
 function resolveModelEffort(text, hasAttach) {
-  const modelSel = document.getElementById('modelSelect').value;
-  const effSel = document.getElementById('reasoningEffort').value;
+  const picked = (typeof connectModelValue === 'function') ? connectModelValue() : '';
+  const modelSel = picked || (document.getElementById('modelSelect') || {}).value || 'auto';
+  const effEl = document.getElementById('reasoningEffort');
+  const effSel = (effEl && effEl.value) || 'auto';
   if (modelSel !== 'auto') {
     return { model: modelSel, effort: effSel === 'auto' ? 'low' : effSel, auto: false, tier: '手动' };
   }

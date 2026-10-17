@@ -1,0 +1,1333 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<!-- 渐进式 CSP 纵深（与真实 App 一致）：object-src/base-uri 禁插件与基址劫持；
+     script/style 须 unsafe-inline（单文件全内联架构，不压可 Scripting 主轴线） -->
+<meta http-equiv="Content-Security-Policy" content="object-src 'none'; base-uri 'none'; form-action 'none'">
+<title>GLM-Chat · 连接与模型 · 完全单端点重设计原型（v4 设计系统）</title>
+<style>
+/* ============================================================
+   GLM-Chat v4 设计系统 ·「连接与模型」区块合并重设计原型
+   —— 用户改判「完全单端点」版：取消分段控件，一个区块一条纵向流
+   令牌来源：deliverables/design/v4/prototype.html（:root / body.dark
+   变量块、v4-h 按钮家族 130ms、cs-* 自定义下拉、toast、模态、
+   演示控制台样式原样照搬；2 光斑极光按裁决省略——设置内景）
+   外围设置框架与其他 set-block 仅留标题占位。
+   动效铁律：
+     · 只动 transform / opacity / 颜色族（+ box-shadow 一次性 settle）
+     · 禁 width/height/margin/padding/top/left/inset/font-size 动画
+     · JS 不硬编码动效时长，一律走 MOTION 读 CSS 变量
+   ============================================================ */
+:root{
+  /* ===== v2 保留（值不变，禁止删改）===== */
+  --bg:#f6f7f9; --sidebar-bg:#ffffff; --main-bg:#f6f7f9; --header-bg:rgba(255,255,255,.78);
+  --card-bg:#ffffff; --surface-2:#f1f3f7;
+  --border:#e4e6ec; --border-strong:#d2d6e0;
+  --text:#14161c; --text-2:#5f6674; --text-3:#6a7180;
+  --primary:#4f6ef7; --primary-hover:#3d5ae6; --primary-soft:#eef1fe;
+  --user-bubble:#4059e0; --user-bubble-text:#ffffff; --ai-bubble:#ffffff;
+  --hover:#f1f3f7; --active:#eef1fe; --chip-bg:#f1f3f7;
+  --ok:#1a7f4e; --warn:#b7791f; --err:#cf3222;
+  --ok-bg:#e8f6ee; --warn-bg:#fdf5e6; --err-bg:#fdecea;
+  --shadow-sm:0 1px 2px rgba(16,18,28,.06);
+  --shadow-md:0 2px 8px rgba(16,18,28,.08);
+  --shadow-lg:0 12px 28px rgba(16,18,28,.14);
+  --radius-xs:4px; --radius-sm:6px; --radius-md:9px; --radius-lg:12px; --radius-xl:16px; --radius-full:999px;
+  --font-sans:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei","Noto Sans SC",sans-serif;
+  --font-mono:"JetBrains Mono","Cascadia Code",Consolas,"SFMono-Regular",Menlo,monospace;
+  --dur-fast:120ms; --dur-base:180ms; --dur-slow:280ms;
+  --ease:cubic-bezier(.4,0,.2,1); --ease-out:cubic-bezier(.16,1,.3,1);
+  --sidebar-w:264px; --content-w:820px;
+  --brand-gradient:linear-gradient(135deg,#6b84ff,#4f6ef7);
+
+  /* ===== v4 玻璃层 ===== */
+  --glass-bg:rgba(255,255,255,.62); --glass-bg-2:rgba(255,255,255,.80);
+  --glass-border:rgba(255,255,255,.72); --glass-blur:18px; --glass-fallback:#f4f6fb;
+  --glass-saturate:1.15;
+
+  /* ===== v4 极光（2 光斑 · 青/紫 · 品红退役 · 纯 translate）===== */
+  --aurora-1:#22d3ee; --aurora-2:#4f6ef7; --aurora-3:#8b5cf6; --aurora-4:#ec4899;
+  --aurora-opacity:.12; --aurora-bg-opacity:.50; --aurora-blur:64px;
+
+  /* ===== v4 发光 ===== */
+  --glow-color:rgba(79,110,247,.50);
+  --glow:0 0 0 1px var(--glass-border),0 0 22px -6px var(--glow-color);
+  --glow-strong:0 0 0 1px rgba(79,110,247,.60),0 0 34px -4px rgba(79,110,247,.70);
+  --glow-focus:0 0 0 3px var(--primary-soft),0 0 20px -4px var(--glow-color);
+  --brand-glow:radial-gradient(circle at 30% 30%,var(--glow-color),transparent 70%);
+
+  /* ===== v4 图表色板 ===== */
+  --chart-1:#4f6ef7; --chart-2:#22d3ee; --chart-3:#8b5cf6; --chart-4:#ec4899;
+  --chart-grid:rgba(16,18,28,.08); --chart-axis:#6a7180;
+  --chart-area-from:rgba(79,110,247,.26); --chart-area-to:rgba(79,110,247,0);
+
+  /* ===== v4 动效时长 · 四层模型 ===== */
+  --dur-press:90ms; --dur-micro:130ms; --dur-micro-out:90ms;
+  --dur-comp:200ms; --dur-comp-out:140ms;
+  --dur-panel:240ms; --dur-panel-out:200ms; --dur-narr:220ms; --dur-theme:280ms;
+  --dur-count:600ms; --dur-chart:800ms;
+  --dur-ambient:34s; --dur-ambient-2:52s; --dur-sheen:6s; --dur-breathe:2.6s; --dur-stream:1.4s;
+
+  /* ===== v4 动效缓动 ===== */
+  --ease-out-soft:cubic-bezier(.25,.8,.35,1); --ease-in-soft:cubic-bezier(.42,0,1,1);
+  --ease-spring:cubic-bezier(.34,1.3,.5,1); --ease-glow:var(--ease-out-soft);
+
+  /* ===== v4 编排令牌 ===== */
+  --stagger-xs:40ms; --stagger-sm:60ms;
+
+  /* ===== v4 位移令牌 ===== */
+  --shift-tip:4px; --shift-comp:6px; --shift-toast:8px; --shift-msg:8px; --shift-panel:12px;
+
+  /* ===== v4 兼容别名 ===== */
+  --dur-glow:var(--dur-micro); --dur-aurora:var(--dur-ambient); --dur-aurora-2:var(--dur-ambient-2);
+
+  /* ===== v4 导航与面板尺寸 ===== */
+  --rail-w:60px; --rail-btn:40px; --rail-gap:6px;
+  --panel-pad:22px; --panel-gap:16px; --panel-title:18px;
+  --chart-h:240px; --chart-h-sm:160px;
+  --main-veil:rgba(246,247,249,.88);
+}
+body.dark{
+  /* v2 深色（值不变） */
+  --bg:#101114; --sidebar-bg:#16181d; --main-bg:#101114; --header-bg:rgba(22,24,29,.78);
+  --card-bg:#1a1c22; --surface-2:#212429;
+  --border:#272a32; --border-strong:#343843;
+  --text:#e6e7ea; --text-2:#8b909c; --text-3:#9298a6;
+  --primary:#6b84ff; --primary-hover:#8098ff; --primary-soft:#1d2337;
+  --user-bubble:#3b53c9; --user-bubble-text:#ffffff; --ai-bubble:#1a1c22;
+  --hover:#212429; --active:#232a3f; --chip-bg:#212429;
+  --ok:#4ade80; --warn:#fbbf24; --err:#f87171;
+  --ok-bg:#12251b; --warn-bg:#2a2213; --err-bg:#2b1618;
+  --shadow-sm:0 1px 2px rgba(0,0,0,.4); --shadow-md:0 2px 10px rgba(0,0,0,.45); --shadow-lg:0 16px 40px rgba(0,0,0,.6);
+  --glass-bg:rgba(26,28,34,.60); --glass-bg-2:rgba(30,33,41,.78);
+  --glass-border:rgba(255,255,255,.10); --glass-blur:20px; --glass-fallback:#171a21; --glass-saturate:1.15;
+  --aurora-1:#22d3ee; --aurora-2:#6b84ff; --aurora-3:#8b5cf6; --aurora-4:#ec4899;
+  --aurora-opacity:.12; --aurora-bg-opacity:.55; --aurora-blur:64px;
+  --glow-color:rgba(107,132,255,.55);
+  --glow:0 0 0 1px var(--glass-border),0 0 22px -6px var(--glow-color);
+  --glow-strong:0 0 0 1px rgba(107,132,255,.65),0 0 34px -4px rgba(107,132,255,.75);
+  --glow-focus:0 0 0 3px var(--primary-soft),0 0 20px -4px var(--glow-color);
+  --brand-glow:radial-gradient(circle at 30% 30%,var(--glow-color),transparent 70%);
+  --chart-1:#6b84ff; --chart-2:#34e0f5; --chart-3:#a78bfa; --chart-4:#f472b6;
+  --chart-grid:rgba(255,255,255,.09); --chart-axis:#8b909c;
+  --chart-area-from:rgba(107,132,255,.30); --chart-area-to:rgba(107,132,255,0);
+  --main-veil:rgba(16,17,20,.88);
+}
+
+/* ================= 基础 ================= */
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:var(--font-sans);background:var(--bg);height:100vh;display:flex;flex-direction:column;
+  overflow:hidden;color:var(--text);font-size:14px;line-height:1.6;
+  transition:background var(--dur-theme) var(--ease-out-soft),color var(--dur-theme) var(--ease-out-soft);}
+button{font-family:inherit;border:none;background:none;cursor:pointer;color:inherit}
+input,textarea,select{font-family:inherit;font-size:inherit;color:inherit}
+::selection{background:var(--primary-soft);color:var(--primary)}
+::-webkit-scrollbar{width:10px;height:10px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:var(--border-strong);border-radius:var(--radius-full);
+  border:2px solid transparent;background-clip:content-box}
+::-webkit-scrollbar-thumb:hover{background:var(--text-3);background-clip:content-box}
+:focus-visible{outline:2px solid var(--primary);outline-offset:2px}
+
+/* ================= §5 按钮家族（v4：hover 130ms out-soft / 退场 90ms in-soft / press 90ms scale）=================
+ * 家族成员：静态标记 .v4-h + 运行时动态生成的 .modal-btn / .toast-close /
+ *           .cs-opt / .cm-link / .cm-back（本次原型的家族扩展）*/
+.v4-h,.modal-btn,.toast-close,.cs-opt,.cm-link,.cm-back{
+  transition:background-color var(--dur-micro-out) var(--ease-in-soft),
+  color var(--dur-micro-out) var(--ease-in-soft),
+  border-color var(--dur-micro-out) var(--ease-in-soft),
+  box-shadow var(--dur-micro-out) var(--ease-in-soft),
+  opacity var(--dur-micro-out) var(--ease-in-soft),
+  transform var(--dur-micro-out) var(--ease-in-soft);}
+.v4-h:hover,.modal-btn:hover,.toast-close:hover,.cs-opt:hover,.cm-link:hover,.cm-back:hover{
+  transition:background-color var(--dur-micro) var(--ease-out-soft),
+  color var(--dur-micro) var(--ease-out-soft),
+  border-color var(--dur-micro) var(--ease-out-soft),
+  box-shadow var(--dur-micro) var(--ease-out-soft),
+  opacity var(--dur-micro) var(--ease-out-soft),
+  transform var(--dur-micro) var(--ease-out-soft);}
+.v4-press:active{transform:scale(.94);transition-duration:var(--dur-press);}
+.v4-press.wide:active{transform:scale(.97);}
+
+/* ================= 页头（简化外围：品牌 + 设置标题 + 当前端点徽标 + 主题）================= */
+.header{height:48px;flex-shrink:0;display:flex;align-items:center;justify-content:space-between;
+  padding:0 14px;gap:12px;background:var(--header-bg);
+  backdrop-filter:blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  -webkit-backdrop-filter:blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  border-bottom:1px solid var(--glass-border);z-index:15}
+.header-left{display:flex;align-items:center;gap:10px;min-width:0}
+.header-right{display:flex;align-items:center;gap:8px;flex-shrink:0}
+.header-title{font-size:13.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.header-badge{font-size:10.5px;color:var(--primary);background:var(--primary-soft);
+  padding:3px 8px;border-radius:var(--radius-full);white-space:nowrap;flex-shrink:0;font-weight:500;
+  max-width:280px;overflow:hidden;text-overflow:ellipsis}
+.brand-logo{width:30px;height:30px;border-radius:var(--radius-md);background:var(--brand-gradient);
+  color:#fff;display:flex;align-items:center;justify-content:center;
+  font-weight:700;font-size:14px;flex-shrink:0;box-shadow:0 2px 10px -2px var(--glow-color);}
+.icon-btn{width:32px;height:32px;border-radius:var(--radius-sm);display:flex;align-items:center;
+  justify-content:center;color:var(--text-2);flex-shrink:0}
+.icon-btn:hover{background:var(--hover);color:var(--text)}
+.icon-btn svg{width:17px;height:17px}
+
+/* ================= 主区 / 设置面板（本原型为全页设置视图）================= */
+.main{flex:1;min-width:0;display:flex;flex-direction:column;position:relative;background:var(--bg)}
+.settings-panel{flex:1;min-height:0;overflow-y:auto;background:var(--card-bg);position:relative;z-index:5}
+.set-nav{position:sticky;top:0;z-index:6;display:flex;gap:2px;padding:6px 10px;
+  background:var(--card-bg);border-bottom:1px solid var(--border);overflow-x:auto;flex-shrink:0}
+.set-nav-btn{padding:5px 10px;border-radius:var(--radius-sm);font-size:12px;color:var(--text-2);
+  white-space:nowrap;flex-shrink:0}
+.set-nav-btn:hover{background:var(--hover);color:var(--text)}
+.set-nav-btn.on{background:var(--primary-soft);color:var(--primary);font-weight:500}
+.set-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));
+  gap:var(--panel-gap);padding:var(--panel-gap);padding-bottom:88px}
+.set-block{background:var(--surface-2);border:1px solid var(--border);border-radius:var(--radius-lg);
+  padding:14px;min-width:0}
+.set-title{font-size:12px;font-weight:600;color:var(--text-2);margin-bottom:10px;
+  letter-spacing:.02em;text-transform:uppercase}
+.set-block label{display:flex;align-items:center;gap:7px;font-size:12.5px;color:var(--text-2);
+  margin:9px 0 4px;cursor:pointer}
+.set-block input[type=number],.set-block input[type=password],.set-block input[type=text],
+.set-block input[type=url],.set-block textarea{
+  width:100%;padding:7px 10px;border:1px solid var(--border);border-radius:var(--radius-sm);
+  background:var(--card-bg);color:var(--text);font-size:12.5px;outline:none}
+.set-block input[type=number]:focus,.set-block input[type=password]:focus,.set-block input[type=text]:focus,
+.set-block input[type=url]:focus,.set-block textarea:focus{
+  border-color:var(--primary);box-shadow:var(--glow-focus)}
+.set-block textarea{resize:vertical;line-height:1.55}
+.set-block input[type=range]{width:100%;accent-color:var(--primary);margin:2px 0}
+.set-hint{font-size:11px;color:var(--text-3);line-height:1.55;margin-top:6px}
+.cs-src{display:none!important}
+
+/* ================= 自定义下拉（§5 v4：v4CsIn 200ms scale(.98) / v4CsOut 140ms / 箭头 130ms）================= */
+.cs{position:relative;width:100%}
+.cs-trigger{display:flex;align-items:center;justify-content:space-between;gap:8px;width:100%;
+  padding:7px 10px;border:1px solid var(--border);border-radius:var(--radius-sm);
+  background:var(--card-bg);color:var(--text);font-size:12.5px;text-align:left;cursor:pointer}
+.cs-trigger:hover{border-color:var(--border-strong);background:var(--hover)}
+.cs.open .cs-trigger{border-color:var(--primary);box-shadow:var(--glow-focus)}
+.cs-label{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cs-arrow{font-size:9px;color:var(--text-3);flex-shrink:0;
+  transition:transform var(--dur-micro) var(--ease-out-soft)}
+.cs.open .cs-arrow{transform:rotate(180deg)}
+.cs-menu{position:absolute;top:calc(100% + 4px);left:0;right:0;z-index:120;display:none;
+  background:var(--card-bg);border:1px solid var(--border);border-radius:var(--radius-md);
+  box-shadow:var(--shadow-lg);padding:4px;max-height:220px;overflow-y:auto;
+  transform-origin:top center}
+.cs.open .cs-menu{display:block;animation:v4CsIn var(--dur-comp) var(--ease-spring)}
+.cs.open.hiding .cs-menu{animation:v4CsOut var(--dur-comp-out) var(--ease-in-soft) forwards}
+@keyframes v4CsIn{from{opacity:0;transform:translateY(calc(-1 * var(--shift-comp))) scale(.98)}to{opacity:1;transform:none}}
+@keyframes v4CsOut{from{opacity:1;transform:none}to{opacity:0;transform:translateY(calc(-1 * var(--shift-tip))) scale(.98)}}
+.cs-opt{padding:7px 10px;border-radius:var(--radius-sm);font-size:12.5px;cursor:pointer;display:flex;align-items:center}
+.cs-opt:hover{background:var(--hover)}
+.cs-opt.on{background:var(--primary-soft);color:var(--primary);font-weight:500}
+.cs-opt-t{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* 下拉扩展：分组标题（option[data-group]）+ ctx 徽标（option[data-badge]）*/
+.cs-group{padding:7px 10px 3px;font-size:10.5px;font-weight:600;letter-spacing:.04em;
+  color:var(--text-3);text-transform:uppercase;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cs-badge{margin-left:7px;font-size:10px;font-family:var(--font-mono);color:var(--primary);
+  background:var(--primary-soft);padding:1px 6px;border-radius:var(--radius-full);flex-shrink:0}
+
+/* ================= §5 Toast（v4：v4ToastIn 200ms / .out 140ms 镜像）================= */
+#toastBox{position:fixed;right:14px;bottom:14px;z-index:10000;display:flex;flex-direction:column;
+  gap:8px;max-width:min(420px,90vw);pointer-events:none}
+.toast{display:flex;align-items:flex-start;gap:8px;padding:10px 12px;border-radius:var(--radius-md);
+  background:var(--card-bg);border:1px solid var(--border);box-shadow:var(--shadow-lg);
+  font-size:12.5px;line-height:1.5;color:var(--text);word-break:break-all;pointer-events:auto;
+  animation:v4ToastIn var(--dur-comp) var(--ease-out-soft)}
+.toast.out{opacity:0;transform:translateX(var(--shift-toast));
+  transition:opacity var(--dur-comp-out) var(--ease-in-soft),transform var(--dur-comp-out) var(--ease-in-soft)}
+@keyframes v4ToastIn{from{opacity:0;transform:translateX(var(--shift-toast))}to{opacity:1;transform:none}}
+.toast-ico{flex-shrink:0;font-size:12px;line-height:1.5;font-weight:700}
+.toast-ok .toast-ico{color:var(--ok)}
+.toast-warn .toast-ico{color:var(--warn)}
+.toast-err .toast-ico{color:var(--err)}
+.toast-info .toast-ico{color:var(--primary)}
+.toast-msg{flex:1;min-width:0}
+.toast-close{flex-shrink:0;font-size:11px;color:var(--text-3);padding:1px 5px;
+  border-radius:var(--radius-xs);line-height:1.4}
+.toast-close:hover{background:var(--surface-2);color:var(--text)}
+.toast-detail{flex-basis:100%;margin-top:5px;padding:6px 8px;border-radius:var(--radius-sm);
+  background:var(--surface-2);font-family:var(--font-mono);font-size:10.5px;color:var(--text-2);
+  white-space:pre-wrap;word-break:break-all}
+
+/* ================= §5 模态（v4：v4MaskIn / v4ModalIn spring scale(.96)→1 / v4ModalOut 140ms）================= */
+#modalRoot{position:fixed;inset:0;z-index:10001}
+.modal-mask{position:absolute;inset:0;background:rgba(16,18,28,.45);
+  backdrop-filter:blur(2px);-webkit-backdrop-filter:blur(2px);
+  animation:v4MaskIn var(--dur-comp) var(--ease-out-soft)}
+.modal-card{position:absolute;left:50%;top:38%;transform:translate(-50%,-50%);
+  width:min(440px,92vw);background:var(--card-bg);border:1px solid var(--border);
+  border-radius:var(--radius-lg);box-shadow:var(--shadow-lg);padding:18px 18px 14px;
+  animation:v4ModalIn var(--dur-comp) var(--ease-spring)}
+#modalRoot.closing .modal-mask{animation:v4MaskOut var(--dur-comp-out) var(--ease-in-soft) forwards}
+#modalRoot.closing .modal-card{animation:v4ModalOut var(--dur-comp-out) var(--ease-in-soft) forwards}
+@keyframes v4MaskIn{from{opacity:0}to{opacity:1}}
+@keyframes v4MaskOut{from{opacity:1}to{opacity:0}}
+@keyframes v4ModalIn{from{opacity:0;transform:translate(-50%,-50%) scale(.96)}to{opacity:1;transform:translate(-50%,-50%) scale(1)}}
+@keyframes v4ModalOut{from{opacity:1;transform:translate(-50%,-50%) scale(1)}to{opacity:0;transform:translate(-50%,-50%) scale(.97)}}
+.modal-title{font-size:14.5px;font-weight:600;margin-bottom:6px}
+.modal-body{font-size:12.5px;color:var(--text-2);line-height:1.6;white-space:pre-wrap;word-break:break-word}
+.modal-input{width:100%;margin-top:10px;padding:8px 10px;border:1px solid var(--border);
+  border-radius:var(--radius-sm);background:var(--surface-2);color:var(--text);font-size:12.5px;outline:none}
+.modal-input:focus{border-color:var(--primary);box-shadow:var(--glow-focus)}
+.modal-check{display:flex;align-items:center;gap:7px;margin-top:11px;font-size:12px;
+  color:var(--text-2);cursor:pointer}
+.modal-btns{display:flex;justify-content:flex-end;gap:8px;margin-top:15px}
+.modal-btn{display:inline-flex;align-items:center;gap:6px;justify-content:center;
+  padding:7px 14px;border-radius:var(--radius-sm);font-size:12.5px;font-weight:500}
+.modal-cancel{border:1px solid var(--border);background:var(--card-bg);color:var(--text-2)}
+.modal-cancel:hover{background:var(--hover);color:var(--text)}
+.modal-btn.primary{background:var(--primary);color:#fff}
+.modal-btn.primary:hover{background:var(--primary-hover)}
+.modal-btn.danger{background:var(--err);color:#fff}
+.modal-btn.danger:hover{filter:brightness(1.08)}
+
+/* ================= 演示控制台（原型专用，非 App 组件）================= */
+.demo-console{position:fixed;left:12px;bottom:12px;z-index:10003;width:224px;
+  background:var(--glass-bg-2);backdrop-filter:blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  -webkit-backdrop-filter:blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  border:1px solid var(--glass-border);border-radius:var(--radius-lg);
+  box-shadow:var(--shadow-lg);overflow:hidden}
+.demo-head{display:flex;align-items:center;justify-content:space-between;padding:8px 10px;
+  border-bottom:1px solid var(--border);background:var(--card-bg)}
+.demo-title{font-size:11.5px;font-weight:600;letter-spacing:.04em;color:var(--text-2)}
+.demo-collapse{width:22px;height:22px;border-radius:var(--radius-xs);display:flex;align-items:center;
+  justify-content:center;color:var(--text-3)}
+.demo-collapse:hover{background:var(--hover);color:var(--text)}
+.demo-collapse svg{width:12px;height:12px;transition:transform var(--dur-micro) var(--ease-out-soft)}
+.demo-console.collapsed .demo-collapse svg{transform:rotate(180deg)}
+.demo-body{padding:9px 10px 10px;display:flex;flex-direction:column;gap:8px}
+.demo-grid{display:grid;grid-template-columns:1fr 1fr;gap:5px}
+.demo-btn{padding:6px 7px;border-radius:var(--radius-sm);border:1px solid var(--border);
+  background:var(--card-bg);color:var(--text-2);font-size:11px;line-height:1.35;text-align:center}
+.demo-btn:hover{border-color:var(--primary);color:var(--primary);background:var(--primary-soft)}
+.demo-fx{display:flex;align-items:center;gap:7px;font-size:11px;color:var(--text-2);cursor:pointer}
+.demo-note{font-size:10px;line-height:1.5;color:var(--text-3);border-top:1px dashed var(--border);padding-top:7px}
+
+/* ================= §5 主题过渡（body.theming + 显式表面列表 280ms 同源同速）================= */
+body.theming .header,body.theming .settings-panel,body.theming .set-nav,body.theming .set-block,
+body.theming .cs-trigger,body.theming .cs-menu,body.theming .toast,body.theming .modal-card,
+body.theming .demo-console,body.theming .header-badge,body.theming .icon-btn,
+body.theming .cm-merge,body.theming .cm-probe-item,body.theming .cm-details,body.theming .cm-chip,
+body.theming .cm-btn,body.theming .cm-back,body.theming .cm-link,body.theming .adv-off{
+  transition:background-color var(--dur-theme) var(--ease-out-soft),
+    color var(--dur-theme) var(--ease-out-soft),
+    border-color var(--dur-theme) var(--ease-out-soft),
+    box-shadow var(--dur-theme) var(--ease-out-soft),
+    fill var(--dur-theme) var(--ease-out-soft),
+    stroke var(--dur-theme) var(--ease-out-soft);
+}
+
+/* ============================================================
+   「连接与模型」重设计区块（完全单端点 · cm-* 命名空间）
+   —— 一个区块一条纵向流：预设 → Base URL → Key → 模型 → 测试
+   ============================================================ */
+.cm-block{grid-column:1/-1}
+.cm-head{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;flex-wrap:wrap}
+.cm-head .set-title{margin-bottom:2px}
+.cm-sub{font-size:11.5px;color:var(--text-3);line-height:1.5}
+/* 合并前 → 合并后 对比说明小卡（set-hint 语气，两行文字）*/
+.cm-merge{margin-top:10px;padding:9px 11px;border-radius:var(--radius-md);background:var(--chip-bg);
+  font-size:11px;line-height:1.65;color:var(--text-2);display:flex;flex-direction:column;gap:3px}
+.cm-merge b{color:var(--text);font-weight:600}
+.cm-merge .cm-arrow{color:var(--primary);font-weight:700;padding:0 2px}
+/* 内容纵向流：切换预设时整流 200ms 交叉淡入（140ms out / 200ms in，纯 opacity）*/
+.cm-flow{margin-top:12px;
+  transition:opacity var(--dur-comp) var(--ease-out-soft)}
+.cm-flow.swapping{opacity:0;transition:opacity var(--dur-comp-out) var(--ease-in-soft)}
+.cm-flow>label:first-child{margin-top:2px}
+/* 预设槽位（第一行，定宽 170px）*/
+.cm-preset-slot{width:170px;flex-shrink:0}
+/* 行布局：输入 + 下拉 + 按钮 */
+.cm-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.cm-row>.cs{flex:1;min-width:180px}
+.cm-row>input{flex:1;min-width:180px}
+/* 通用小按钮（ghost 家族，走 v4-h）*/
+.cm-btn{display:inline-flex;align-items:center;gap:6px;padding:7px 12px;border-radius:var(--radius-sm);
+  border:1px solid var(--border);background:var(--card-bg);color:var(--text-2);font-size:12.5px;
+  white-space:nowrap;flex-shrink:0}
+.cm-btn:hover{background:var(--hover);color:var(--text);border-color:var(--border-strong)}
+.cm-btn:disabled{opacity:.55;cursor:default}
+.cm-btn .tool-spinner{width:12px;height:12px}
+/* 模型选择槽：下拉 / 手动输入 双态互换 */
+.cm-pick{flex:1;min-width:220px;display:flex;gap:8px;align-items:center}
+.cm-pick .cs{flex:1;min-width:0}
+.cm-manual{display:none;flex:1;min-width:0;gap:6px;align-items:center}
+.cm-pick.manual .cs{display:none}
+.cm-pick.manual .cm-manual{display:flex}
+.cm-back{width:32px;height:32px;flex-shrink:0;display:flex;align-items:center;justify-content:center;
+  border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--card-bg);color:var(--text-2)}
+.cm-back:hover{background:var(--hover);color:var(--text);border-color:var(--border-strong)}
+.cm-back svg{width:13px;height:13px}
+/* 测试连接状态文字 */
+.cm-status{font-size:11.5px;color:var(--text-2);flex:1;min-width:0;line-height:1.5}
+.cm-status.ok{color:var(--ok)}
+.cm-status.err{color:var(--err)}
+.cm-test-row{margin-top:12px}
+#cmTestBtn{min-width:96px}
+/* 本地：免 Key 提示 chip */
+.cm-chip{display:inline-flex;align-items:center;gap:7px;padding:5px 11px;border-radius:var(--radius-full);
+  background:var(--primary-soft);color:var(--primary);font-size:11.5px;font-weight:500;margin:8px 0 4px}
+/* 本地：探测结果列表 */
+.cm-probe{margin-top:8px;display:none;flex-direction:column;gap:6px}
+.cm-probe.show{display:flex}
+.cm-probe-item{display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid var(--border);
+  border-radius:var(--radius-md);background:var(--card-bg);font-size:12px;color:var(--text-2);
+  animation:v4CmIn var(--dur-comp) var(--ease-out-soft) both}
+.cm-probe-item .cm-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0;background:var(--text-3)}
+.cm-probe-item.ok .cm-dot{background:var(--ok)}
+.cm-probe-text{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  font-family:var(--font-mono);font-size:11.5px}
+.cm-link{margin-left:auto;color:var(--primary);font-size:11.5px;padding:2px 6px;border-radius:var(--radius-xs);flex-shrink:0}
+.cm-link:hover{background:var(--primary-soft)}
+/* 「高级 ▾」折叠（原生 details/summary，默认收起）*/
+.cm-details{margin-top:12px;border:1px solid var(--border);border-radius:var(--radius-md);background:var(--card-bg)}
+.cm-details>summary{list-style:none;cursor:pointer;display:flex;align-items:center;gap:7px;
+  padding:8px 11px;font-size:12px;font-weight:500;color:var(--text-2)}
+.cm-details>summary::-webkit-details-marker{display:none}
+.cm-details>summary:hover{color:var(--text)}
+.cm-details>summary .caret{font-size:9px;color:var(--text-3);
+  transition:transform var(--dur-micro) var(--ease-out-soft)}
+.cm-details[open]>summary .caret{transform:rotate(90deg)}
+.cm-details-body{padding:2px 11px 11px}
+/* 计费三价 */
+.cm-price{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:6px}
+.cm-price label{margin:0 0 4px}
+.cm-details-body .set-hint{margin-top:8px}
+/* 高级区内条件显隐：命中显示控件，未命中显示一行规则说明 */
+.adv-group{display:block}
+.adv-off{font-size:11px;color:var(--text-3);line-height:1.55;margin:8px 0 0;padding:7px 10px;
+  background:var(--chip-bg);border-radius:var(--radius-sm)}
+.adv-off:first-child{margin-top:0}
+.cm-bottom-hint{margin-top:12px;padding-top:10px;border-top:1px dashed var(--border)}
+/* 工具调用旋转指示（复用 v4 tool-spinner）*/
+.tool-spinner{width:12px;height:12px;flex-shrink:0;border-radius:50%;
+  border:2px solid var(--primary-soft);border-top-color:var(--primary);
+  animation:v4Spin var(--dur-stream) linear infinite;display:inline-block}
+@keyframes v4Spin{to{transform:rotate(360deg)}}
+@keyframes v4CmIn{from{opacity:0;transform:translateY(var(--shift-tip))}to{opacity:1;transform:none}}
+
+/* ================= §6 降级矩阵 ================= */
+/* fx-off 变量级降级：时长清零 + 循环动画显式停（spinner 功能优先保留）*/
+body.fx-off{--dur-press:1ms;--dur-micro:1ms;--dur-micro-out:1ms;--dur-comp:1ms;--dur-comp-out:1ms;--dur-panel:1ms;--dur-panel-out:1ms;--dur-narr:1ms;--dur-theme:1ms;--dur-count:1ms;--dur-chart:1ms;--stagger-xs:0ms;--stagger-sm:0ms}
+/* reduced-motion：功能优先——spinner 不受 fx-off 约束，受此约束 */
+@media (prefers-reduced-motion: reduce){
+  *,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}
+  .tool-spinner{animation-duration:1.4s!important;animation-iteration-count:infinite!important}
+}
+/* prefers-reduced-transparency：玻璃层回退不透明，遮罩去模糊 */
+@media (prefers-reduced-transparency: reduce){
+  :root{--glass-bg:#f4f6fb;--glass-bg-2:#ffffff;--glass-blur:0px}
+  body.dark{--glass-bg:#171a21;--glass-bg-2:#1a1c22;--glass-blur:0px}
+  .header{background:var(--card-bg)}
+  .modal-mask{background:rgba(16,18,28,.72);backdrop-filter:none}
+}
+
+/* ================= 响应式 ================= */
+@media (max-width:720px){
+  .header-badge{display:none}
+  .cm-preset-slot{width:100%}
+  .set-grid{padding:12px;padding-bottom:96px}
+  .demo-console{width:200px}
+}
+@media (max-width:560px){
+  .cm-price{grid-template-columns:1fr 1fr}
+  .cm-pick{min-width:100%}
+}
+</style>
+</head>
+<body>
+
+<!-- ============ 页头（简化外围：品牌 + 设置标题 + 当前端点徽标 + 主题切换）============ -->
+<header class="header">
+  <div class="header-left">
+    <div class="brand-logo">G</div>
+    <div class="header-title">设置</div>
+    <div class="header-badge" id="headModel">智能档 · 智谱 GLM</div>
+  </div>
+  <div class="header-right">
+    <button class="icon-btn v4-h v4-press" id="themeBtn" onclick="toggleTheme()" aria-label="切换主题"></button>
+  </div>
+</header>
+
+<!-- ============ 主区：设置面板（本原型只重设计「连接与模型」一个 set-block）============ -->
+<main class="main">
+  <div class="settings-panel show" id="settingsPanel">
+    <div class="set-nav" id="setNav"></div>
+    <div class="set-grid">
+
+      <!-- ================= 重设计主体：连接与模型（完全单端点）================= -->
+      <section class="set-block cm-block" id="cmBlock">
+        <div class="cm-head">
+          <div>
+            <div class="set-title">连接与模型</div>
+            <div class="cm-sub">一个 Key，连所有端点</div>
+          </div>
+        </div>
+
+        <!-- 合并前 → 合并后 对比说明小卡 -->
+        <div class="cm-merge">
+          <div><b>合并前</b>：「连接与模型」「模型服务商（OpenAI 兼容）」「本地模型」三块分散，切换端点要在设置里来回跳</div>
+          <div><b>合并后</b><span class="cm-arrow">→</span>一个区块、一条纵向流：选预设 → 填 Key → 识别模型，即填即用</div>
+        </div>
+
+        <!-- 内容纵向流（切换预设时整流 200ms 交叉淡入）-->
+        <div class="cm-flow" id="cmFlow">
+          <label for="cmPreset">预设</label>
+          <div class="cm-preset-slot">
+            <select id="cmPreset">
+              <option value="glm" selected>智谱 GLM</option>
+              <option value="deepseek">DeepSeek</option>
+              <option value="moonshot">Moonshot</option>
+              <option value="qwen">通义千问</option>
+              <option value="ollama">Ollama</option>
+              <option value="lmstudio">LM Studio</option>
+              <option value="vllm">vLLM</option>
+              <option value="llamacpp">llama.cpp</option>
+              <option value="localai">LocalAI</option>
+              <option value="custom">自定义</option>
+            </select>
+          </div>
+
+          <label for="cmUrl">Base URL</label>
+          <input type="text" id="cmUrl" placeholder="https://open.bigmodel.cn/api/paas/v4" autocomplete="off" spellcheck="false">
+
+          <div id="cmKeyRow">
+            <label for="cmKey">API Key</label>
+            <input type="password" id="cmKey" placeholder="仅保存在本机，不会上传" autocomplete="off" spellcheck="false">
+          </div>
+          <div class="cm-chip" id="cmNoKey" style="display:none">ℹ 本地服务器通常无需 Key</div>
+
+          <label for="cmModel">模型</label>
+          <div class="cm-row">
+            <div class="cm-pick" id="cmPick">
+              <select id="cmModel">
+                <option value="" selected>尚未识别 — 填写 Base URL 与 Key 后自动识别</option>
+                <option value="__manual__">✎ 手动输入模型名…</option>
+              </select>
+              <div class="cm-manual" id="cmManual">
+                <input type="text" id="cmManualInput" placeholder="输入模型名，如 deepseek-v4.1" autocomplete="off" spellcheck="false">
+                <button class="cm-back v4-h v4-press" id="cmManualBack" title="切回下拉选择" aria-label="切回下拉选择">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>
+                </button>
+              </div>
+            </div>
+            <button class="cm-btn v4-h v4-press" id="cmIdentifyBtn">↻ 识别模型</button>
+          </div>
+          <!-- 本地系预设：探测结果列表 -->
+          <div class="cm-probe" id="cmProbeResults"></div>
+
+          <div class="cm-row cm-test-row">
+            <button class="modal-btn primary v4-h v4-press" id="cmTestBtn">测试连接</button>
+            <span class="cm-status" id="cmTestStatus"></span>
+          </div>
+        </div>
+
+        <!-- 高级折叠：原 GLM 专属 / 自定义专属控件按预设条件显隐 -->
+        <details class="cm-details" id="cmAdv">
+          <summary><span class="caret">▶</span>高级</summary>
+          <div class="cm-details-body">
+            <div class="adv-group" id="advReasoning">
+              <label for="advReasoningSel">推理力度</label>
+              <select id="advReasoningSel">
+                <option value="auto">auto · 自动</option>
+                <option value="off">off · 关闭</option>
+                <option value="low">low · 低</option>
+                <option value="medium">medium · 中</option>
+                <option value="high">high · 高</option>
+                <option value="max" selected>max · 最高</option>
+              </select>
+              <div class="set-hint">推理力度仅智谱 GLM 端点可用</div>
+            </div>
+            <div class="adv-off" id="advReasoningOff">推理力度 — 仅智谱 GLM 端点可用</div>
+
+            <div class="adv-group" id="advBilling">
+              <div class="cm-price">
+                <div>
+                  <label for="advPriceIn">输入价（¥/M）</label>
+                  <input type="number" id="advPriceIn" value="2" min="0" step="0.1">
+                </div>
+                <div>
+                  <label for="advPriceOut">输出价（¥/M）</label>
+                  <input type="number" id="advPriceOut" value="8" min="0" step="0.1">
+                </div>
+                <div>
+                  <label for="advPriceCache">缓存价（¥/M）</label>
+                  <input type="number" id="advPriceCache" value="0.4" min="0" step="0.1">
+                </div>
+              </div>
+              <div class="set-hint">留 0 不计费；计费三价仅第三方服务商端点可用</div>
+            </div>
+            <div class="adv-off" id="advBillingOff">计费三价 — 仅第三方服务商端点可用（GLM 按内置价格表，本地零费用）</div>
+
+            <div class="adv-group" id="advLocal">
+              <label for="advToolSel">工具调用</label>
+              <select id="advToolSel">
+                <option value="auto" selected>自动识别</option>
+                <option value="on">开</option>
+                <option value="off">关</option>
+              </select>
+              <label for="advCtx">上下文窗口覆盖（tokens，0 = 自动）</label>
+              <input type="number" id="advCtx" value="0" min="0" step="1024">
+              <div class="set-hint">工具调用与上下文覆盖仅本地服务器端点可用</div>
+            </div>
+            <div class="adv-off" id="advLocalOff">工具调用与上下文覆盖 — 仅本地服务器端点可用</div>
+          </div>
+        </details>
+
+        <div class="set-hint cm-bottom-hint">预设切换后立即生效；GLM 专属能力（智能档 / 推理力度 / 联网搜索）仅智谱端点可用；本地端点零费用，上下文按模型窗口自适应压缩。</div>
+      </section>
+
+      <!-- ================= 外围占位区块（各留标题，从简）================= -->
+      <div class="set-block">
+        <div class="set-title">省 Token 策略</div>
+        <div class="set-hint">占位区块：本原型只重设计「连接与模型」，其余设置区块从简。</div>
+      </div>
+      <div class="set-block">
+        <div class="set-title">生成参数</div>
+        <div class="set-hint">占位区块：温度 / Top-P / 单次回复上限等见 v4 原型。</div>
+      </div>
+      <div class="set-block">
+        <div class="set-title">角色与联网</div>
+        <div class="set-hint">占位区块：系统提示词 / 联网搜索开关见 v4 原型。</div>
+      </div>
+      <div class="set-block">
+        <div class="set-title">外观与特效</div>
+        <div class="set-hint">占位区块：主题与特效开关见左下角演示控制台。</div>
+      </div>
+
+    </div>
+  </div>
+</main>
+
+<!-- ============ Toast 队列容器 ============ -->
+<div id="toastBox"></div>
+
+<!-- ============ 演示控制台（原型专用）============ -->
+<aside class="demo-console" id="demoConsole" aria-label="原型演示控制台">
+  <div class="demo-head">
+    <span class="demo-title">演示控制台</span>
+    <button class="demo-collapse" id="demoCollapse" onclick="toggleDemoConsole()" aria-label="折叠控制台">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>
+    </button>
+  </div>
+  <div class="demo-body" id="demoBody">
+    <div class="demo-grid">
+      <button class="demo-btn v4-h v4-press" onclick="demoPreset('glm')">① 智谱 GLM</button>
+      <button class="demo-btn v4-h v4-press" onclick="demoPreset('deepseek')">② DeepSeek</button>
+      <button class="demo-btn v4-h v4-press" onclick="demoPreset('ollama')">③ Ollama</button>
+      <button class="demo-btn v4-h v4-press" onclick="triggerIdentifyDemo()">触发识别</button>
+      <button class="demo-btn v4-h v4-press" onclick="triggerProbeDemo()">触发探测</button>
+      <button class="demo-btn v4-h v4-press" onclick="demoToasts()">Toast 四态</button>
+      <button class="demo-btn v4-h v4-press" onclick="demoModal()">模态确认</button>
+      <button class="demo-btn v4-h v4-press" onclick="toggleTheme()">主题切换</button>
+    </div>
+    <label class="demo-fx"><input type="checkbox" id="demoFx" onchange="toggleFxFrom(this)"> 特效全开（fx-off 变量级降级）</label>
+    <p class="demo-note">静态原型 · 无后端 / 无网络依赖<br>快捷键 1 / 2 / 3 = 智谱 / DeepSeek / Ollama<br>动效时长一律走 MOTION 读 CSS 变量</p>
+  </div>
+</aside>
+
+<script>
+/* ============================================================
+   附录 A · MOTION 常量表（v4 文档原样采用）
+   —— JS 不硬编码动效时长，全部读 CSS 变量；fx-off / reduced-motion
+      时 readMs 自然拿到降级值（1ms），实现零分支降级
+   ============================================================ */
+const MOTION = (() => {
+  const readMs = (name, fallback) => {
+    let v = '';
+    try { v = getComputedStyle(document.body).getPropertyValue(name).trim(); } catch (e) {}
+    if (!v) return fallback;
+    const m = /^(-?[\d.]+)(m?s)$/.exec(v);
+    return m ? (m[2] === 's' ? parseFloat(m[1]) * 1000 : parseFloat(m[1])) : fallback;
+  };
+  function cubicBezier(p1x, p1y, p2x, p2y) {
+    const cx = 3 * p1x, bx = 3 * (p2x - p1x) - cx, ax = 1 - cx - bx;
+    const cy = 3 * p1y, by = 3 * (p2y - p1y) - cy, ay = 1 - cy - by;
+    const sx = t => ((ax * t + bx) * t + cx) * t;
+    const sy = t => ((ay * t + by) * t + cy) * t;
+    const dx = t => (3 * ax * t + 2 * bx) * t + cx;
+    return x => { let t = x;
+      for (let i = 0; i < 8; i++) { const e = sx(t) - x;
+        if (Math.abs(e) < 1e-6) break;
+        const d = dx(t); if (Math.abs(d) < 1e-6) break; t -= e / d; }
+      return sy(t); };
+  }
+  const easeOutSoft = cubicBezier(.25, .8, .35, 1);
+  return {
+    press: () => readMs('--dur-press', 90), micro: () => readMs('--dur-micro', 130),
+    comp: () => readMs('--dur-comp', 200), compOut: () => readMs('--dur-comp-out', 140),
+    panel: () => readMs('--dur-panel', 240), panelOut: () => readMs('--dur-panel-out', 200),
+    narr: () => readMs('--dur-narr', 220), theme: () => readMs('--dur-theme', 280),
+    count: () => readMs('--dur-count', 600), chart: () => readMs('--dur-chart', 800),
+    staggerXs: () => readMs('--stagger-xs', 40), staggerSm: () => readMs('--stagger-sm', 60),
+    easeOutSoft,
+    prefersReduced: () => !!(window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches),
+    fxOff: () => document.body.classList.contains('fx-off'),
+    instant: () => document.body.classList.contains('fx-off') ||
+                    !!(window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches),
+    sleep: ms => new Promise(r => setTimeout(r, ms)),
+    onAnimEnd: (el, ev, ms) => new Promise(res => {
+      let done = false;
+      const fin = () => { if (done) return; done = true; el.removeEventListener(ev, fin); res(); };
+      el.addEventListener(ev, fin);
+      setTimeout(fin, ms + 80);
+    })
+  };
+})();
+
+/* 演示节奏常量（内容 pacing，非动效时长）*/
+const TOAST_DEMO_GAP = 240;    // toast 四态演示间隔（编排节奏）
+const IDENTIFY_SIM_MS = 750;   // 识别模型 / 探测本机模拟时长（内容节奏）
+const TEST_SIM_MS = 600;       // 测试连接模拟时长（内容节奏）
+const DEBOUNCE_MS = 800;       // Base URL / Key 输入防抖（内容节奏）
+
+const $ = id => document.getElementById(id);
+const trim = v => (v || '').trim();
+
+/* ================= 主题（§5 v4：body.theming 表面列表 280ms）================= */
+const THEME_ICON_SUN = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>';
+const THEME_ICON_MOON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M20 14.5A8.5 8.5 0 1 1 9.5 4a7 7 0 0 0 10.5 10.5z"/></svg>';
+function applyTheme(t) {
+  document.body.classList.toggle('dark', t === 'dark');
+  const b = $('themeBtn');
+  if (b) b.innerHTML = t === 'dark' ? THEME_ICON_SUN : THEME_ICON_MOON;
+}
+function toggleTheme() {
+  const t = document.body.classList.contains('dark') ? 'light' : 'dark';
+  applyTheme(t);
+  document.body.classList.add('theming');
+  setTimeout(() => document.body.classList.remove('theming'), MOTION.theme() + 60);
+  try { localStorage.setItem('glm_theme', t); } catch (e) {}
+}
+
+/* ================= 特效总开关（§6 fx-off 变量级降级）================= */
+function applyFx(on) {
+  document.body.classList.toggle('fx-off', !on);
+  const d = $('demoFx');
+  if (d) d.checked = !!on;
+}
+function toggleFxFrom(el) {
+  applyFx(!!el.checked);
+  try { localStorage.setItem('glm_fx', el.checked ? '1' : '0'); } catch (e) {}
+}
+function initFx() {
+  let on = true;
+  try { on = localStorage.getItem('glm_fx') !== '0'; } catch (e) {}
+  applyFx(on);
+}
+
+/* ================= 自定义下拉（§5 v4：v4CsIn / v4CsOut / 箭头 130ms / 重开去 hiding + reflow）=================
+ * 扩展：option[data-group] 渲染分组标题；option[data-badge] 渲染 ctx 徽标 */
+const CS = { reg: new Map(), seq: 0 };
+function initCustomSelect(sel) {
+  if (!sel || CS.reg.has(sel)) return;
+  try {
+    const wrap = document.createElement('div'); wrap.className = 'cs';
+    const trigger = document.createElement('div'); trigger.className = 'cs-trigger v4-h v4-press';
+    trigger.innerHTML = '<span class="cs-label"></span><span class="cs-arrow">▼</span>';
+    const menu = document.createElement('div'); menu.className = 'cs-menu';
+    wrap.appendChild(trigger); wrap.appendChild(menu);
+    sel.parentNode.insertBefore(wrap, sel);
+    sel.classList.add('cs-src');
+    CS.reg.set(sel, { wrap, trigger, menu });
+    trigger.addEventListener('click', (e) => {
+      e.preventDefault();          // 阻止外层 label 把点击转发给隐藏的 select
+      e.stopPropagation();
+      const willOpen = !wrap.classList.contains('open') || wrap.classList.contains('hiding');
+      closeAllCS();
+      if (willOpen) {
+        wrap.classList.remove('hiding');
+        void wrap.offsetWidth;     // reflow：重入时重放下入场动画
+        wrap.__csToken = ++CS.seq; // 令旧收尸 Promise 失效
+        CS.sync(sel);
+        wrap.classList.add('open');
+      }
+    });
+    menu.addEventListener('click', (e) => {
+      const opt = e.target.closest('.cs-opt'); if (!opt) return;
+      e.stopPropagation();
+      sel.value = opt.dataset.value;
+      CS.sync(sel);
+      closeAllCS();
+      sel.dispatchEvent(new Event('change'));
+    });
+    CS.sync(sel);
+  } catch (e) {
+    sel.classList.remove('cs-src');   // 兜底：直接用原生 select
+  }
+}
+CS.sync = function (sel) {
+  const st = CS.reg.get(sel); if (!st) return;
+  st.menu.innerHTML = '';
+  Array.from(sel.options).forEach(o => {
+    if (o.dataset.group) {           // 分组标题项：只渲染标题，不可选
+      const g = document.createElement('div');
+      g.className = 'cs-group';
+      g.textContent = o.dataset.group;
+      st.menu.appendChild(g);
+      return;
+    }
+    const d = document.createElement('div');
+    d.className = 'cs-opt' + (o.value === sel.value ? ' on' : '');
+    d.dataset.value = o.value;
+    const t = document.createElement('span');
+    t.className = 'cs-opt-t';
+    t.textContent = o.textContent;
+    d.appendChild(t);
+    if (o.dataset.badge) {
+      const b = document.createElement('span');
+      b.className = 'cs-badge';
+      b.textContent = o.dataset.badge;
+      d.appendChild(b);
+    }
+    st.menu.appendChild(d);
+  });
+  const cur = sel.options[sel.selectedIndex];
+  st.trigger.querySelector('.cs-label').textContent = cur ? cur.textContent : (sel.value || '未选择');
+};
+CS.syncAll = function () { CS.reg.forEach((st, sel) => CS.sync(sel)); };
+function closeAllCS() {
+  CS.reg.forEach((st) => {
+    const w = st.wrap;
+    if (!w.classList.contains('open') || w.classList.contains('hiding')) return;
+    w.classList.add('hiding');
+    const token = ++CS.seq;
+    w.__csToken = token;
+    MOTION.onAnimEnd(st.menu, 'animationend', MOTION.compOut()).then(() => {
+      if (w.__csToken !== token) return;   // 已被重开，跳过收尸
+      w.classList.remove('open', 'hiding');
+    });
+  });
+}
+document.addEventListener('click', (e) => {
+  if (e.target && e.target.closest && e.target.closest('.cs')) return;
+  closeAllCS();
+});
+
+/* ================= Toast（§5 v4：进出对称 · __closing 去重 · onAnimEnd 双兜底 · 队列溢出关最旧）================= */
+function _toastBox() {
+  let box = $('toastBox');
+  if (!box) {
+    box = document.createElement('div');
+    box.id = 'toastBox';
+    document.body.appendChild(box);
+  }
+  return box;
+}
+function toast(msg, type, opts) {
+  type = type || 'info';
+  opts = opts || {};
+  const box = _toastBox();
+  while (box.children.length >= 5) {           // 队列上限，永不重叠：溢出给最旧的调 close()
+    const old = box.firstChild;
+    if (old && typeof old.close === 'function') old.close();
+    else if (old) old.remove();
+  }
+  const t = document.createElement('div');
+  t.className = 'toast toast-' + type;
+  const icon = type === 'ok' ? '✓' : type === 'warn' ? '△' : type === 'err' ? '✕' : 'ℹ';
+  t.innerHTML = '<span class="toast-ico">' + icon + '</span>' +
+    '<span class="toast-msg"></span>' +
+    (opts.detail ? '<button class="toast-more">明细</button>' : '') +
+    '<button class="toast-close">✕</button>';
+  t.querySelector('.toast-msg').textContent = String(msg);
+  let __closing = false;
+  const close = () => {
+    if (__closing) return;
+    __closing = true;
+    t.classList.add('out');
+    MOTION.onAnimEnd(t, 'transitionend', MOTION.compOut()).then(() => t.remove());
+  };
+  t.querySelector('.toast-close').onclick = close;
+  if (opts.detail) {
+    t.querySelector('.toast-more').onclick = () => {
+      let d = t.querySelector('.toast-detail');
+      if (!d) { d = document.createElement('div'); d.className = 'toast-detail'; d.textContent = opts.detail; t.appendChild(d); }
+      else d.style.display = d.style.display === 'none' ? '' : 'none';
+    };
+  }
+  box.appendChild(t);
+  const ttl = opts.pinned ? Infinity : (opts.stay ? 60000 : (type === 'err' ? 9000 : type === 'warn' ? 6500 : 4500));
+  if (isFinite(ttl)) setTimeout(close, ttl);
+  t.close = close;
+  return t;
+}
+
+/* ================= 模态（§5 v4：v4ModalIn spring / closing 140ms forwards 后移除）================= */
+let _uiConfirmResolve = null;
+function _settlePendingModal(reason) {
+  if (_uiConfirmResolve) {
+    const r = _uiConfirmResolve; _uiConfirmResolve = null;
+    try { toast('确认框被其它窗口接管，本次操作按取消处理' + (reason ? '（' + reason + '）' : ''), 'warn'); } catch (e) {}
+    r({ ok: false, checked: undefined });
+  }
+}
+function _modalRoot() {
+  let m = $('modalRoot');
+  // 退场中的旧 root 必须先移除再复用，否则新模态继承 .closing 永远无法关闭
+  if (m && m.classList && m.classList.contains('closing')) { try { m.remove(); } catch (e) {} m = null; }
+  if (m) { _settlePendingModal('modal-reuse'); return m; }
+  m = document.createElement('div');
+  m.id = 'modalRoot';
+  document.body.appendChild(m);
+  return m;
+}
+function _closeModal() {
+  const m = $('modalRoot');
+  if (!m || m.__closing) return;
+  m.__closing = true;
+  m.classList.add('closing');
+  MOTION.onAnimEnd(m.querySelector('.modal-card'), 'animationend', MOTION.compOut()).then(() => {
+    m.remove();
+  });
+  _settlePendingModal('modal-closed');
+}
+function uiConfirm(opts) {
+  opts = opts || {};
+  return new Promise(resolve => {
+    const m = _modalRoot();
+    _uiConfirmResolve = (v) => { _uiConfirmResolve = null; resolve(v); };
+    m.innerHTML =
+      '<div class="modal-mask"></div>' +
+      '<div class="modal-card" role="dialog" aria-modal="true">' +
+      '<div class="modal-title"></div>' +
+      '<div class="modal-body"></div>' +
+      (opts.checkboxLabel ? '<label class="modal-check"><input type="checkbox" id="modalChk"><span></span></label>' : '') +
+      '<div class="modal-btns">' +
+      '<button class="modal-btn modal-cancel"></button>' +
+      '<button class="modal-btn modal-ok"></button>' +
+      '</div></div>';
+    m.querySelector('.modal-title').textContent = opts.title || '确认';
+    const body = m.querySelector('.modal-body');
+    if (opts.bodyHtml) body.innerHTML = opts.bodyHtml;
+    else body.textContent = opts.body || '';
+    if (opts.checkboxLabel) m.querySelector('#modalChk').nextElementSibling.textContent = opts.checkboxLabel;
+    m.querySelector('.modal-ok').textContent = opts.okText || '确定';
+    m.querySelector('.modal-cancel').textContent = opts.cancelText || '取消';
+    m.querySelector('.modal-ok').classList.add(opts.danger ? 'danger' : 'primary');
+    const done = (ok) => {
+      const chk = m.querySelector('#modalChk');
+      const checked = chk ? chk.checked : undefined;
+      if (_uiConfirmResolve) _uiConfirmResolve({ ok, checked });
+      _closeModal();
+    };
+    m.querySelector('.modal-ok').onclick = () => done(true);
+    m.querySelector('.modal-cancel').onclick = () => done(false);
+    m.querySelector('.modal-mask').onclick = () => done(false);
+    setTimeout(() => m.querySelector('.modal-ok').focus(), 30);
+  });
+}
+
+/* ================= 设置锚点导航（与 v4 原型一致）================= */
+function buildSetNav() {
+  const nav = $('setNav');
+  const sp = $('settingsPanel');
+  const blocks = Array.from(sp.querySelectorAll('.set-block'));
+  nav.innerHTML = '';
+  blocks.forEach((b, i) => {
+    b.id = 'setBlock' + (i + 1);
+    const title = b.querySelector('.set-title');
+    const btn = document.createElement('button');
+    btn.className = 'set-nav-btn v4-h v4-press' + (i === 0 ? ' on' : '');
+    btn.textContent = title ? title.textContent : ('分区 ' + (i + 1));
+    btn.onclick = () => {
+      nav.querySelectorAll('.set-nav-btn').forEach(x => x.classList.remove('on'));
+      btn.classList.add('on');
+      b.scrollIntoView({ behavior: MOTION.instant() ? 'auto' : 'smooth', block: 'start' });
+    };
+    nav.appendChild(btn);
+  });
+  sp.addEventListener('scroll', () => {
+    const spRect = sp.getBoundingClientRect();
+    let idx = 0;
+    blocks.forEach((b, i) => {
+      const top = b.getBoundingClientRect().top - spRect.top + sp.scrollTop;
+      if (sp.scrollTop >= top - 44) idx = i;
+    });
+    nav.querySelectorAll('.set-nav-btn').forEach((x, i) => x.classList.toggle('on', i === idx));
+  });
+}
+
+/* ============================================================
+   「连接与模型」完全单端点：预设表
+   kind: glm=智谱官方 / cloud=第三方服务商 / local=本地服务器 / custom=自定义
+   models: [value, text] 或 [value, text, ctxBadge]
+   ============================================================ */
+const PRESETS = {
+  glm: {
+    label: '智谱 GLM', url: 'https://open.bigmodel.cn/api/paas/v4', kind: 'glm',
+    models: [['glm-5.3-flash', 'glm-5.3-flash · 快而省'], ['glm-5.3-flashx', 'glm-5.3-flashx · 长上下文'], ['glm-4.6', 'glm-4.6 · 新一代']]
+  },
+  deepseek: {
+    label: 'DeepSeek', url: 'https://api.deepseek.com/v1', kind: 'cloud',
+    models: [['deepseek-v4.1-256k', 'deepseek-v4.1-256k · 256k 上下文'], ['deepseek-v4.1', 'deepseek-v4.1 · 均衡']]
+  },
+  moonshot: {
+    label: 'Moonshot', url: 'https://api.moonshot.cn/v1', kind: 'cloud',
+    models: [['moonshot-v1-128k', 'moonshot-v1-128k · 128k 上下文'], ['moonshot-v1-32k', 'moonshot-v1-32k · 32k 上下文']]
+  },
+  qwen: {
+    label: '通义千问', url: 'https://dashscope.aliyuncs.com/compatible-mode/v1', kind: 'cloud',
+    models: [['qwen3-max', 'qwen3-max · 旗舰'], ['qwen-plus', 'qwen-plus · 均衡'], ['qwen-turbo', 'qwen-turbo · 轻量']]
+  },
+  ollama: {
+    label: 'Ollama', url: 'http://localhost:11434/v1', kind: 'local',
+    models: [['gpt-oss-20b', 'gpt-oss-20b', '32k'], ['qwen3.8-27b', 'qwen3.8-27b', '128k'], ['deepseek-r1-8b', 'deepseek-r1-8b', '64k']]
+  },
+  lmstudio: {
+    label: 'LM Studio', url: 'http://localhost:1234/v1', kind: 'local',
+    models: [['qwen3.8-27b', 'qwen3.8-27b', '128k'], ['gpt-oss-20b', 'gpt-oss-20b', '32k']]
+  },
+  vllm: {
+    label: 'vLLM', url: 'http://localhost:8000/v1', kind: 'local',
+    models: [['qwen3.8-27b', 'qwen3.8-27b', '128k'], ['glm-4.6', 'glm-4.6', '64k']]
+  },
+  llamacpp: {
+    label: 'llama.cpp', url: 'http://localhost:8080/v1', kind: 'local',
+    models: [['qwen3.8-27b', 'qwen3.8-27b', '128k'], ['llama-3.3-70b', 'llama-3.3-70b', '128k']]
+  },
+  localai: {
+    label: 'LocalAI', url: 'http://localhost:8080/v1', kind: 'local',
+    models: [['gpt-oss-20b', 'gpt-oss-20b', '32k'], ['qwen3.8-27b', 'qwen3.8-27b', '128k']]
+  },
+  custom: { label: '自定义', url: '', kind: 'custom', models: [] }
+};
+let _curPreset = 'glm';
+
+/* 按 URL host 反查预设（未知 host 返回 null → 交给 404 分支）*/
+function detectPresetByUrl(url) {
+  if (url.indexOf('deepseek.com') !== -1) return 'deepseek';
+  if (url.indexOf('bigmodel.cn') !== -1) return 'glm';
+  if (url.indexOf('moonshot.cn') !== -1) return 'moonshot';
+  if (url.indexOf('dashscope.aliyuncs.com') !== -1) return 'qwen';
+  if (url.indexOf('localhost') !== -1 || url.indexOf('127.0.0.1') !== -1) return 'local';
+  return null;
+}
+
+/* ================= 预设切换：内容区 200ms 交叉淡入 ================= */
+async function applyPreset(key, animate) {
+  if (!PRESETS[key]) return;
+  _curPreset = key;
+  const p = PRESETS[key];
+  const local = p.kind === 'local';
+  const apply = () => {
+    // 预设下拉视觉同步
+    const sel = $('cmPreset'); sel.value = key; CS.sync(sel);
+    // Base URL 自动填充 + placeholder 按预设变化
+    $('cmUrl').value = p.url;
+    $('cmUrl').placeholder = p.url || 'https://api.example.com/v1';
+    // API Key 行 ⇄ 免 Key 提示条（本地系替换）
+    $('cmKeyRow').style.display = local ? 'none' : '';
+    $('cmNoKey').style.display = local ? '' : 'none';
+    // 识别 / 探测按钮文案
+    const idBtn = $('cmIdentifyBtn');
+    idBtn.innerHTML = local ? '↻ 探测本机' : '↻ 识别模型';
+    delete idBtn.dataset.html;
+    // 模型下拉：自动填默认模型建议（自定义清空待填）
+    resetModelOptions(key);
+    // 探测结果收起 + 测试状态清空
+    $('cmProbeResults').innerHTML = '';
+    $('cmProbeResults').classList.remove('show');
+    const st = $('cmTestStatus');
+    st.textContent = ''; st.className = 'cm-status';
+    // 高级区条件显隐
+    updateAdvanced();
+    updateHeadBadge();
+  };
+  if (animate && !MOTION.instant()) {
+    $('cmFlow').classList.add('swapping');
+    await MOTION.sleep(MOTION.compOut());
+    apply();
+    $('cmFlow').classList.remove('swapping');
+  } else {
+    apply();
+  }
+}
+
+/* 高级区三条条件显隐规则 */
+function updateAdvanced() {
+  const kind = PRESETS[_curPreset].kind;
+  const isGlm = kind === 'glm';
+  const isLocal = kind === 'local';
+  const showBilling = !isGlm && !isLocal;   // 非 GLM 非本地（含自定义）
+  $('advReasoning').style.display = isGlm ? '' : 'none';
+  $('advReasoningOff').style.display = isGlm ? 'none' : '';
+  $('advBilling').style.display = showBilling ? '' : 'none';
+  $('advBillingOff').style.display = showBilling ? 'none' : '';
+  $('advLocal').style.display = isLocal ? '' : 'none';
+  $('advLocalOff').style.display = isLocal ? 'none' : '';
+}
+
+/* 预设默认模型建议（GLM 首项固定智能档；自定义清空待填）*/
+function resetModelOptions(key) {
+  const p = PRESETS[key];
+  fillModelOptions(key, p.models, key === 'custom' ? '' : '预设推荐');
+}
+/* 模型下拉填充：glmKey 决定是否前置智能档；groupLabel 为空则不建分组 */
+function fillModelOptions(glmKey, list, groupLabel) {
+  const sel = $('cmModel');
+  sel.innerHTML = '';
+  if (glmKey === 'glm') {
+    const a = document.createElement('option');
+    a.value = 'auto'; a.textContent = '智能档（按任务自动调节，最省）';
+    sel.appendChild(a);
+  }
+  if (!list.length) {
+    const ph = document.createElement('option');
+    ph.value = ''; ph.textContent = '尚未识别 — 填写 Base URL 与 Key 后自动识别';
+    sel.appendChild(ph);
+  } else {
+    const g = document.createElement('option');
+    g.value = '__group__'; g.disabled = true;
+    g.dataset.group = groupLabel; g.textContent = groupLabel;
+    sel.appendChild(g);
+    list.forEach(m => {
+      const o = document.createElement('option');
+      o.value = m[0]; o.textContent = m[1];
+      if (m[2]) o.dataset.badge = m[2];
+      sel.appendChild(o);
+    });
+  }
+  const mm = document.createElement('option');
+  mm.value = '__manual__'; mm.textContent = '✎ 手动输入模型名…';
+  sel.appendChild(mm);
+  sel.value = glmKey === 'glm' ? 'auto' : (list.length ? list[0][0] : '');
+  CS.sync(sel);
+  setPickManual(sel.value === '__manual__');
+  updateHeadBadge();
+}
+
+/* ================= 模型选择：下拉 ⇄ 手动输入 双态 ================= */
+function setPickManual(on) {
+  $('cmPick').classList.toggle('manual', !!on);
+  if (on) setTimeout(() => { const i = $('cmManualInput'); if (i) i.focus(); }, 30);
+  updateHeadBadge();
+}
+function onModelChange() {
+  setPickManual($('cmModel').value === '__manual__');
+}
+/* 退出手动输入态：select 复位为占位/首选项，触发器文案同步刷新 */
+function exitManualMode() {
+  const sel = $('cmModel');
+  if (sel.value === '__manual__') {
+    // 回落到首个非分组实义项（智能档 / 首个模型 / 占位项）
+    for (let i = 0; i < sel.options.length; i++) {
+      const o = sel.options[i];
+      if (o.value && o.value !== '__manual__' && o.value !== '__group__') { sel.value = o.value; break; }
+    }
+  }
+  CS.sync(sel);
+  setPickManual(false);
+}
+function fallbackManual() {
+  const sel = $('cmModel');
+  if (!Array.from(sel.options).some(o => o.value === '__manual__')) {
+    const mm = document.createElement('option');
+    mm.value = '__manual__'; mm.textContent = '✎ 手动输入模型名…';
+    sel.appendChild(mm);
+  }
+  sel.value = '__manual__';
+  CS.sync(sel);
+  setPickManual(true);
+}
+
+/* ================= 模型识别 / 本地探测（防抖 800ms 自动触发 + 按钮手动）================= */
+let _idTimer = null;
+let _idBusy = false;
+function scheduleIdentify() {
+  clearTimeout(_idTimer);
+  _idTimer = setTimeout(() => {
+    const u = trim($('cmUrl').value);
+    const k = trim($('cmKey').value);
+    const local = PRESETS[_curPreset].kind === 'local';
+    if (u && (local || k)) identifyModels(false);
+  }, DEBOUNCE_MS);
+}
+async function identifyModels(fromClick) {
+  if (_idBusy) return;
+  const local = PRESETS[_curPreset].kind === 'local';
+  const url = trim($('cmUrl').value);
+  if (!url) {
+    if (fromClick) { toast('请先填写 Base URL，再识别模型', 'err'); fallbackManual(); }
+    return;
+  }
+  _idBusy = true;
+  btnLoading($('cmIdentifyBtn'), true, local ? '探测中' : '识别中');
+  await MOTION.sleep(IDENTIFY_SIM_MS);
+  _idBusy = false;
+  btnLoading($('cmIdentifyBtn'), false);
+  const hit = detectPresetByUrl(url);
+  if (!hit) {
+    // 模拟 404：端点不支持模型列表 → 人话 toast + 回落手动输入，不阻塞
+    toast(local ? '探测失败：本地没有发现模型服务（404），已切换为手动输入'
+                : '识别失败：这个端点不支持模型列表（404），已切换为手动输入',
+      'err', { detail: 'GET ' + url + '/models\n404 Not Found —— 已为你切换为手动输入' });
+    fallbackManual();
+    return;
+  }
+  const mk = hit === 'local' ? (PRESETS[_curPreset].kind === 'local' ? _curPreset : 'ollama') : hit;
+  const models = PRESETS[mk].models;
+  fillModelOptions(_curPreset === 'custom' ? mk : _curPreset, models, '自动识别的热门模型');
+  if (local) renderProbeResults();
+  toast((local ? '探测到 ' : '已识别 ') + models.length + ' 个' + (local ? '模型' : '热门模型'), 'ok');
+}
+
+/* ================= 测试连接（状态文字即可，无需危险操作模态）================= */
+async function testConnection() {
+  const btn = $('cmTestBtn');
+  const st = $('cmTestStatus');
+  if (btn.disabled) return;
+  const url = trim($('cmUrl').value);
+  const key = trim($('cmKey').value);
+  btnLoading(btn, true, '测试中');
+  st.textContent = '正在测试连接…'; st.className = 'cm-status';
+  await MOTION.sleep(TEST_SIM_MS);
+  btnLoading(btn, false);
+  const fail = msg => { st.textContent = '✗ ' + msg; st.className = 'cm-status err'; toast('连接失败：' + msg, 'err'); };
+  const ok = msg => { st.textContent = '✓ ' + msg; st.className = 'cm-status ok'; toast('连接成功：' + msg, 'ok'); };
+  if (!url) return fail('请先填写 Base URL');
+  if (!/^https?:\/\//i.test(url)) return fail('Base URL 需以 http:// 或 https:// 开头');
+  const hit = detectPresetByUrl(url);
+  if (!hit) return fail('404 Not Found —— 端点不可达或路径错误（模拟）');
+  if (hit === 'local') return ok('连接成功 · 本地端点 · 延迟 12ms（示意）');
+  if (!key) return fail('请先填写 API Key');
+  if (hit === 'glm') return ok('连接成功 · 智谱官方端点 · 延迟 96ms（示意）');
+  return ok('连接成功 · 延迟 128ms · 已发现 ' + PRESETS[hit].models.length + ' 个模型（示意）');
+}
+
+/* ================= 本地探测结果列表（11434 可达 / 1234 不可达）================= */
+function renderProbeResults() {
+  const box = $('cmProbeResults');
+  box.innerHTML = '';
+  const rows = [
+    { port: '11434', name: 'Ollama', ok: true, n: 3 },
+    { port: '1234', name: 'LM Studio', ok: false }
+  ];
+  rows.forEach((r, i) => {
+    const it = document.createElement('div');
+    it.className = 'cm-probe-item ' + (r.ok ? 'ok' : 'bad');
+    it.style.animationDelay = 'calc(var(--stagger-xs) * ' + i + ')';
+    const dot = document.createElement('span');
+    dot.className = 'cm-dot';
+    it.appendChild(dot);
+    const tx = document.createElement('span');
+    tx.className = 'cm-probe-text';
+    tx.textContent = '127.0.0.1:' + r.port + ' · ' + r.name + ' · ' + (r.ok ? ('可达 · ' + r.n + ' 个模型') : '不可达');
+    it.appendChild(tx);
+    if (r.ok) {
+      const a = document.createElement('button');
+      a.className = 'cm-link v4-h v4-press';
+      a.textContent = '使用这个端点';
+      a.addEventListener('click', () => applyPreset('ollama', true));
+      it.appendChild(a);
+    }
+    box.appendChild(it);
+  });
+  box.classList.add('show');
+}
+
+/* ================= 页头徽标：当前端点 + 模型 ================= */
+function updateHeadBadge() {
+  const p = PRESETS[_curPreset];
+  let m = '';
+  if ($('cmPick').classList.contains('manual')) m = trim($('cmManualInput').value);
+  else {
+    const v = $('cmModel').value;
+    m = (v && v !== '__manual__' && v !== '__group__') ? v : '';
+  }
+  $('headModel').textContent = (m || '未选择') + ' · ' + p.label;
+}
+
+/* 按钮 loading 态（spinner + 文案）*/
+function btnLoading(btn, on, text) {
+  if (!btn) return;
+  if (on) {
+    if (!btn.dataset.html) btn.dataset.html = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="tool-spinner"></span><span>' + (text || '处理中') + '</span>';
+  } else {
+    btn.innerHTML = btn.dataset.html || btn.innerHTML;
+    btn.disabled = false;
+  }
+}
+
+/* ================= 演示控制台 ================= */
+function toggleDemoConsole() {
+  const con = $('demoConsole');
+  const collapsed = con.classList.toggle('collapsed');
+  $('demoBody').style.display = collapsed ? 'none' : '';
+}
+function demoPreset(key) { applyPreset(key, true); }
+async function triggerIdentifyDemo() {
+  await applyPreset('deepseek', true);
+  await identifyModels(true);
+}
+async function triggerProbeDemo() {
+  await applyPreset('ollama', true);
+  await identifyModels(true);
+}
+function demoToasts() {
+  toast('端点已切换，立即生效', 'ok');
+  setTimeout(() => toast('缓存命中率低于 30%，可尝试提高压缩档位', 'warn'), TOAST_DEMO_GAP);
+  setTimeout(() => toast('模型识别失败：404 Not Found', 'err', { detail: 'GET https://bad.example.com/v1/models\n404 Not Found —— 端点不支持模型列表或路径错误' }), TOAST_DEMO_GAP * 2);
+  setTimeout(() => toast('原型为静态演示，无真实网络请求', 'info'), TOAST_DEMO_GAP * 3);
+}
+function demoModal() {
+  uiConfirm({
+    title: '删除会话「CSV 内存优化方案」？',
+    body: '删除后不可恢复，导出功能可在删除前留存记录。',
+    danger: true, okText: '删除', cancelText: '取消',
+    checkboxLabel: '本会话内不再提示'
+  }).then(r => toast(r.ok ? '已删除（原型演示）' : '已取消删除', r.ok ? 'ok' : 'info'));
+}
+
+/* ================= 启动 ================= */
+function boot() {
+  initFx();
+  let t = 'light';
+  try { t = localStorage.getItem('glm_theme') || 'light'; } catch (e) {}
+  applyTheme(t);
+  buildSetNav();
+  document.querySelectorAll('select').forEach(initCustomSelect);
+  applyPreset('glm', false);          // 默认智谱 GLM
+  $('cmPreset').addEventListener('change', () => applyPreset($('cmPreset').value, true));
+  $('cmUrl').addEventListener('input', scheduleIdentify);
+  $('cmKey').addEventListener('input', scheduleIdentify);
+  $('cmModel').addEventListener('change', onModelChange);
+  $('cmManualInput').addEventListener('input', updateHeadBadge);
+  $('cmManualBack').addEventListener('click', exitManualMode);
+  $('cmIdentifyBtn').addEventListener('click', () => identifyModels(true));
+  $('cmTestBtn').addEventListener('click', testConnection);
+  // 键盘守卫：按「下拉 → 模态」优先级消费 Escape；1/2/3 = 智谱/DeepSeek/Ollama
+  // （焦点在输入框 / 下拉展开 / 模态打开时不响应，避免误切）
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      const anyOpen = [...CS.reg.values()].some(st => st.wrap.classList.contains('open'));
+      if (anyOpen) { closeAllCS(); return; }
+      const modal = $('modalRoot');
+      if (modal) {
+        const cancel = modal.querySelector('.modal-cancel');
+        if (cancel) cancel.click();          // 走模态自身的取消路径（uiConfirm 正常 resolve）
+        else if (typeof _closeModal === 'function') _closeModal();
+        return;
+      }
+      return;
+    }
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    const keyMap = { '1': 'glm', '2': 'deepseek', '3': 'ollama' };
+    if (keyMap[e.key]) {
+      const tg = e.target;
+      if (tg && tg.closest && tg.closest('input,textarea,select')) return;
+      if ($('modalRoot')) return;
+      if ([...CS.reg.values()].some(st => st.wrap.classList.contains('open'))) return;
+      applyPreset(keyMap[e.key], true);
+    }
+  });
+}
+document.addEventListener('DOMContentLoaded', boot);
+</script>
+</body>
+</html>

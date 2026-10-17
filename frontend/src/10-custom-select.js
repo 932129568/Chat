@@ -35,10 +35,29 @@ CS.sync = function (sel) {
   const st = CS.reg.get(sel); if (!st) return;
   st.menu.innerHTML = '';
   Array.from(sel.options).forEach(o => {
+    /* v4：分组标题项（option[data-group]）只渲染标题，不可选 */
+    if (o.dataset && o.dataset.group) {
+      const g = document.createElement('div');
+      g.className = 'cs-group';
+      g.textContent = o.dataset.group;
+      st.menu.appendChild(g);
+      return;
+    }
     const d = document.createElement('div');
     d.className = 'cs-opt' + (o.value === sel.value ? ' on' : '');
     d.dataset.value = o.value;
-    d.textContent = o.textContent;
+    const t = document.createElement('span');
+    t.className = 'cs-opt-t';
+    t.textContent = o.textContent;
+    d.appendChild(t);
+    /* v4：ctx 徽标（option[data-badge]，本地系模型窗口 32k/128k） */
+    const badge = (o.dataset && o.dataset.badge) ? String(o.dataset.badge) : '';
+    if (badge) {
+      const b = document.createElement('span');
+      b.className = 'cs-badge';
+      b.textContent = badge;
+      d.appendChild(b);
+    }
     st.menu.appendChild(d);
   });
   const cur = sel.options[sel.selectedIndex];

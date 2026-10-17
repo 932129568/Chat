@@ -28,7 +28,7 @@
   --border:#e4e6ec; --border-strong:#d2d6e0;
   --text:#14161c; --text-2:#5f6674; --text-3:#6a7180;
   --primary:#4f6ef7; --primary-hover:#3d5ae6; --primary-soft:#eef1fe;
-  --user-bubble:#4059e0; --user-bubble-text:#ffffff; --ai-bubble:#ffffff;
+  --user-bubble:#4f6ef7; --user-bubble-text:#ffffff; --ai-bubble:#ffffff;
   --hover:#f1f3f7; --active:#eef1fe; --chip-bg:#f1f3f7;
   --ok:#1a7f4e; --warn:#b7791f; --err:#cf3222;
   --ok-bg:#e8f6ee; --warn-bg:#fdf5e6; --err-bg:#fdecea;
@@ -123,7 +123,7 @@ body.dark{
   --border:#272a32; --border-strong:#343843;
   --text:#e6e7ea; --text-2:#8b909c; --text-3:#9298a6;
   --primary:#6b84ff; --primary-hover:#8098ff; --primary-soft:#1d2337;
-  --user-bubble:#3b53c9; --user-bubble-text:#ffffff; --ai-bubble:#1a1c22;
+  --user-bubble:#4c5fd4; --user-bubble-text:#ffffff; --ai-bubble:#1a1c22;
   --hover:#212429; --active:#232a3f; --chip-bg:#212429;
   --ok:#4ade80; --warn:#fbbf24; --err:#f87171;
   --ok-bg:#12251b; --warn-bg:#2a2213; --err-bg:#2b1618;
@@ -477,7 +477,8 @@ body.fx-off .settings-panel input:focus,body.fx-off .settings-panel textarea:foc
   white-space:pre-wrap;}
 .message.assistant .content{background:var(--ai-bubble);border:1px solid var(--border);
   border-bottom-left-radius:var(--radius-xs);box-shadow:var(--shadow-sm);}
-.message .content.error{background:var(--err-bg);color:var(--err);border:1px solid var(--err);}
+.message .content.error{background:var(--card-bg);color:var(--text-2);border:1px solid var(--border);border-left:3px solid var(--err);}
+.message .content.error .err-title{color:var(--err);font-weight:600;}
 .msg-images{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;}
 .msg-images img{max-width:220px;max-height:220px;border-radius:var(--radius-md);object-fit:cover;
   cursor:pointer;transition:transform var(--dur-micro) var(--ease-out-soft);}
@@ -526,7 +527,7 @@ body.dark .md-body :not(pre)>code{background:var(--chip-bg);color:#f87171;}
 .md-body .hljs-variable,.md-body .hljs-template-variable{color:#f07178;}
 .md-body .hljs-meta{color:#89ddff;}
 .copy-btn{margin-top:8px;margin-right:6px;padding:3px 10px;font-size:11px;color:var(--text-2);
-  background:transparent;border:1px solid var(--border);border-radius:var(--radius-sm);
+  background:var(--surface-2);border:1px solid var(--border-strong);border-radius:var(--radius-sm);
   cursor:pointer;font-family:inherit;}
 .copy-btn:hover{color:var(--primary);border-color:var(--primary);background:var(--primary-soft);}
 .stop-note{font-size:11px;color:var(--text-3);margin-top:6px;}
@@ -844,6 +845,57 @@ body.fx-off .panel,body.fx-off .message,body.fx-off .settings-panel.show{animati
 .mcp-tool-desc{font-size:11.5px;color:var(--text-2);margin-top:2px;line-height:1.5;}
 .mcp-kv{width:100%;margin-top:4px;padding:8px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--main-bg);color:var(--text);font-size:12px;font-family:var(--font-mono,ui-monospace,Consolas,monospace);resize:vertical;}
 .mcp-instructions{margin-top:10px;padding:10px 12px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--main-bg);}
+/* ================= v4「连接与模型」合并块（完全单端点 · cm-* / 纯新增） =================
+ * 一个区块一条纵向流：预设 → Base URL → Key → 模型 → 测试连接（+「高级」折叠）。
+ * 显隐规则由 36-connect.js 按预设写入（connectUpdateAdvanced）；本段只负责布局与观感。
+ * 动效铁律：只动 opacity / transform / 颜色族（时长走 v4 令牌，不硬编码）。 */
+.cm-block{grid-column:1/-1;}
+.cm-head{display:flex;flex-direction:column;gap:3px;margin-bottom:2px;}
+.cm-sub{font-size:11.5px;color:var(--text-3);line-height:1.5;}
+.cm-flow{margin-top:10px;transition:opacity var(--dur-comp) var(--ease-out-soft);}
+.cm-flow.swapping{opacity:0;transition:opacity var(--dur-comp-out) var(--ease-in-soft);}
+.cm-preset-slot{width:170px;max-width:100%;}
+.cm-row{display:flex;gap:8px;align-items:center;margin-top:8px;flex-wrap:wrap;}
+.cm-row>.cs{flex:1;min-width:180px;}
+.cm-row>input{flex:1;min-width:180px;}
+.cm-pick{flex:1;min-width:220px;display:flex;gap:8px;align-items:center;}
+.cm-pick .cs{flex:1;min-width:0;}
+.cm-manual{display:none;flex:1;min-width:0;gap:6px;align-items:center;}
+.cm-pick.manual .cs{display:none;}
+.cm-pick.manual .cm-manual{display:flex;}
+.cm-back{width:34px;height:34px;flex-shrink:0;display:flex;align-items:center;justify-content:center;
+  border:1px solid var(--border);border-radius:var(--radius-md);background:var(--card-bg);color:var(--text-2);
+  font-size:12px;cursor:pointer;transition:background-color var(--dur-micro) var(--ease-out-soft),
+  color var(--dur-micro) var(--ease-out-soft),border-color var(--dur-micro) var(--ease-out-soft);}
+.cm-back:hover{background:var(--hover);color:var(--text);border-color:var(--border-strong);}
+.cm-identify{flex-shrink:0;white-space:nowrap;}
+.cm-chip{margin-top:8px;color:var(--primary);background:var(--primary-soft);}
+.cm-status{font-size:12px;color:var(--text-2);flex:1;min-width:0;line-height:1.5;}
+.cm-status.ok{color:var(--ok);}
+.cm-status.err{color:var(--err);}
+.cm-details{margin-top:12px;border:1px solid var(--border);border-radius:var(--radius-md);
+  background:var(--card-bg);}
+.cm-details>summary{list-style:none;cursor:pointer;display:flex;align-items:center;gap:7px;
+  padding:9px 12px;font-size:12.5px;color:var(--text-2);font-weight:500;}
+.cm-details>summary::-webkit-details-marker{display:none;}
+.cm-details>summary:hover{color:var(--text);}
+.cm-details>summary .caret{font-size:9px;color:var(--text-3);
+  transition:transform var(--dur-micro) var(--ease-out-soft);}
+.cm-details[open]>summary .caret{transform:rotate(90deg);}
+.cm-details-body{padding:2px 12px 12px;}
+.cm-price{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;}
+.cm-price input{min-width:0;}
+.adv-off{font-size:11px;color:var(--text-3);line-height:1.6;margin:8px 0 0;padding:7px 10px;
+  background:var(--chip-bg);border-radius:var(--radius-sm);}
+.adv-off:first-child{margin-top:0;}
+.cm-bottom-hint{margin-top:12px;}
+/* 自定义下拉扩展：分组标题（option[data-group]）+ 行内徽标（option[data-badge]） */
+.cs-group{padding:7px 10px 3px;font-size:10.5px;font-weight:600;letter-spacing:.04em;
+  color:var(--text-3);text-transform:uppercase;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.cs-opt-t{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.cs-opt{display:flex;align-items:center;}
+.cs-badge{margin-left:7px;font-size:10px;font-family:var(--font-mono);color:var(--primary);
+  background:var(--primary-soft);padding:1px 6px;border-radius:var(--radius-full);flex-shrink:0;}
 </style>
 </head>
 <body>
@@ -912,28 +964,118 @@ body.fx-off .panel,body.fx-off .message,body.fx-off .settings-panel.show{animati
         <!-- 修复 UX-4（v1.4）：设置锚点导航条（纯新增；按钮与 set-block 一一对应，滚动高亮） -->
         <nav class="set-nav" id="setNav" aria-label="设置分区导航"></nav>
         <div class="set-grid">
-          <div class="set-block">
-            <div class="set-title">连接与模型</div>
-            <label for="apiKey">API Key（仅保存在本机）</label>
-            <input type="password" id="apiKey" placeholder="粘贴你的智谱 API Key">
-            <div class="field">
-              <label>模型</label>
-              <select id="modelSelect">
-                <option value="auto" selected>智能档（按任务自动调节，最省）</option>
-                <option value="glm-5.3-flash">glm-5.3-flash（通用 · 更省钱）</option>
-                <option value="glm-5.3-flashx">glm-5.3-flashx（极速）</option>
-              </select>
+          <!-- v4「连接与模型」完全单端点（设计书 v4/connect-merge-design.md）：
+               原「连接与模型」「模型服务商（OpenAI 兼容端点）」「本地模型（v1.5）」三块合并为一块。
+               预设下拉 = 唯一端点开关（GLM 官方只是 name='glm' 的预设，不再有独立模式）；
+               单一 Base URL / Key / 模型流；GLM 专属（推理力度）与本地专属（工具调用 / 窗口覆盖）
+               控件进「高级 ▾」折叠并按预设条件显隐（36-connect.js connectUpdateAdvanced）。
+               契约钉住 id：apiKey / modelSelect / reasoningEffort 三者全部保留。 -->
+          <div class="set-block cm-block" id="cmBlock">
+            <div class="cm-head">
+              <div class="set-title">连接与模型</div>
+              <div class="cm-sub">一个 Key，连所有端点：选预设 → 填 Key → 识别模型，即填即用</div>
             </div>
-            <div class="field">
-              <label>推理力度</label>
-              <select id="reasoningEffort">
-                <option value="auto" selected>auto（智能档联动，推荐）</option>
-                <option value="off">off（关闭思考 · 最省输出）</option>
-                <option value="low">low（快速省钱）</option>
-                <option value="medium">medium</option>
-                <option value="high">high</option>
-                <option value="max">max（最深思考，最贵）</option>
-              </select>
+
+            <div class="cm-flow" id="cmFlow">
+              <label for="providerPreset">预设</label>
+              <div class="cm-preset-slot">
+                <select id="providerPreset" onchange="onProviderPresetChange(this.value)">
+                  <option value="glm" selected>智谱 GLM</option>
+                  <option value="deepseek">DeepSeek</option>
+                  <option value="moonshot">Moonshot</option>
+                  <option value="qwen">通义千问</option>
+                  <option value="ollama">Ollama</option>
+                  <option value="lmstudio">LM Studio</option>
+                  <option value="vllm">vLLM</option>
+                  <option value="llamacpp">llama.cpp</option>
+                  <option value="localai">LocalAI</option>
+                  <option value="custom">自定义</option>
+                </select>
+              </div>
+
+              <label for="providerBase">Base URL</label>
+              <input type="text" id="providerBase" placeholder="https://open.bigmodel.cn/api/paas/v4" autocomplete="off" spellcheck="false">
+
+              <div id="cmKeyRow">
+                <label for="apiKey">API Key（仅保存在本机）</label>
+                <input type="password" id="apiKey" placeholder="粘贴你的智谱 API Key">
+              </div>
+              <div class="local-badge cm-chip" id="cmNoKey" style="display:none;">ℹ 本地服务器通常无需 Key（免 Key · 零费用）</div>
+
+              <label for="modelSelect">模型</label>
+              <div class="cm-row">
+                <div class="cm-pick" id="cmPick">
+                  <select id="modelSelect">
+                    <option value="auto" selected>智能档（按任务自动调节，最省）</option>
+                    <option value="glm-5.3-flash">glm-5.3-flash（通用 · 更省钱）</option>
+                    <option value="glm-5.3-flashx">glm-5.3-flashx（极速）</option>
+                  </select>
+                  <div class="cm-manual" id="cmManual">
+                    <input type="text" id="cmManualInput" placeholder="输入模型名，如 deepseek-v4.1" autocomplete="off" spellcheck="false">
+                    <button type="button" class="cm-back" id="cmManualBack" title="切回下拉选择" aria-label="切回下拉选择">▾</button>
+                  </div>
+                </div>
+                <span class="local-badge" id="cmCtxBadge" style="display:none;">元数据待获取</span>
+                <button type="button" class="modal-btn cm-identify" id="cmIdentifyBtn" onclick="connectIdentifyNow(true)">↻ 识别模型</button>
+              </div>
+              <!-- 本地系预设：并行端口探测结果（local_probe） -->
+              <div class="local-probe-result" id="localProbeResult"></div>
+
+              <div class="cm-row">
+                <button type="button" class="modal-btn primary" id="providerTestBtn" onclick="connectTestNow()">测试连接</button>
+                <span class="cm-status" id="providerTestStatus"></span>
+              </div>
+            </div>
+
+            <!-- 高级 ▾：原 GLM 专属 / 云端自定义专属 / 本地专属控件，按预设条件显隐 -->
+            <details class="cm-details" id="cmAdv">
+              <summary><span class="caret">▶</span>高级</summary>
+              <div class="cm-details-body">
+                <div id="advReasoning">
+                  <label for="reasoningEffort">推理力度</label>
+                  <div style="width:220px;max-width:100%;">
+                    <select id="reasoningEffort">
+                      <option value="auto" selected>auto（智能档联动，推荐）</option>
+                      <option value="off">off（关闭思考 · 最省输出）</option>
+                      <option value="low">low（快速省钱）</option>
+                      <option value="medium">medium</option>
+                      <option value="high">high</option>
+                      <option value="max">max（最深思考，最贵）</option>
+                    </select>
+                  </div>
+                </div>
+                <div class="adv-off" id="advReasoningOff">推理力度 — 仅智谱 GLM 预设可用</div>
+
+                <div id="advBilling">
+                  <label>计费三价（¥ / 百万 tokens，留 0 不计费）</label>
+                  <div class="cm-price">
+                    <input type="number" id="providerPriceIn" step="0.1" min="0" title="输入价 ¥/百万 tokens" placeholder="输入价">
+                    <input type="number" id="providerPriceOut" step="0.1" min="0" title="输出价 ¥/百万 tokens" placeholder="输出价">
+                    <input type="number" id="providerPriceCache" step="0.1" min="0" title="缓存命中价 ¥/百万 tokens" placeholder="缓存价">
+                  </div>
+                </div>
+                <div class="adv-off" id="advBillingOff">计费三价 — 仅第三方服务商预设可用（GLM 按内置价格表，本地零费用）</div>
+
+                <div id="advLocal">
+                  <label for="localToolCapable">工具调用</label>
+                  <div style="width:220px;max-width:100%;">
+                    <select id="localToolCapable">
+                      <option value="auto" selected>自动识别</option>
+                      <option value="on">开</option>
+                      <option value="off">关</option>
+                    </select>
+                  </div>
+                  <label for="localCtxWindow" style="margin-top:10px;">上下文窗口覆盖（tokens，0 = 按模型元数据自动）</label>
+                  <input type="number" id="localCtxWindow" min="0" max="2000000" step="1024" placeholder="0 = 自动">
+                </div>
+                <div class="adv-off" id="advLocalOff">工具调用与上下文覆盖 — 仅本地服务器预设可用</div>
+              </div>
+            </details>
+
+            <div class="set-hint cm-bottom-hint">
+              预设切换后立即生效；GLM 专属能力（智能档 / 推理力度 / 联网搜索）仅智谱预设可用；<br>
+              本地预设零费用，上下文按模型窗口自适应压缩；识别失败自动切手动输入，不影响保存与发送。<br>
+              在 <a href="https://bigmodel.cn/usercenter/proj-mgmt/apikeys" target="_blank">智谱开放平台</a> 创建 Key 后粘贴即可。
             </div>
           </div>
 
@@ -995,91 +1137,6 @@ body.fx-off .panel,body.fx-off .message,body.fx-off .settings-panel.show{animati
             <div class="set-hint">
               在 <a href="https://bigmodel.cn/usercenter/proj-mgmt/apikeys" target="_blank">智谱开放平台</a> 创建 Key 后粘贴即可。<br>
               模型名 <code>glm-5.3-flash</code> 已内置。系统设定在缓存前缀内，后续轮按约 0.3 折计费。
-            </div>
-          </div>
-
-          <div class="set-block">
-            <div class="set-title">模型服务商（OpenAI 兼容端点）</div>
-            <label class="check-row" for="providerEnabled">
-              <input type="checkbox" id="providerEnabled" onchange="syncProviderUiState();queueSaveConfig();applyProviderConfig()"> 启用自定义端点（默认使用智谱 GLM）
-            </label>
-            <div id="providerFields" style="display:none">
-              <div class="provider-row">
-                <select id="providerPreset" onchange="onProviderPresetChange(this.value);queueSaveConfig();applyProviderConfig()" style="width:170px;">
-                  <option value="deepseek">DeepSeek（预设）</option>
-                  <option value="custom" selected>自定义</option>
-                </select>
-                <input type="text" id="providerModel" placeholder="模型名，如 deepseek-v4.1-256k">
-              </div>
-              <div class="provider-row">
-                <input type="text" id="providerBase" placeholder="Base URL，如 https://api.deepseek.com/v1">
-              </div>
-              <div class="provider-row">
-                <input type="password" id="providerKey" placeholder="该服务商的 API Key（仅保存在本机）">
-              </div>
-              <div class="provider-row">
-                <input type="number" id="providerPriceIn" step="0.1" min="0" title="输入价 ¥/百万 tokens" placeholder="输入价 ¥/M">
-                <input type="number" id="providerPriceOut" step="0.1" min="0" title="输出价 ¥/百万 tokens" placeholder="输出价 ¥/M">
-                <input type="number" id="providerPriceCache" step="0.1" min="0" title="缓存命中价 ¥/百万 tokens" placeholder="缓存价 ¥/M">
-              </div>
-              <div class="provider-row">
-                <button class="modal-btn primary" id="providerTestBtn" onclick="testProviderNow()">测试连接</button>
-                <span id="providerTestStatus" style="font-size:12px;color:var(--text-2)"></span>
-              </div>
-              <div class="set-hint">
-                服务商切换后立即生效；GLM 专属能力（联网搜索/思考力度）在自定义端点自动关闭；<br>
-                计费按所填价格换算，token 数取该端点返回的 usage 字段。
-              </div>
-            </div>
-          </div>
-
-          <!-- v1.5 本地模型（预留接口层 UI：连接层 A 实现就绪 / 适配层 B 判定就绪；
-               DOM/CSS 纯新增——UI 契约只增不改；local_* 键运行期合法、测试期不触发） -->
-          <div class="set-block">
-            <div class="set-title">本地模型（v1.5 · Ollama / LM Studio 等）</div>
-            <label class="check-row" for="localModeEnable">
-              <input type="checkbox" id="localModeEnable" onchange="syncLocalUiState();queueSaveConfig();applyLocalConfig()"> 启用本地模式（连接本机 OpenAI 兼容服务器 · 零费用）
-            </label>
-            <div id="localFields" style="display:none">
-              <div class="provider-row">
-                <select id="localPreset" onchange="onLocalPresetChange(this.value);queueSaveConfig();applyLocalConfig()" style="width:170px;">
-                  <option value="ollama">Ollama</option>
-                  <option value="lmstudio">LM Studio</option>
-                  <option value="vllm">vLLM</option>
-                  <option value="llamacpp">llama.cpp server</option>
-                  <option value="localai">LocalAI</option>
-                  <option value="custom" selected>自定义</option>
-                </select>
-                <button class="modal-btn" id="localProbeBtn" onclick="localProbeNow()">探测本机</button>
-              </div>
-              <div class="provider-row">
-                <input type="text" id="localBaseUrl" placeholder="Base URL，如 http://localhost:11434/v1" onchange="queueSaveConfig();applyLocalConfig()">
-                <button class="modal-btn" id="localModelsBtn" onclick="localLoadModels()">拉取模型清单</button>
-              </div>
-              <div class="provider-row">
-                <div style="flex:1;min-width:140px;"><select id="localModelSelect" onchange="queueSaveConfig();applyLocalConfig()"></select></div>
-                <span class="local-badge" id="localMetaBadge">元数据待获取</span>
-              </div>
-              <div class="provider-row">
-                <div style="width:170px;">
-                  <select id="localToolCapable" onchange="queueSaveConfig();applyLocalConfig()">
-                    <option value="auto" selected>工具调用：自动识别</option>
-                    <option value="on">工具调用：开启</option>
-                    <option value="off">工具调用：关闭</option>
-                  </select>
-                </div>
-                <input type="number" id="localCtxWindow" min="0" max="2000000" step="1024" title="上下文窗口覆盖（tokens，0 = 按模型元数据自动）" placeholder="窗口覆盖 0=自动" style="width:150px;">
-              </div>
-              <div class="provider-row">
-                <button class="modal-btn primary" id="localTestBtn" onclick="localTestNow()">测试连接</button>
-                <span id="localTestStatus" style="font-size:12px;color:var(--text-2)"></span>
-              </div>
-              <div class="local-probe-result" id="localProbeResult"></div>
-              <div class="set-hint">
-                只连接、不内嵌：本地服务器暴露 OpenAI 兼容端点，复用服务商抽象；<br>
-                计费在本地模式显示「本地 · 0 费用」；上下文窗口按「模型窗口 × 档位系数」自适应压缩；<br>
-                模型冷启动（Ollama 首问 10-60s）会显示等待态，不会误报失败。
-              </div>
             </div>
           </div>
 
@@ -1479,10 +1536,29 @@ CS.sync = function (sel) {
   const st = CS.reg.get(sel); if (!st) return;
   st.menu.innerHTML = '';
   Array.from(sel.options).forEach(o => {
+    /* v4：分组标题项（option[data-group]）只渲染标题，不可选 */
+    if (o.dataset && o.dataset.group) {
+      const g = document.createElement('div');
+      g.className = 'cs-group';
+      g.textContent = o.dataset.group;
+      st.menu.appendChild(g);
+      return;
+    }
     const d = document.createElement('div');
     d.className = 'cs-opt' + (o.value === sel.value ? ' on' : '');
     d.dataset.value = o.value;
-    d.textContent = o.textContent;
+    const t = document.createElement('span');
+    t.className = 'cs-opt-t';
+    t.textContent = o.textContent;
+    d.appendChild(t);
+    /* v4：ctx 徽标（option[data-badge]，本地系模型窗口 32k/128k） */
+    const badge = (o.dataset && o.dataset.badge) ? String(o.dataset.badge) : '';
+    if (badge) {
+      const b = document.createElement('span');
+      b.className = 'cs-badge';
+      b.textContent = badge;
+      d.appendChild(b);
+    }
     st.menu.appendChild(d);
   });
   const cur = sel.options[sel.selectedIndex];
@@ -3161,22 +3237,31 @@ function _highlightSetNav(id) {
 }
 
 /* ===== 34-local-model.js ===== */
-/* ================= v1.5 本地模型（预留接口层 UI） =================
+/* ================= v1.5 本地模型（合并后：并入「连接与模型」单块） =================
  * 覆盖 roadmap 连接层 A（A1-A5）：预设 / 探测 / 模型清单 / 元数据展示 / 本地计费 / 无 Key 测试连接。
  * 适配层 B（B1-B5）判定接口已就绪（后端 local_model_service）：上下文窗口自适应阈值 /
- * 工具能力降级 / 慢推理状态 / Ollama 特情 / 本地 MCP 保守策略——Agent 主链路编排
- * （去 tools 重发、watchdog、确认文案注入）在后续迭代接线，本模块先落 UI 与配置面。
+ * 工具能力降级 / 慢推理状态 / Ollama 特情 / 本地 MCP 保守策略。
+ *
+ * v4「完全单端点」合并后本模块的定位变化：
+ * - 本地服务器不再是独立模式，而是 PRESETS 里的本地系预设（ollama/lmstudio/vllm/
+ *   llamacpp/localai）——端点开关由 36-connect.js 的预设状态机统一决定；
+ * - 本模块只保留「本地专属」能力：并行端口探测 / 模型清单（带 ctx 元数据）/ 免 Key
+ *   测试连接 / ctx 徽标 / 本地压缩阈值；控件已并入合并块（探测按钮 = 识别按钮同一颗，
+ *   模型下拉 = modelSelect，ctx 徽标 = cmCtxBadge）；
+ * - 运行态仍由 localState 承载（36-connect 的 connectSyncState 从预设 + local_* 键派生），
+ *   60-agent-loop 的本地模型分支因此继续有效。
  *
  * 契约红线：
  * - js_api：local_probe / local_models / test_provider_endpoint(local=true)（均已登记 _V12_EXTRA）；
- * - 配置：local_* 键经 collectConfig → save_config 合并（运行期合法、测试期不触发）；
- * - DOM/CSS：全部纯新增（id：localModeEnable/localFields/localPreset/localProbeBtn/
- *   localBaseUrl/localModelsBtn/localModelSelect/localMetaBadge/localToolCapable/
- *   localCtxWindow/localTestBtn/localTestStatus/localProbeResult）。
+ * - 配置：local_* 键经 collectLocalConfig → save_config 合并（运行期合法、测试期不触发）；
+ * - DOM：合并块沿用 v1.5 id 语义的子集（localProbeResult/localToolCapable/localCtxWindow
+ *   原样保留）；已并入合并块的控件经 localEl() 双 id 解析（老 id 优先，回落合并块 id），
+ *   单元/联调沙箱（只加载本模块 + 老 id）与真实合并块（新 id）都能工作。
  */
 let localState = { mode: false, base_url: '', model: '', ctx_window: 0, tool_capable: 'auto' };
 
-/* 预设表（与后端 LOCAL_PRESETS 同源；UI 一键填充 + 本地零费语义） */
+/* 预设表（与后端 LOCAL_PRESETS 同源；UI 一键填充 + 本地零费语义）。
+ * 合并后 UI 的预设下拉由 36-connect.js 的 PRESETS 提供，本表保留为数据源/兼容引用。 */
 const LOCAL_UI_PRESETS = {
   ollama:  { name: 'Ollama',          base_url: 'http://localhost:11434/v1' },
   lmstudio:{ name: 'LM Studio',       base_url: 'http://localhost:1234/v1' },
@@ -3186,63 +3271,95 @@ const LOCAL_UI_PRESETS = {
   custom:  { name: '自定义',           base_url: '' }
 };
 
+/** 合并块 id 解析：老 id（v1.5 独立区块 / 单模块沙箱）优先，回落合并块 id。 */
+function localEl(legacyId, mergedId) {
+  const legacy = legacyId ? document.getElementById(legacyId) : null;
+  if (legacy) return legacy;
+  return mergedId ? document.getElementById(mergedId) : null;
+}
+
+/** 识别/探测按钮复位：单模块沙箱（老 id 存在）→ v1.5 原文案；
+ *  真实合并块（老 id 都不存在）→ 当前预设的按钮文案。 */
+function localRestoreIdentifyBtn(btn, legacyText) {
+  if (!btn) return;
+  btn.disabled = false;
+  const merged = !document.getElementById('localProbeBtn') && !document.getElementById('localModelsBtn');
+  btn.textContent = (merged && typeof connectIdentifyLabel === 'function')
+    ? connectIdentifyLabel() : legacyText;
+}
+
 function loadLocalUI(cfg) {
   cfg = cfg || {};
-  localState = {
-    mode: !!cfg.local_mode,
-    base_url: cfg.local_base_url || '',
-    model: cfg.local_model || '',
-    ctx_window: parseInt(cfg.local_ctx_window) || 0,
-    tool_capable: cfg.local_tool_capable || 'auto'
-  };
-  const on = document.getElementById('localModeEnable');
-  if (on) on.checked = localState.mode;
-  const preset = document.getElementById('localPreset');
-  if (preset) preset.value = cfg.local_preset || 'custom';
-  const set = (id, v) => { const el = document.getElementById(id); if (el && v != null) el.value = v; };
-  set('localBaseUrl', localState.base_url);
-  set('localCtxWindow', localState.ctx_window || 0);
-  set('localToolCapable', localState.tool_capable);
-  refreshLocalModelOptions(localState.model ? [localState.model] : [], localState.model);
-  syncLocalUiState();
+  /* 合并后端点信息（base_url/model/mode）由 connectLoadFromConfig 统一回填，
+     本函数只负责「本地专属项」：ctx 覆盖 / 工具调用偏好（local_* 键）。 */
+  const ctx = parseInt(cfg.local_ctx_window, 10) || 0;
+  const tool = cfg.local_tool_capable || 'auto';
+  const ctxEl = localEl('localCtxWindow', 'localCtxWindow');
+  if (ctxEl) ctxEl.value = ctx;
+  const toolEl = localEl('localToolCapable', 'localToolCapable');
+  if (toolEl) toolEl.value = tool;
+  localState.ctx_window = ctx;
+  localState.tool_capable = tool;
   applyLocalMetaBadge();
 }
+
 function collectLocalConfig() {
   const g = id => (document.getElementById(id) || {}).value || '';
-  const on = document.getElementById('localModeEnable');
-  const preset = document.getElementById('localPreset');
+  const isLocal = (typeof connectIsLocalPreset === 'function')
+    ? connectIsLocalPreset()
+    : !!(localState && localState.mode);
+  const preset = (typeof connectCurrentPreset === 'function') ? connectCurrentPreset() : '';
+  const base = (typeof connectBaseUrl === 'function') ? connectBaseUrl() : (localState.base_url || '');
+  const model = (typeof connectModelValue === 'function') ? connectModelValue() : (localState.model || '');
   return {
-    local_mode: on ? !!on.checked : false,
-    local_preset: preset ? preset.value : 'custom',
-    local_base_url: g('localBaseUrl').trim(),
-    local_model: g('localModelSelect').trim(),
-    local_ctx_window: parseInt(g('localCtxWindow')) || 0,
-    local_tool_capable: g('localToolCapable') || 'auto'
+    /* 本地专属项（设计书 D5：ctx/工具继续写 local_*，与 provider_* 并列不互斥） */
+    local_ctx_window: parseInt(g('localCtxWindow'), 10) || 0,
+    local_tool_capable: g('localToolCapable') || 'auto',
+    /* 兼容键（v1.5 老配置可被老版本回读；仅在本地系预设时携带实际端点） */
+    local_mode: !!isLocal,
+    local_preset: isLocal ? preset : 'custom',
+    local_base_url: isLocal ? base : '',
+    local_model: isLocal ? model : ''
   };
 }
+
 function applyLocalConfig() {
-  const lc = collectLocalConfig();
-  localState = { mode: !!lc.local_mode, base_url: lc.local_base_url, model: lc.local_model,
-                 ctx_window: lc.local_ctx_window, tool_capable: lc.local_tool_capable };
+  localState.ctx_window = connectCtxWindowSafe();
+  localState.tool_capable = (document.getElementById('localToolCapable') || {}).value || 'auto';
   applyLocalMetaBadge();
 }
+
+/** ctx 覆盖读取（无 36-connect 时直接读元素）。 */
+function connectCtxWindowSafe() {
+  const el = localEl('localCtxWindow', 'localCtxWindow');
+  return el ? (parseInt(el.value, 10) || 0) : 0;
+}
+
+/** 合并后无独立「启用本地模式」勾选：本地系预设即生效（保留函数供旧调用点）。 */
 function syncLocalUiState() {
   const wrap = document.getElementById('localFields');
-  const on = document.getElementById('localModeEnable');
-  if (wrap && on) wrap.style.display = on.checked ? '' : 'none';
+  if (wrap && wrap.style) wrap.style.display = '';
 }
+
+/** 旧签名兼容：本地预设切换统一走合并块预设状态机。 */
 function onLocalPresetChange(v) {
+  if (typeof connectApplyPreset === 'function') { connectApplyPreset(v, { animate: true }); return; }
   const p = LOCAL_UI_PRESETS[v] || LOCAL_UI_PRESETS.custom;
-  const base = document.getElementById('localBaseUrl');
+  const base = localEl('localBaseUrl', 'providerBase');
   if (base && p.base_url) base.value = p.base_url;   // custom 不覆盖手输
   applyLocalMetaBadge();
 }
 
 /* ---- 元数据徽标（后端 model_meta 三级来源：精确表 → 前缀启发式 → 保守默认） ---- */
 function applyLocalMetaBadge() {
-  const badge = document.getElementById('localMetaBadge');
+  const badge = localEl('localMetaBadge', 'cmCtxBadge');
   if (!badge) return;
-  const model = localState.model || (document.getElementById('localModelSelect') || {}).value || '';
+  /* 合并后徽标只在本地系预设下有意义（GLM/云端预设由计费与价格表接管） */
+  const isLocal = (typeof connectIsLocalPreset === 'function') ? connectIsLocalPreset() : true;
+  if (badge.style) badge.style.display = isLocal ? '' : 'none';
+  if (!isLocal) return;
+  const sel = localEl('localModelSelect', 'modelSelect');
+  const model = localState.model || (sel || {}).value || '';
   if (!model) { badge.textContent = '元数据待获取'; badge.className = 'local-badge'; return; }
   const ctx = localState.ctx_window > 0 ? localState.ctx_window : null;
   const meta = localMetaCache[model];
@@ -3262,15 +3379,15 @@ let localMetaCache = {};    // model -> {ctx_window, tool_capable, estimated}
 
 /* ---- A2：并行探测（4 端口并行，各 2s 超时，总墙钟 ≤1s 目标） ---- */
 async function localProbeNow() {
-  const btn = document.getElementById('localProbeBtn');
-  const box = document.getElementById('localProbeResult');
+  const btn = localEl('localProbeBtn', 'cmIdentifyBtn');
+  const box = localEl('localProbeResult', 'localProbeResult');
   if (btn) { btn.disabled = true; btn.textContent = '探测中…'; }
   try {
     const r = JSON.parse(await callApi('local_probe', []));
     if (box) box.innerHTML = '';
     if (!r.ok) { toast('探测失败：' + (r.error || ''), 'err'); return; }
+    localMetaCache = {};    // 新探测结果 → 元数据缓存失效
     (r.reachable || []).forEach(it => {
-      localMetaCache = {};    // 新探测结果 → 元数据缓存失效
       const row = document.createElement('div');
       row.className = 'local-probe-item ok';
       row.innerHTML = '<span class="dot"></span><span></span><span class="models"></span>';
@@ -3279,8 +3396,14 @@ async function localProbeNow() {
       if (box) box.appendChild(row);
       /* 命中预设 → 一键填充 base_url 并拉清单 */
       if (it.kind !== 'custom') {
-        const base = document.getElementById('localBaseUrl');
+        const base = localEl('localBaseUrl', 'providerBase');
         if (base) base.value = it.base_url;
+        /* 合并块：探测到的服务器类型即当前预设（label/条件显隐随之对齐） */
+        if (typeof connectApplyPreset === 'function' && typeof PRESETS === 'object'
+            && PRESETS[it.kind] && PRESETS[it.kind].local
+            && typeof connectCurrentPreset === 'function' && connectCurrentPreset() !== it.kind) {
+          connectApplyPreset(it.kind, { animate: false, base: it.base_url, quiet: true });
+        }
         localLoadModels(it.base_url);
       }
     });
@@ -3293,56 +3416,87 @@ async function localProbeNow() {
     });
     const hit = (r.reachable || []).length;
     toast(hit ? '探测到 ' + hit + ' 个本地服务器' : '未探测到本地服务器（' + r.elapsed_ms + 'ms）', hit ? 'ok' : 'warn');
+    if (typeof connectSyncState === 'function') connectSyncState();
     applyLocalMetaBadge();
   } catch (e) {
     toast('探测失败：' + e.message, 'err');
   } finally {
-    if (btn) { btn.disabled = false; btn.textContent = '探测本机'; }
+    localRestoreIdentifyBtn(btn, '探测本机');
   }
 }
 
 /* ---- A3：补拉模型清单（探测过期时用；返回 {id, ctx_window, tool_capable, estimated}） ---- */
 async function localLoadModels(baseUrl) {
-  const base = (baseUrl || (document.getElementById('localBaseUrl') || {}).value || '').trim();
+  const baseInp = localEl('localBaseUrl', 'providerBase');
+  const base = (baseUrl || (baseInp || {}).value || '').trim();
   if (!base) { toast('请先填写 Base URL', 'warn'); return; }
-  const btn = document.getElementById('localModelsBtn');
+  const btn = localEl('localModelsBtn', 'cmIdentifyBtn');
   if (btn) { btn.disabled = true; btn.textContent = '拉取中…'; }
   try {
+    /* 本地端点免 Key（云端清单鉴权走 36-connect 的识别通道带 Key） */
     const r = JSON.parse(await callApi('local_models', [base]));
     if (!r.ok) { toast('获取模型清单失败：' + (r.error || ''), 'err'); return; }
-    refreshLocalModelOptions((r.models || []).map(m => m.id), localState.model);
+    const models = r.models || [];
     localMetaCache = {};
-    (r.models || []).forEach(m => { localMetaCache[m.id] = m; });
+    models.forEach(m => { localMetaCache[m.id] = m; });
+    refreshLocalModelOptions(models.map(m => m.id), localState.model);
     applyLocalMetaBadge();
-    if (typeof CS !== 'undefined' && CS.syncAll) CS.syncAll();
-    toast('已获取 ' + (r.models || []).length + ' 个模型', 'ok');
+    if (document.getElementById('localModelSelect') && typeof CS !== 'undefined' && CS.syncAll) CS.syncAll();
+    toast('已获取 ' + models.length + ' 个模型', 'ok');
   } catch (e) {
     toast('获取模型清单失败：' + e.message, 'err');
   } finally {
-    if (btn) { btn.disabled = false; btn.textContent = '拉取模型清单'; }
+    localRestoreIdentifyBtn(btn, '拉取模型清单');
   }
 }
+
+/** 清单 → 模型下拉。
+ *  真实合并块（无 localModelSelect 元素）：走 connectFillModels（智能档/分组/ctx 徽标/
+ *  末项手动态）；单模块沙箱（有 localModelSelect）：保持 v1.5 的纯 option 列表语义。 */
 function refreshLocalModelOptions(ids, keep) {
-  const sel = document.getElementById('localModelSelect');
+  const legacySel = document.getElementById('localModelSelect');
+  const sel = legacySel || document.getElementById('modelSelect');
   if (!sel) return;
+  const list = (ids || []).slice();
+  if (!legacySel && typeof connectFillModels === 'function') {
+    /* 合并块：识别/探测成功即以下拉结果为准（旧预设猜测值只在新清单里仍存在时保留） */
+    const cur = String(sel.value || '');
+    connectFillModels(list.map(id => ({
+      id: id, text: id,
+      badge: localMetaCache[id] ? connectCtxBadgeSafe(localMetaCache[id]) : ''
+    })), { auto: false, group: list.length ? '识别结果' : '',
+          keep: (cur && list.indexOf(cur) !== -1) ? cur : '' });
+    applyLocalMetaBadge();
+    return;
+  }
   const prev = keep || sel.value;
   sel.innerHTML = '';
-  (ids || []).forEach(id => {
+  list.forEach(id => {
     const opt = document.createElement('option');
     opt.value = id; opt.textContent = id;
     sel.appendChild(opt);
   });
-  if (prev && (ids || []).includes(prev)) sel.value = prev;
-  else if ((ids || []).length) sel.value = ids[0];
+  if (prev && list.includes(prev)) sel.value = prev;
+  else if (list.length) sel.value = list[0];
   applyLocalMetaBadge();
+}
+
+/** ctx 徽标文本（36-connect 未加载时的本地实现，语义同 connectCtxBadge）。 */
+function connectCtxBadgeSafe(meta) {
+  if (typeof connectCtxBadge === 'function') return connectCtxBadge(meta);
+  const ctx = parseInt((meta || {}).ctx_window, 10) || 0;
+  if (ctx <= 0) return '';
+  return ctx >= 1024 ? Math.round(ctx / 1024) + 'k' : String(ctx);
 }
 
 /* ---- A5：本地测试连接（免 Key；503 冷启动返回 loading 态而非失败） ---- */
 async function localTestNow() {
-  const base = (document.getElementById('localBaseUrl') || {}).value.trim();
-  const model = (document.getElementById('localModelSelect') || {}).value.trim();
-  const btn = document.getElementById('localTestBtn');
-  const st = document.getElementById('localTestStatus');
+  const baseEl = localEl('localBaseUrl', 'providerBase');
+  const modelEl = localEl('localModelSelect', 'modelSelect');
+  const base = ((baseEl || {}).value || '').trim();
+  const model = ((modelEl || {}).value || '').trim();
+  const btn = localEl('localTestBtn', 'providerTestBtn');
+  const st = localEl('localTestStatus', 'providerTestStatus');
   if (!base || !model) { toast('请先填写 Base URL 并选择模型', 'warn'); return; }
   if (btn) { btn.disabled = true; btn.textContent = '测试中…'; }
   try {
@@ -3447,6 +3601,830 @@ function buildMessagesForAPI(msgs) {
     out.push(copy);
   }
   return out;
+}
+
+/* ===== 36-connect.js ===== */
+/* ================= 连接与模型 · 完全单端点状态机（v4 合并块） =================
+ * 设计出处：deliverables/design/v4/connect-merge-design.md（D1 完全单端点 / D2 防抖识别 /
+ * D3 条件显隐 / D4 价格字段 / D5 存储单源化）。
+ *
+ * 一个区块、一条纵向流：预设 → Base URL → Key → 模型 → 测试连接（+「高级」折叠）。
+ * - 预设下拉是唯一的「端点开关」：GLM 官方 = name='glm' 的预设，不是独立模式；
+ * - 存储单一事实源 = provider_*（provider_name/base_url/key/model/prices）；
+ *   本地专属项（ctx 覆盖 / 工具调用）继续写 local_*（与 provider 并列，不互斥）；
+ * - 识别模型 = 防抖自动（800ms）+ 手动按钮兜底；数据源 = 实时 GET {base}/models
+ *   （经后端 local_models，带 Key）→ 失败/为空回落内置热门表 PROVIDER_HOT_MODELS；
+ *   永不影响保存与发送（失败只切手动输入态）；
+ * - 竞态：last-wins（每次触发递增 connectIdentifySeq，旧请求返回后自动失效）。
+ *
+ * 契约红线：apiKey / modelSelect / reasoningEffort 三个钉住 id 全部保留在本模块使用的
+ * DOM 上；provider_* / local_* id 不在钉住清单内（可重组）；local_models 仍属 _V12_EXTRA。
+ */
+
+/* 预设表：kind 由 glm_capable / local / key_required 派生，不另设 kind 字段。
+ * models 为预设推荐（进下拉第一屏）；badge 为 ctx 徽标文本（仅本地系展示）。
+ * prices 仅云端第三方预设（D4：GLM 走内置价格表，本地零费）。 */
+const PRESETS = {
+  glm: {
+    name: '智谱 GLM', base_url: 'https://open.bigmodel.cn/api/paas/v4',
+    key_required: true, glm_capable: true, local: false, prices: null,
+    models: [
+      { id: 'glm-5.3-flash', text: 'glm-5.3-flash（通用 · 更省钱）' },
+      { id: 'glm-5.3-flashx', text: 'glm-5.3-flashx（极速）' }
+    ]
+  },
+  deepseek: {
+    name: 'DeepSeek', base_url: 'https://api.deepseek.com/v1',
+    key_required: true, glm_capable: false, local: false,
+    prices: { in: 2, out: 8, cache: 0.4 },
+    models: [
+      { id: 'deepseek-v4.1-256k', text: 'deepseek-v4.1-256k（256k 上下文）' },
+      { id: 'deepseek-v4.1', text: 'deepseek-v4.1（均衡）' }
+    ]
+  },
+  moonshot: {
+    name: 'Moonshot', base_url: 'https://api.moonshot.cn/v1',
+    key_required: true, glm_capable: false, local: false,
+    prices: { in: 12, out: 12, cache: 0 },
+    models: [
+      { id: 'moonshot-v1-128k', text: 'moonshot-v1-128k（128k 上下文）' },
+      { id: 'moonshot-v1-32k', text: 'moonshot-v1-32k（32k 上下文）' }
+    ]
+  },
+  qwen: {
+    name: '通义千问', base_url: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+    key_required: true, glm_capable: false, local: false,
+    prices: { in: 4, out: 12, cache: 0 },
+    models: [
+      { id: 'qwen3-max', text: 'qwen3-max（旗舰）' },
+      { id: 'qwen-plus', text: 'qwen-plus（均衡）' },
+      { id: 'qwen-turbo', text: 'qwen-turbo（轻量）' }
+    ]
+  },
+  ollama: {
+    name: 'Ollama', base_url: 'http://localhost:11434/v1',
+    key_required: false, glm_capable: false, local: true, prices: { in: 0, out: 0, cache: 0 },
+    models: [
+      { id: 'gpt-oss-20b', text: 'gpt-oss-20b', badge: '32k' },
+      { id: 'qwen3.8-27b', text: 'qwen3.8-27b', badge: '128k' },
+      { id: 'deepseek-r1-8b', text: 'deepseek-r1-8b', badge: '64k' }
+    ]
+  },
+  lmstudio: {
+    name: 'LM Studio', base_url: 'http://localhost:1234/v1',
+    key_required: false, glm_capable: false, local: true, prices: { in: 0, out: 0, cache: 0 },
+    models: [
+      { id: 'qwen3.8-27b', text: 'qwen3.8-27b', badge: '128k' },
+      { id: 'gpt-oss-20b', text: 'gpt-oss-20b', badge: '32k' }
+    ]
+  },
+  vllm: {
+    name: 'vLLM', base_url: 'http://localhost:8000/v1',
+    key_required: false, glm_capable: false, local: true, prices: { in: 0, out: 0, cache: 0 },
+    models: [
+      { id: 'qwen3.8-27b', text: 'qwen3.8-27b', badge: '128k' },
+      { id: 'glm-4.6', text: 'glm-4.6', badge: '64k' }
+    ]
+  },
+  llamacpp: {
+    name: 'llama.cpp', base_url: 'http://localhost:8080/v1',
+    key_required: false, glm_capable: false, local: true, prices: { in: 0, out: 0, cache: 0 },
+    models: [
+      { id: 'qwen3.8-27b', text: 'qwen3.8-27b', badge: '128k' },
+      { id: 'llama-3.3-70b', text: 'llama-3.3-70b', badge: '128k' }
+    ]
+  },
+  localai: {
+    name: 'LocalAI', base_url: 'http://localhost:8080/v1',
+    key_required: false, glm_capable: false, local: true, prices: { in: 0, out: 0, cache: 0 },
+    models: [
+      { id: 'gpt-oss-20b', text: 'gpt-oss-20b', badge: '32k' },
+      { id: 'qwen3.8-27b', text: 'qwen3.8-27b', badge: '128k' }
+    ]
+  },
+  custom: {
+    name: '自定义', base_url: '',
+    key_required: true, glm_capable: false, local: false,
+    prices: { in: 2, out: 8, cache: 0.4 },
+    models: []
+  }
+};
+
+/* 内置热门模型表（设计书 §4.2）：实时清单失败/为空时按 Base URL host 匹配兜底。
+ * 未命中 → 不猜，直接进手动输入态。 */
+const PROVIDER_HOT_MODELS = [
+  { host: 'bigmodel.cn', models: [
+    { id: 'glm-5.3-flash', text: 'glm-5.3-flash（通用 · 更省钱）' },
+    { id: 'glm-5.3-flashx', text: 'glm-5.3-flashx（极速）' },
+    { id: 'glm-4.6', text: 'glm-4.6（新一代）' },
+    { id: 'glm-4.5-air', text: 'glm-4.5-air（轻量）' }
+  ] },
+  { host: 'deepseek.com', models: [
+    { id: 'deepseek-v4.1-256k', text: 'deepseek-v4.1-256k（256k 上下文）' },
+    { id: 'deepseek-v4.1', text: 'deepseek-v4.1（均衡）' }
+  ] },
+  { host: 'moonshot.cn', models: [
+    { id: 'kimi-k2', text: 'kimi-k2' },
+    { id: 'moonshot-v1-128k', text: 'moonshot-v1-128k（128k 上下文）' }
+  ] },
+  { host: 'dashscope.aliyuncs.com', models: [
+    { id: 'qwen-max', text: 'qwen-max（旗舰）' },
+    { id: 'qwen-plus', text: 'qwen-plus（均衡）' },
+    { id: 'qwen-turbo', text: 'qwen-turbo（轻量）' }
+  ] },
+  { host: 'localhost', models: [
+    { id: 'gpt-oss-20b', text: 'gpt-oss-20b', badge: '32k' },
+    { id: 'qwen3.8-27b', text: 'qwen3.8-27b', badge: '128k' },
+    { id: 'llama3.1:8b', text: 'llama3.1:8b', badge: '8k' }
+  ] },
+  { host: '127.0.0.1', models: [
+    { id: 'gpt-oss-20b', text: 'gpt-oss-20b', badge: '32k' },
+    { id: 'qwen3.8-27b', text: 'qwen3.8-27b', badge: '128k' },
+    { id: 'llama3.1:8b', text: 'llama3.1:8b', badge: '8k' }
+  ] }
+];
+
+const CONNECT_PRESET_ORDER = ['glm', 'deepseek', 'moonshot', 'qwen',
+  'ollama', 'lmstudio', 'vllm', 'llamacpp', 'localai', 'custom'];
+const CONNECT_LOCAL_IDS = ['ollama', 'lmstudio', 'vllm', 'llamacpp', 'localai'];
+const CONNECT_DEBOUNCE_MS = 800;      // D2：Base URL / Key 变化后的自动识别防抖
+const CONNECT_AUTO_IDENTIFY = true;   // 风险对冲（设计书 §10）：自动识别开关位，默认开
+const CONNECT_MANUAL_VALUE = '__manual__';
+const CONNECT_GROUP_VALUE = '__group__';
+
+let connectPreset = 'glm';        // 当前预设 id（= provider_name）
+let connectIdentifySeq = 0;       // last-wins 竞态序号（每次触发递增，旧请求失效）
+let connectIdentifyTimer = null;  // 防抖定时器
+let connectManualPrefill = '';    // 切手动输入态时的预填值
+/* 预设 id → 用户最后一次手改并「切走」时确认的 Base URL。
+ * 用途（QA 修正 2）：切走再切回同一预设不丢手填值（custom 默认 '' 时尤其重要，
+ * 否则「自定义」来回切一次 URL 就被清空 = 用户数据丢失）。
+ * 只记与预设默认值不同的值，避免把默认值也塞进记忆。会话级（不落盘）。 */
+const PRESET_BASE_MEMO = {};
+
+/* ================= 预设元信息 ================= */
+
+/** 取预设元信息（未知 id → custom，永不返回 undefined）。 */
+function connectPresetMeta(id) {
+  return PRESETS[id] || PRESETS.custom;
+}
+
+/** 当前预设 id（未初始化时回落 glm）。 */
+function connectCurrentPreset() {
+  return PRESETS[connectPreset] ? connectPreset : 'glm';
+}
+
+/** 预设 id 列表（下拉顺序 = 设计书 §3 的 10 项）。 */
+function connectPresetIds() {
+  return CONNECT_PRESET_ORDER.slice();
+}
+
+/** 是否本地系预设（免 Key / 零费 / 探测本机）。 */
+function connectIsLocalPreset(id) {
+  const key = id || connectCurrentPreset();
+  return !!connectPresetMeta(key).local;
+}
+
+/** 是否具备 GLM 专属能力（智能档 / 推理力度 / 思考 / 联网 / 内置价格表）。 */
+function connectGlmCapable(id) {
+  const key = id || connectCurrentPreset();
+  return !!connectPresetMeta(key).glm_capable;
+}
+
+/** 预设默认模型清单（浅拷贝，防调用方改动表）。 */
+function connectPresetModels(id) {
+  const list = connectPresetMeta(id).models || [];
+  return list.map(m => ({ id: m.id, text: m.text || m.id, badge: m.badge || '' }));
+}
+
+/* ================= URL / host 工具 ================= */
+
+/** 取 URL 的 host（无协议头时整段视为 host；空 URL → ''）。 */
+function connectHostOf(url) {
+  const s = String(url || '').trim();
+  if (!s) return '';
+  const m = /^[a-z][a-z0-9+.-]*:\/\/([^\/?#]+)/i.exec(s);
+  return (m ? m[1] : s).toLowerCase();
+}
+
+/** 反向匹配预设：URL host 与预设默认地址 host 相同 → 该预设 id；否则 ''。 */
+function connectPresetByUrl(url) {
+  const host = connectHostOf(url);
+  if (!host) return '';
+  const ids = CONNECT_PRESET_ORDER;
+  for (let i = 0; i < ids.length; i++) {
+    const p = PRESETS[ids[i]];
+    if (!p || !p.base_url) continue;
+    if (connectHostOf(p.base_url) === host) return ids[i];
+  }
+  return '';
+}
+
+/** 反向匹配本地系预设：优先 local 家族的已知端口（11434/1234/8000/8080）。 */
+function connectPresetByLocalUrl(url) {
+  const host = connectHostOf(url);
+  if (!host) return '';
+  const portMatch = /:(\d{2,5})/.exec(String(url || ''));
+  const port = portMatch ? portMatch[1] : '';
+  const order = CONNECT_LOCAL_IDS;
+  for (let i = 0; i < order.length; i++) {
+    const p = PRESETS[order[i]];
+    if (port && p.base_url.indexOf(':' + port) !== -1) return order[i];
+  }
+  return connectPresetByUrl(url);
+}
+
+/** 内置热门模型（host 关键词匹配，设计书 §4.2）；未命中 → []。 */
+function connectHotModels(url) {
+  const host = connectHostOf(url);
+  if (!host) return [];
+  for (let i = 0; i < PROVIDER_HOT_MODELS.length; i++) {
+    const row = PROVIDER_HOT_MODELS[i];
+    if (host.indexOf(row.host) !== -1) {
+      return row.models.map(m => ({ id: m.id, text: m.text || m.id, badge: m.badge || '' }));
+    }
+  }
+  return [];
+}
+
+/** ctx 徽标文本（'32k' / '200k'）；无窗口信息 → ''。 */
+function connectCtxBadge(meta) {
+  const ctx = parseInt((meta || {}).ctx_window, 10) || 0;
+  if (ctx <= 0) return '';
+  return ctx >= 1024 ? Math.round(ctx / 1024) + 'k' : String(ctx);
+}
+
+/* ================= DOM 取值 ================= */
+
+/** Base URL 输入值（去空白）。 */
+function connectBaseUrl() {
+  const el = document.getElementById('providerBase');
+  return el ? String(el.value || '').trim() : '';
+}
+
+/** Key 输入值（合并后唯一的 Key 字段，id/apiKey 为钉住契约）。 */
+function connectApiKeyInput() {
+  const el = document.getElementById('apiKey');
+  return el ? String(el.value || '').trim() : '';
+}
+
+/** 当前生效模型名（手动态取文本框；占位/分组项 → ''）。 */
+function connectModelValue() {
+  const pick = document.getElementById('cmPick');
+  const manual = !!(pick && pick.classList && pick.classList.contains('manual'));
+  if (manual) {
+    const inp = document.getElementById('cmManualInput');
+    return inp ? String(inp.value || '').trim() : '';
+  }
+  const sel = document.getElementById('modelSelect');
+  const v = sel ? String(sel.value || '').trim() : '';
+  if (!v || v === CONNECT_MANUAL_VALUE || v === CONNECT_GROUP_VALUE) return '';
+  return v;
+}
+
+/** 计费三价（输入/输出/缓存，¥/M tokens）。 */
+function connectPrices() {
+  const num = id => {
+    const el = document.getElementById(id);
+    return el ? (parseFloat(el.value) || 0) : 0;
+  };
+  return { in: num('providerPriceIn'), out: num('providerPriceOut'), cache: num('providerPriceCache') };
+}
+
+/** 工具调用偏好（local_* 语义：auto/on/off）。 */
+function connectToolCapable() {
+  const el = document.getElementById('localToolCapable');
+  return (el && el.value) || 'auto';
+}
+
+/** 上下文窗口覆盖（0 = 按模型元数据自动）。 */
+function connectCtxWindow() {
+  const el = document.getElementById('localCtxWindow');
+  return el ? (parseInt(el.value, 10) || 0) : 0;
+}
+
+/* ================= 运行态派生（单一事实源 → providerState / localState）================= */
+
+/** 把 UI 的预设 + 字段派生为全 App 运行态。
+ *  60-agent-loop 的本地分支依赖 localState.model，故本地系预设必须同步派生
+ *  localState.mode/base_url/model（local_* 键仍只写 ctx/tool）。 */
+function connectSyncState() {
+  const meta = connectPresetMeta(connectCurrentPreset());
+  const base = connectBaseUrl();
+  const model = connectModelValue();
+  providerState = {
+    enabled: !meta.glm_capable,          // 兼容 v1.2 语义：非 GLM 端点即「自定义端点」
+    name: connectCurrentPreset(),
+    base_url: base || meta.base_url || '',
+    model: model,
+    key: connectApiKeyInput(),
+    prices: connectPrices()
+  };
+  localState = {
+    mode: !!meta.local && !!base,
+    base_url: meta.local ? base : '',
+    model: meta.local ? model : '',
+    ctx_window: connectCtxWindow(),
+    tool_capable: connectToolCapable()
+  };
+  if (typeof applyLocalMetaBadge === 'function') applyLocalMetaBadge();
+}
+
+/* ================= 模型下拉（下拉 ⇄ 手动输入 双态）================= */
+
+/** 按钮 loading 态（spinner + 文案，dataset 暂存原文案）。 */
+function connectSetButtonLoading(btn, on, text) {
+  if (!btn) return;
+  if (on) {
+    if (!btn.dataset.html) btn.dataset.html = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="tool-spinner"></span><span>' + (text || '处理中') + '</span>';
+  } else {
+    btn.innerHTML = btn.dataset.html || btn.innerHTML;
+    delete btn.dataset.html;
+    btn.disabled = false;
+  }
+}
+
+/** 刷新模型下拉：可选「智能档」首项 + 分组标题 + 模型项（可带 ctx 徽标）+
+ *  末项固定「✎ 手动输入模型名…」。
+ *  opts: {auto:boolean, group:string, keep:string} */
+function connectFillModels(list, opts) {
+  opts = opts || {};
+  const sel = document.getElementById('modelSelect');
+  if (!sel) return;
+  const rawKeep = String(opts.keep || '').trim();
+  /* 'auto'（智能档）只在本预设提供智能档首项时才可作为回填值 */
+  const keep = (rawKeep === 'auto' && !opts.auto) ? '' : rawKeep;
+  const items = (list || []).map(m => ({ id: String(m.id), text: m.text || String(m.id),
+                                         badge: m.badge || '' }));
+  sel.innerHTML = '';
+  if (opts.auto) {
+    const a = document.createElement('option');
+    a.value = 'auto';
+    a.textContent = '智能档（按任务自动调节，最省）';
+    sel.appendChild(a);
+  }
+  const ids = items.map(m => m.id);
+  if (keep && keep !== 'auto' && ids.indexOf(keep) === -1) {
+    items.push({ id: keep, text: keep, badge: '' });      // 配置里的模型名不在预设表 → 补一项保住回填
+    ids.push(keep);
+  }
+  if (items.length) {
+    if (opts.group) {
+      const g = document.createElement('option');
+      g.value = CONNECT_GROUP_VALUE;
+      g.disabled = true;
+      g.dataset.group = opts.group;
+      g.textContent = opts.group;
+      sel.appendChild(g);
+    }
+    items.forEach(it => {
+      const o = document.createElement('option');
+      o.value = it.id;
+      o.textContent = it.text;
+      if (it.badge) o.dataset.badge = it.badge;
+      sel.appendChild(o);
+    });
+  } else if (!opts.auto) {
+    const ph = document.createElement('option');
+    ph.value = '';
+    ph.textContent = '尚未识别 — 填写 Base URL 与 Key 后自动识别';
+    sel.appendChild(ph);
+  }
+  const mm = document.createElement('option');
+  mm.value = CONNECT_MANUAL_VALUE;
+  mm.textContent = '✎ 手动输入模型名…';
+  sel.appendChild(mm);
+  if (keep && (ids.indexOf(keep) !== -1 || keep === 'auto')) sel.value = keep;
+  else if (opts.auto) sel.value = 'auto';
+  else if (ids.length) sel.value = ids[0];
+  else sel.value = '';
+  connectSetPickManual(sel.value === CONNECT_MANUAL_VALUE);
+  connectSyncAfterModelFill(sel);
+}
+
+/** 下拉内容重构后同步：自定义下拉组件刷新 + 品牌位 + 运行态。 */
+function connectSyncAfterModelFill(sel) {
+  try {
+    if (typeof CS !== 'undefined' && CS && typeof CS.sync === 'function' && sel) CS.sync(sel);
+  } catch (e) { /* 下拉组件不可用时直接用原生 select */ }
+  if (typeof updateBrandModel === 'function') updateBrandModel();
+  connectSyncState();
+}
+
+/** 手动态切换（.cm-pick.manual 显隐由 CSS 决定）。 */
+function connectSetPickManual(on) {
+  const pick = document.getElementById('cmPick');
+  if (!pick || !pick.classList) return;
+  pick.classList.toggle('manual', !!on);
+}
+
+/** 进入手动输入态（识别失败兜底 / 用户选「✎ 手动输入模型名…」）。 */
+function connectEnterManual(prefill) {
+  const sel = document.getElementById('modelSelect');
+  if (sel) sel.value = CONNECT_MANUAL_VALUE;
+  connectSetPickManual(true);
+  const inp = document.getElementById('cmManualInput');
+  const val = String(prefill || connectManualPrefill || '').trim();
+  if (inp) {
+    if (val) inp.value = val;
+    try { inp.focus(); } catch (e) { /* 无焦点能力的环境忽略 */ }
+  }
+  connectSyncAfterModelFill(sel);
+}
+
+/** 退出手动输入态：下拉复位到首个实义项。 */
+function connectExitManual() {
+  const sel = document.getElementById('modelSelect');
+  if (sel) {
+    const opts = sel.children || [];
+    let picked = '';
+    for (let i = 0; i < opts.length; i++) {
+      const v = String(opts[i].value || '');
+      if (v && v !== CONNECT_MANUAL_VALUE && v !== CONNECT_GROUP_VALUE) { picked = v; break; }
+    }
+    sel.value = picked;
+  }
+  connectSetPickManual(false);
+  connectSyncAfterModelFill(sel);
+}
+
+/** 下拉 change：选手动项 → 进手动态；选实义项 → 退手动态。 */
+function connectOnModelChange() {
+  const sel = document.getElementById('modelSelect');
+  const v = sel ? String(sel.value || '') : '';
+  connectSetPickManual(v === CONNECT_MANUAL_VALUE);
+  if (typeof updateBrandModel === 'function') updateBrandModel();
+  connectSyncState();
+}
+
+/* ================= 预设切换 ================= */
+
+/** 高级折叠三条条件显隐（设计书 §5 矩阵）。 */
+function connectUpdateAdvanced() {
+  const meta = connectPresetMeta(connectCurrentPreset());
+  const showReasoning = !!meta.glm_capable;
+  const showBilling = !meta.glm_capable && !meta.local;
+  const showLocal = !!meta.local;
+  const show = (id, on) => {
+    const el = document.getElementById(id);
+    if (el && el.style) el.style.display = on ? '' : 'none';
+  };
+  show('advReasoning', showReasoning);
+  show('advReasoningOff', !showReasoning);
+  show('advBilling', showBilling);
+  show('advBillingOff', !showBilling);
+  show('advLocal', showLocal);
+  show('advLocalOff', !showLocal);
+}
+
+/** 识别 / 探测按钮文案（本地系 = 探测本机；GLM = 获取模型）。 */
+function connectIdentifyLabel(id) {
+  const meta = connectPresetMeta(id || connectCurrentPreset());
+  if (meta.local) return '↻ 探测本机';
+  if (meta.glm_capable) return '↻ 获取模型';
+  return '↻ 识别模型';
+}
+
+/** 同步应用预设（唯一的「端点开关」入口；无动画路径，配置回填可直接调用）。
+ *  opts: {base, key, models, keepModel, prices, quiet} */
+function connectApplyPresetNow(key, opts) {
+  opts = opts || {};
+  const presetId = PRESETS[key] ? key : 'custom';
+  const meta = PRESETS[presetId];
+  const prevId = connectCurrentPreset();          // 切出前的预设（切出即记忆手改值）
+  const baseEl = document.getElementById('providerBase');
+  const prevBase = baseEl ? String(baseEl.value || '').trim() : '';
+  if (prevId && prevId !== presetId && prevBase &&
+      prevBase !== String((PRESETS[prevId] || {}).base_url || '')) {
+    PRESET_BASE_MEMO[prevId] = prevBase;
+  }
+  connectPreset = presetId;          // 预设状态机唯一入口：同步写入当前预设
+  const psel = document.getElementById('providerPreset');
+  if (psel) psel.value = presetId;
+  try {
+    if (typeof CS !== 'undefined' && CS && typeof CS.sync === 'function' && psel) CS.sync(psel);
+  } catch (e) { /* 原生 select 兜底 */ }
+  if (baseEl) {
+    /* 取值优先级：配置回填显式值 > 本预设记忆的手改值 > 预设默认值
+       （custom 默认 ''；记忆命中即恢复用户上次填的 URL，不再被清空） */
+    if (opts.base !== undefined) baseEl.value = opts.base;
+    else if (PRESET_BASE_MEMO[presetId]) baseEl.value = PRESET_BASE_MEMO[presetId];
+    else baseEl.value = meta.base_url || '';
+    baseEl.placeholder = meta.base_url || 'https://api.example.com/v1';
+  }
+  const keyEl = document.getElementById('apiKey');
+  if (keyEl) {
+    if (opts.key !== undefined) keyEl.value = opts.key;
+    keyEl.placeholder = meta.glm_capable ? '粘贴你的智谱 API Key'
+      : meta.local ? '本地服务器通常无需 Key'
+      : '该服务商的 API Key（仅保存在本机）';
+  }
+  const keyRow = document.getElementById('cmKeyRow');
+  if (keyRow && keyRow.style) keyRow.style.display = meta.key_required ? '' : 'none';
+  const noKey = document.getElementById('cmNoKey');
+  if (noKey && noKey.style) noKey.style.display = meta.key_required ? 'none' : '';
+  const idBtn = document.getElementById('cmIdentifyBtn');
+  if (idBtn) idBtn.innerHTML = connectIdentifyLabel(presetId);
+  const prices = opts.prices || meta.prices;
+  if (prices) {
+    const setNum = (fid, v) => { const el = document.getElementById(fid); if (el) el.value = v; };
+    setNum('providerPriceIn', Number(prices.in) || 0);
+    setNum('providerPriceOut', Number(prices.out) || 0);
+    setNum('providerPriceCache', Number(prices.cache) || 0);
+  }
+  const list = opts.models || connectPresetModels(presetId);
+  connectFillModels(list, { auto: !!meta.glm_capable,
+                            group: list.length ? '预设推荐' : '',
+                            keep: opts.keepModel || '' });
+  const box = document.getElementById('localProbeResult');
+  if (box) { box.innerHTML = ''; }
+  const st = document.getElementById('providerTestStatus');
+  if (st) { st.textContent = ''; st.className = 'cm-status'; st.style.color = ''; }
+  connectUpdateAdvanced();
+  connectSyncState();
+  if (typeof updateBrandModel === 'function') updateBrandModel();
+  if (!opts.quiet && typeof queueSaveConfig === 'function') queueSaveConfig();
+}
+
+/** 应用预设（带内容区 200ms 交叉淡入的异步包装；模板/用户切换走这里）。
+ *  opts: {animate, base, key, models, keepModel, prices, quiet} */
+async function connectApplyPreset(id, opts) {
+  opts = opts || {};
+  const presetId = PRESETS[id] ? id : 'custom';
+  clearTimeout(connectIdentifyTimer);
+  if (opts.animate && typeof MOTION !== 'undefined' && !MOTION.instant()) {
+    const flow = document.getElementById('cmFlow');
+    if (flow && flow.classList) flow.classList.add('swapping');
+    await MOTION.sleep(MOTION.compOut());
+    connectApplyPresetNow(presetId, opts);
+    if (flow && flow.classList) flow.classList.remove('swapping');
+  } else {
+    connectApplyPresetNow(presetId, opts);
+  }
+}
+
+/** 旧签名兼容（模板 onchange / 旧调用点）：切预设并保存。 */
+function onProviderPresetChange(v) {
+  connectApplyPreset(v, { animate: true });
+}
+
+/* ================= 识别模型（防抖 800ms 自动 + 手动按钮兜底）================= */
+
+/** 字段变化后的防抖自动识别（云端需 URL + Key；本地系只需 URL；GLM 不自动枚举）。 */
+function connectScheduleIdentify() {
+  if (!CONNECT_AUTO_IDENTIFY) return;
+  clearTimeout(connectIdentifyTimer);
+  connectIdentifyTimer = setTimeout(() => {
+    const meta = connectPresetMeta(connectCurrentPreset());
+    if (meta.glm_capable) return;                 // GLM：手动「获取模型」才拉清单
+    const base = connectBaseUrl();
+    if (!base) return;
+    if (!meta.local && !connectApiKeyInput()) return;
+    connectIdentifyNow(false);
+  }, CONNECT_DEBOUNCE_MS);
+}
+
+/** 识别 / 探测入口（按钮手动点击 fromClick=true）。
+ *  last-wins：每次调用递增 connectIdentifySeq，旧请求返回后自行失效；
+ *  失败 → 人话 toast + 切手动输入态，永不阻塞保存与发送。 */
+async function connectIdentifyNow(fromClick) {
+  const meta = connectPresetMeta(connectCurrentPreset());
+  const base = connectBaseUrl();
+  if (!base) {
+    if (fromClick) {
+      toast('请先填写 Base URL，再识别模型', 'err');
+      connectEnterManual();
+    }
+    return;
+  }
+  const seq = ++connectIdentifySeq;
+  if (meta.local) {
+    /* 本地系：复用 v1.5 并行端口探测（local_probe），命中后自动带出清单 */
+    if (typeof localProbeNow === 'function') {
+      await localProbeNow();
+    } else if (fromClick) {
+      toast('本地探测不可用（模块未加载）', 'err');
+    }
+    return;
+  }
+  const key = connectApiKeyInput();
+  if (!key && !meta.local && meta.glm_capable && fromClick) {
+    toast('请先填写 API Key，再获取模型清单', 'warn');
+    connectEnterManual();
+    return;
+  }
+  const btn = document.getElementById('cmIdentifyBtn');
+  connectSetButtonLoading(btn, true, meta.glm_capable ? '获取中' : '识别中');
+  let models = [];
+  let reason = '';
+  try {
+    const raw = await callApi('local_models', [base, key]);
+    if (seq !== connectIdentifySeq) { connectSetButtonLoading(btn, false); return; }   // last-wins
+    const r = JSON.parse(raw || '{}');
+    if (r && r.ok && Array.isArray(r.models) && r.models.length) {
+      models = r.models.map(m => ({
+        id: String(m.id || ''),
+        text: String(m.id || ''),
+        badge: connectCtxBadge(m)
+      })).filter(m => m.id);
+    } else {
+      reason = (r && r.error) || '端点未返回模型清单';
+    }
+  } catch (e) {
+    reason = (e && e.message) ? e.message : String(e);
+  }
+  connectSetButtonLoading(btn, false);
+  if (seq !== connectIdentifySeq) return;           // last-wins：旧请求彻底失效
+  let hot = false;
+  if (!models.length) {
+    models = connectHotModels(base);                // 内置热门表兜底（设计书 §4.2）
+    hot = models.length > 0;
+  }
+  if (models.length) {
+    connectFillModels(models, { auto: !!meta.glm_capable,
+                                group: hot ? '内置热门模型' : '识别结果' });
+    toast((hot ? '已加载 ' : '已识别 ') + models.length + ' 个模型', 'ok');
+    return;
+  }
+  const msg = (meta.glm_capable ? '获取模型失败：' : '识别失败：') + (reason || '端点未返回模型清单');
+  if (fromClick) {
+    /* 手动点击失败 → 直接落到手动输入态（兜底路径，永不阻塞保存与发送） */
+    toast(msg + '，已切换为手动输入', 'err', { detail: 'GET ' + base + '/models\n' + (reason || '空响应') });
+    connectEnterManual();
+  } else {
+    /* 自动识别失败 → 只提示不打断（用户可能还在补 Key，不抢走已选模型） */
+    toast(msg + '（可点「识别模型」或手动输入模型名）', 'warn');
+  }
+}
+
+/** 取消进行中的识别（切预设 / 弃用时调用）：序号递增使旧请求全部失效。 */
+function connectCancelIdentify() {
+  clearTimeout(connectIdentifyTimer);
+  connectIdentifySeq++;
+}
+
+/* ================= 测试连接（云端 Key / 本地免 Key 统一入口）================= */
+
+async function connectTestNow() {
+  const btn = document.getElementById('providerTestBtn');
+  const st = document.getElementById('providerTestStatus');
+  if (btn && btn.disabled) return;
+  const meta = connectPresetMeta(connectCurrentPreset());
+  const base = connectBaseUrl();
+  const key = connectApiKeyInput();
+  const model = connectModelValue();
+  const done = (ok, msg) => {
+    if (st) {
+      st.textContent = (ok ? '✓ ' : '✗ ') + msg;
+      st.className = 'cm-status ' + (ok ? 'ok' : 'err');
+      st.style.color = ok ? 'var(--ok)' : 'var(--err)';
+    }
+    toast((ok ? '连接成功：' : '连接失败：') + msg, ok ? 'ok' : 'err', { stay: !ok });
+  };
+  connectSetButtonLoading(btn, true, '测试中');
+  if (st) { st.textContent = '正在测试连接…'; st.className = 'cm-status'; st.style.color = ''; }
+  try {
+    if (!base) { done(false, '请先填写 Base URL'); return; }
+    if (!/^https?:\/\//i.test(base)) { done(false, 'Base URL 需以 http:// 或 https:// 开头'); return; }
+    if (!meta.local && meta.glm_capable && !key) { done(false, '请先填写 API Key'); return; }
+    if (!model) { done(false, '请先选择或手动输入模型名'); return; }
+    const local = !!meta.local;
+    const raw = await callApi('test_provider_endpoint',
+      [base, local ? '' : key, model, local ? 30 : 15, local], local ? 90000 : 20000);
+    const r = JSON.parse(raw || '{}');
+    if (r && r.ok && r.state === 'loading') done(true, r.message || '模型加载中');
+    else if (r && r.ok) done(true, (r.reply ? '回复：' + r.reply : '端点可达' + (local ? ' · 本地 · 0 费用' : '')));
+    else done(false, (r && r.error) || '端点不可达');
+  } catch (e) {
+    done(false, (e && e.message) || '请求失败');
+  } finally {
+    connectSetButtonLoading(btn, false);
+  }
+}
+
+/** 旧签名兼容（v1.2 服务商测试通道）：统一走合并块的测试连接。 */
+async function testProviderNow() {
+  return connectTestNow();
+}
+
+/* ================= 配置读写（单一事实源 provider_*）================= */
+
+/** 采集 provider_* 键组（provider_name = 预设 id）。 */
+function connectCollectConfig() {
+  return {
+    provider_name: connectCurrentPreset(),
+    provider_base_url: connectBaseUrl(),
+    provider_key: connectApiKeyInput(),
+    provider_model: connectModelValue(),
+    provider_prices: connectPrices()
+  };
+}
+
+/** 从 config.json 回填合并块（含 v1.5 本地 config 与 v1.2 仅有 api_key 的旧配置迁移）。
+ *  seed 一次性且严格幂等：迁移落盘后 config 自带「本地系预设 + provider_base_url」，
+ *  再次 boot 时 alreadyLocal=true → 不再进入迁移分支、不再落盘（QA 修正 1）。 */
+function connectLoadFromConfig(cfg) {
+  cfg = cfg || {};
+  const legacyKey = String(cfg.api_key || '').trim();
+  const legacyModel = String(cfg.model || '').trim();
+  const legacyLocalBase = String(cfg.local_base_url || '').trim();
+  let presetId = String(cfg.provider_name || '').trim().toLowerCase();
+  let base = String(cfg.provider_base_url || '').trim();
+  let key = String(cfg.provider_key || '').trim();
+  let model = String(cfg.provider_model || '').trim();
+  let needSeed = false;
+  /* 已迁移的本地配置：provider_name 已是本地系预设且 provider_base_url 非空
+     （collectLocalConfig 会持续写 local_mode/local_base_url，不能据此重判迁移） */
+  const alreadyLocal = !!(PRESETS[presetId] && PRESETS[presetId].local) && !!base;
+  if (cfg.local_mode && legacyLocalBase && !alreadyLocal) {
+    /* v1.5 老配置：本地模式生效（旧运行期本地优先于服务商）→ 一次性迁移为本地系预设 */
+    const localId = String(cfg.local_preset || '').trim().toLowerCase();
+    presetId = (PRESETS[localId] && PRESETS[localId].local) ? localId
+      : (connectPresetByLocalUrl(legacyLocalBase) || 'custom');
+    base = legacyLocalBase;
+    /* 本地系迁移：模型名以 local_model 优先——双开老配置（provider_model 是云端名）迁到
+       本地预设后若保留云端名，请求会打到 localhost 却带云端模型名（等同 404 model not found）。
+       无 local_model 时才回落到原 provider_model/model。 */
+    model = String(cfg.local_model || '').trim() || model;
+    needSeed = true;
+  } else if (!base && (legacyKey || legacyModel || !presetId)) {
+    /* v1.2/更早：只有 api_key（或完全没有端点信息）→ 一次性 seed 为 GLM 预设 */
+    presetId = 'glm';
+    base = PRESETS.glm.base_url;
+    key = key || legacyKey;
+    model = model || legacyModel;
+    needSeed = !!legacyKey;
+  }
+  if (!PRESETS[presetId]) presetId = connectPresetByUrl(base) || 'custom';
+  if (!base) base = PRESETS[presetId].base_url;
+  if (!key) key = legacyKey;
+  if (!model) model = legacyModel;
+  const cfgPrices = cfg.provider_prices || null;
+  const prices = (cfgPrices && (cfgPrices.in != null || cfgPrices.out != null || cfgPrices.cache != null))
+    ? { in: Number(cfgPrices.in) || 0, out: Number(cfgPrices.out) || 0, cache: Number(cfgPrices.cache) || 0 }
+    : null;
+  /* 非同步应用（boot 阶段无动画；connectApplyPresetNow 为纯同步 DOM 更新，
+     内部同步写入 connectPreset，故此处直接传 presetId） */
+  clearTimeout(connectIdentifyTimer);
+  connectApplyPresetNow(presetId, {
+    base: base, key: key, keepModel: model,
+    prices: prices || undefined, quiet: !needSeed
+  });
+  const ctxEl = document.getElementById('localCtxWindow');
+  if (ctxEl) ctxEl.value = parseInt(cfg.local_ctx_window, 10) || 0;
+  const toolEl = document.getElementById('localToolCapable');
+  if (toolEl) toolEl.value = cfg.local_tool_capable || 'auto';
+  connectUpdateAdvanced();
+  connectSyncState();
+  if (typeof applyLocalMetaBadge === 'function') applyLocalMetaBadge();
+  /* 迁移落盘由 connectApplyPresetNow 的 !quiet 分支统一触发（一次），此处不再重复排队 */
+}
+
+/** 旧签名兼容（boot 调用点）：回填合并块。 */
+function loadProviderUI(cfg) {
+  connectLoadFromConfig(cfg);
+}
+
+/** 旧签名兼容：合并后无「启用端点」勾选，字段常显（保留函数供旧调用点调用）。 */
+function syncProviderUiState() {
+  const wrap = document.getElementById('providerFields');
+  if (wrap && wrap.style) wrap.style.display = '';
+}
+
+/** 旧签名兼容：保存后刷新运行态。 */
+function applyProviderConfig() {
+  connectSyncState();
+  if (typeof updateBrandModel === 'function') updateBrandModel();
+}
+
+/** 旧签名兼容：采集 provider_* 键组。 */
+function collectProviderConfig() {
+  return connectCollectConfig();
+}
+
+/* ================= 初始化（boot 调用）================= */
+
+function connectInit() {
+  const on = (id, ev, fn) => {
+    const el = document.getElementById(id);
+    if (el && el.addEventListener) el.addEventListener(ev, fn);
+  };
+  on('providerBase', 'input', () => { connectScheduleIdentify(); });
+  on('providerBase', 'change', () => { connectScheduleIdentify(); connectSyncState(); if (typeof queueSaveConfig === 'function') queueSaveConfig(); });
+  on('apiKey', 'input', () => { connectScheduleIdentify(); });
+  on('modelSelect', 'change', () => { connectOnModelChange(); });
+  on('cmManualInput', 'input', () => { connectSyncState(); if (typeof updateBrandModel === 'function') updateBrandModel(); });
+  on('cmManualInput', 'change', () => { if (typeof queueSaveConfig === 'function') queueSaveConfig(); });
+  on('cmManualBack', 'click', () => { connectExitManual(); if (typeof queueSaveConfig === 'function') queueSaveConfig(); });
+  /* 识别 / 测试按钮走模板 onclick（模板已绑定 connectIdentifyNow / connectTestNow），
+     此处不重复绑定，避免一次点击触发两次识别 */
+  ['reasoningEffort', 'providerPriceIn', 'providerPriceOut', 'providerPriceCache',
+   'localToolCapable', 'localCtxWindow'].forEach(id => {
+    on(id, 'change', () => { connectSyncState(); if (typeof queueSaveConfig === 'function') queueSaveConfig(); });
+  });
+  connectUpdateAdvanced();
 }
 
 /* ===== 36-cost-defense.js ===== */
@@ -3923,7 +4901,27 @@ function addMessage(role, content, extra) {
     <div class="content ${role === 'error' ? 'error' : ''}">${body}${extraHtml}</div>`;
   container.appendChild(div);
   container.scrollTop = container.scrollHeight;
+  // v4 配色重设计（用户反馈「气泡颜色太深」）：错误气泡前缀红字加粗、正文中性色——
+  // 语义色收窄到标题（完整规则见模板 .message .content.error：中性卡+红色左边条）
+  if (role === 'error') fillErrorBubble(div.querySelector('.content'), content);
   return div.querySelector('.content');
+}
+/* v4 配色重设计：错误气泡文本装配——「请求失败:」前缀红字（b.err-title），
+   正文中性色；textContent 组装不碰 innerHTML（端点错误文本=不可信输入，防注入）。 */
+function fillErrorBubble(el, text) {
+  if (!el) return;
+  const txt = String(text == null ? '' : text);
+  const m = /^([^:：]{0,12}[:：])\s*/.exec(txt);
+  el.textContent = '';
+  if (m) {
+    const t = document.createElement('b');
+    t.className = 'err-title';
+    t.textContent = m[1] + ' ';
+    el.appendChild(t);
+    el.appendChild(document.createTextNode(txt.slice(m[0].length)));
+  } else {
+    el.textContent = txt;
+  }
 }
 function addMsgActions(contentEl, text, onlyCopy) {
   if (!contentEl || !text) return;
@@ -4700,7 +5698,7 @@ async function runAgentLoop(s, apiKey) {
       const shown = humanizeApiError(err.message);   // v1.2 R5：错误人话 + 可行操作
       if (aiContent) {
         aiContent.className = 'content error';
-        aiContent.textContent = '请求失败: ' + shown;
+        fillErrorBubble(aiContent, '请求失败: ' + shown);   // v4：前缀红字+正文中性（防注入装配）
       } else {
         addMessage('error', '请求失败: ' + shown);   // 修复 ㉗：循环未建气泡前出错不再砸在 null 上
       }
@@ -4943,7 +5941,9 @@ function rememberDeletedSession(id) {
 function collectConfig() {
   return {
     api_key: document.getElementById('apiKey').value,
-    model: document.getElementById('modelSelect').value,
+    /* v4 合并块：模型可能是手动态（文本框），统一经 connectModelValue 取值 */
+    model: (typeof connectModelValue === 'function' ? connectModelValue() : '') ||
+      document.getElementById('modelSelect').value || 'auto',
     temperature: parseFloat(document.getElementById('temperature').value),
     top_p: parseFloat(document.getElementById('topP').value),
     max_tokens: parseInt(document.getElementById('maxTokens').value),
@@ -4955,7 +5955,7 @@ function collectConfig() {
     shot_quality: document.getElementById('shotQuality').value,
     saver_level: document.getElementById('saverLevel').value,
     session_budget: parseFloat(document.getElementById('sessionBudget').value) || 0,
-    /* v1.2 R1/R6：自动更新源 + 自定义服务商（合并写入 config.json，既有键不受影响） */
+    /* v1.2 R1/R6 → v4 单端点：更新源 + provider_* 主键组（预设 id/base_url/key/model/prices） */
     update_manifest_url: (document.getElementById('updateManifestUrl') || {}).value || '',
     ...collectProviderConfig(),
     /* v1.5 本地模型：local_* 键（运行期合法、测试期不触发——契约红线同 provider_*） */
@@ -4965,11 +5965,15 @@ function collectConfig() {
 /* ================= 智能档：模型 + 推理力度自动路由（v1.1.1 省 token） =================
  * 思路：思考(reasoning) token 按输出计价，是最贵的部分。轻任务不该开思考。
  * 模型保持最省的 flash；力度按任务复杂度分三档自动调节，用户也可手动锁定。
+ * v4：智能档只在「智谱 GLM 预设」下出现（模型下拉首项）；其他预设模型名是实义值，
+ * 直接透传（不参与自动路由），推理力度由端点能力决定是否发送。
  */
 const HEAVY_HINTS = /重构|架构|调试|排查|报错|错误|异常|分析|实现|优化|设计|算法|推导|证明|方案|对比|性能|安全|迁移|兼容|代码|函数|接口|数据库|正则|并发|测试|部署|review/i;
 function resolveModelEffort(text, hasAttach) {
-  const modelSel = document.getElementById('modelSelect').value;
-  const effSel = document.getElementById('reasoningEffort').value;
+  const picked = (typeof connectModelValue === 'function') ? connectModelValue() : '';
+  const modelSel = picked || (document.getElementById('modelSelect') || {}).value || 'auto';
+  const effEl = document.getElementById('reasoningEffort');
+  const effSel = (effEl && effEl.value) || 'auto';
   if (modelSel !== 'auto') {
     return { model: modelSel, effort: effSel === 'auto' ? 'low' : effSel, auto: false, tier: '手动' };
   }
@@ -5003,161 +6007,105 @@ async function saveConfig() {
 }
 
 /* ===== 71-provider.js ===== */
-/* ================= 模型服务商抽象（v1.2 R6：OpenAI 兼容端点） =================
- * 原则：GLM 保持默认；自定义端点 opt-in。
- * providerState 从 config.json 的 provider_* 键加载（save_config 合并已支持，契约不受影响）。
- * GLM 专属请求字段（thinking / reasoning_effort / web_search 工具）仅在 GLM 端点发送。
- * v1.5 本地模式：localState 优先于 providerState——本机 OpenAI 兼容服务器
- * （Ollama/LM Studio/vLLM/llama.cpp/LocalAI），免 Key、零费用；local_mode 默认关，
- * 关闭时全部请求入口行为与本版之前完全一致。
+/* ================= 端点抽象（v4 · 完全单端点） =================
+ * 全 App 只有一个「当前端点」概念，由 36-connect.js 的预设状态机决定：
+ * 「连接与模型」区块的预设下拉是唯一开关（GLM / DeepSeek / Moonshot / 通义千问 /
+ * Ollama / LM Studio / vLLM / llama.cpp / LocalAI / 自定义）。
+ *
+ * 运行态派生（36-connect.js connectSyncState 写入，本模块只读）：
+ * - providerState = {enabled, name(预设 id), base_url, model, key, prices} —— 云端与 GLM 共用；
+ * - localState = {mode, base_url, model, ctx_window, tool_capable} —— 本地系预设派生，
+ *   60-agent-loop 的本地模型分支继续依赖它（localState.model 优先）。
+ *
+ * GLM 判据（v4 改判）：provider_name === 'glm' 或 base_url 含 bigmodel.cn ——
+ * 决定 thinking / reasoning_effort / web_search 工具 / 智能档 / 内置价格表。
+ * 语义与合并前一致：GLM 端点全开，非 GLM（云端第三方 / 本地）全部关闭。
  */
 
-const PROVIDER_PRESETS = {
-  deepseek: { name: 'DeepSeek', base_url: 'https://api.deepseek.com/v1', model: 'deepseek-v4.1-256k',
-              prices: { in: 2, out: 8, cache: 0.4 } },
-  custom:   { name: '自定义 OpenAI 兼容', base_url: '', model: '', prices: { in: 2, out: 8, cache: 0.4 } }
-};
-
-/** 端点地址解析：45-request-debounce 的 fetch 目标。v1.5：local 模式优先。 */
-function resolveApiEndpoint() {
-  if (localState && localState.mode && localState.base_url) {
-    const base = String(localState.base_url).trim().replace(/\/+$/, '');
-    if (base) return base.endsWith('/chat/completions') ? base : base + '/chat/completions';
-  }
-  if (providerState && providerState.enabled && providerState.base_url) {
-    const base = String(providerState.base_url).trim().replace(/\/+$/, '');
-    if (base) return base.endsWith('/chat/completions') ? base : base + '/chat/completions';
-  }
-  return API_URL;
-}
-function isGlmEndpoint() {
-  if (localState && localState.mode && localState.base_url) return false;
-  return !(providerState && providerState.enabled && providerState.base_url);
-}
-/** 当前端点显示名（本地模式 / 服务商 / GLM）。 */
-function currentEndpointName() {
-  if (localState && localState.mode && localState.base_url) return '本地 · ' + (localState.model || '?');
-  if (providerState && providerState.enabled && providerState.base_url) return providerState.name || 'custom';
-  return 'GLM';
+/** Base URL 是否指向智谱官方域名（自定义预设填官方地址也按 GLM 对待）。 */
+function isGlmBaseUrl(url) {
+  return /bigmodel\.cn/i.test(String(url || ''));
 }
 
-/** 生效的 API Key：本地模式免 Key（本机服务器通常无鉴权）；自定义端点启用且填了 Key
- *  → 用服务商 Key；否则回退 GLM Key（#apiKey）。
- *  所有请求入口（发送/重新生成/压缩/断点续跑）统一走此函数，避免端点切了 Key 没切。 */
-/** 本地模式是否生效（勾选启用 + 有 base_url；本地端点无需 API Key）。
- *  修复（2026-10-17）：此前 effectiveApiKey() 在本地模式返回 ''（fetch 层语义正确），
- *  但 sendMessage 的两处校验把 '' 当「未配置」误报「请先填入 API Key」——
- *  抽出本判断供发送前校验放行。 */
+/** 本地端点是否生效（本地系预设 + 有 base_url；本地端点无需 API Key）。 */
 function localModeActive() {
   return !!(localState && localState.mode && localState.base_url);
 }
 
-function effectiveApiKey() {
-  if (localModeActive()) return '';
-  if (providerState && providerState.enabled && providerState.key) return String(providerState.key).trim();
-  const el = document.getElementById('apiKey');
-  return el ? el.value.trim() : '';
+/** chat/completions 拼接（base 已含则原样）。 */
+function chatCompletionsOf(base) {
+  const b = String(base || '').trim().replace(/\/+$/, '');
+  if (!b) return '';
+  return b.endsWith('/chat/completions') ? b : b + '/chat/completions';
 }
 
-/** 价格表：本地模式零费（A4）；自定义端点优先，GLM 按 MODEL_PRICE。 */
+/** 端点地址解析：45-request-debounce / 97-compact 的 fetch 目标。
+ *  本地系预设 → localState.base_url；其余 → providerState.base_url；都空 → 官方 API_URL。 */
+function resolveApiEndpoint() {
+  if (localModeActive()) {
+    const local = chatCompletionsOf(localState.base_url);
+    if (local) return local;
+  }
+  const base = chatCompletionsOf((providerState && providerState.base_url) || '');
+  if (base) return base;
+  return API_URL;
+}
+
+/** 当前端点是否智谱 GLM（GLM 专属能力总开关）。
+ *  判据（v4 D5）：provider_name === 'glm' 或 base_url 含 bigmodel.cn。 */
+function isGlmEndpoint() {
+  if (localModeActive()) return false;
+  const st = providerState || {};
+  const name = String(st.name || '').trim().toLowerCase();
+  const base = String(st.base_url || '').trim();
+  if (name === 'glm') return true;               // 判据一：预设即智谱官方
+  if (name) return isGlmBaseUrl(base);           // 判据二：非 GLM 预设，只有填了官方域名才算
+  return base ? isGlmBaseUrl(base) : true;       // 无端点信息 → 沿用 GLM 官方默认
+}
+
+/** 当前端点显示名（会话里 addSysTip 用）。 */
+function currentEndpointName() {
+  if (localModeActive()) return '本地 · ' + (localState.model || '?');
+  if (isGlmEndpoint()) return 'GLM';
+  const id = String((providerState && providerState.name) || '');
+  const meta = (typeof connectPresetMeta === 'function') ? connectPresetMeta(id) : null;
+  return (meta && meta.name) || id || 'custom';
+}
+
+/** 生效的 API Key：本地系免 Key；其余用合并块唯一的 Key 字段（#apiKey，
+ *  旧运行态 providerState.key 作为内存回退）。
+ *  所有请求入口（发送/重新生成/压缩/断点续跑）统一走此函数，避免端点切了 Key 没切。 */
+function effectiveApiKey() {
+  if (localModeActive()) return '';
+  const el = document.getElementById('apiKey');
+  const typed = el ? String(el.value || '').trim() : '';
+  if (typed) return typed;
+  return (providerState && providerState.key) ? String(providerState.key).trim() : '';
+}
+
+/** 价格表：本地系零费（A4）；非 GLM 云端端点用「高级 · 计费三价」；GLM 用内置 MODEL_PRICE。 */
 function providerPriceFor(model) {
-  if (localState && localState.mode && localState.base_url) {
+  if (localModeActive()) {
     return { in: 0, out: 0, cache: 0 };
   }
-  if (providerState && providerState.enabled && providerState.model === model) {
-    const p = providerState.prices || {};
-    return { in: Number(p.in) || 0, out: Number(p.out) || 0, cache: Number(p.cache) || 0 };
+  if (!isGlmEndpoint() && providerState && providerState.prices) {
+    const p = providerState.prices;
+    const has = Number(p.in) > 0 || Number(p.out) > 0 || Number(p.cache) > 0;
+    if (has) return { in: Number(p.in) || 0, out: Number(p.out) || 0, cache: Number(p.cache) || 0 };
   }
   return MODEL_PRICE[model] || MODEL_PRICE['glm-5.3-flashx'];
 }
 
-/** 从 boot 加载的 cfg 回填 provider 设置 UI。 */
-function loadProviderUI(cfg) {
-  cfg = cfg || {};
-  providerState = {
-    enabled: !!cfg.provider_enabled,
-    name: cfg.provider_name || 'custom',
-    base_url: cfg.provider_base_url || '',
-    model: cfg.provider_model || '',
-    key: cfg.provider_key || '',
-    prices: cfg.provider_prices || PROVIDER_PRESETS.custom.prices
-  };
-  const on = document.getElementById('providerEnabled');
-  if (on) on.checked = providerState.enabled;
-  const preset = document.getElementById('providerPreset');
-  if (preset) preset.value = providerState.name || 'custom';
-  const set = (id, v) => { const el = document.getElementById(id); if (el && v != null) el.value = v; };
-  set('providerBase', providerState.base_url);
-  set('providerModel', providerState.model);
-  set('providerKey', providerState.key);
-  const pr = providerState.prices || {};
-  set('providerPriceIn', pr.in); set('providerPriceOut', pr.out); set('providerPriceCache', pr.cache);
-  syncProviderUiState();
-  updateBrandModel();
-}
-function syncProviderUiState() {
-  const wrap = document.getElementById('providerFields');
-  const on = document.getElementById('providerEnabled');
-  if (wrap && on) wrap.style.display = on.checked ? '' : 'none';
-}
-function onProviderPresetChange(v) {
-  const p = PROVIDER_PRESETS[v] || PROVIDER_PRESETS.custom;
-  const set = (id, val) => { const el = document.getElementById(id); if (el) el.value = val; };
-  set('providerBase', p.base_url); set('providerModel', p.model);
-  set('providerPriceIn', p.prices.in); set('providerPriceOut', p.prices.out); set('providerPriceCache', p.prices.cache);
-}
-async function testProviderNow() {
-  const base = document.getElementById('providerBase').value.trim();
-  const key = document.getElementById('providerKey').value.trim();
-  const model = document.getElementById('providerModel').value.trim();
-  const btn = document.getElementById('providerTestBtn');
-  const st = document.getElementById('providerTestStatus');
-  if (btn) { btn.disabled = true; btn.textContent = '测试中…'; }
-  try {
-    const r = JSON.parse(await callApi('test_provider_endpoint', [base, key, model]));
-    if (st) {
-      st.textContent = r.ok ? '✓ 连接成功' + (r.reply ? '：' + r.reply : '') : '✗ ' + (r.error || '失败');
-      st.style.color = r.ok ? 'var(--ok)' : 'var(--err)';
-    }
-    toast(r.ok ? '端点连接成功' : '端点测试失败：' + (r.error || ''), r.ok ? 'ok' : 'err', { stay: !r.ok, detail: r.error || '' });
-  } catch (e) {
-    if (st) { st.textContent = '✗ ' + e.message; st.style.color = 'var(--err)'; }
-    toast('端点测试失败：' + e.message, 'err');
-  } finally {
-    if (btn) { btn.disabled = false; btn.textContent = '测试连接'; }
-  }
-}
-function collectProviderConfig() {
-  const on = document.getElementById('providerEnabled');
-  return {
-    provider_enabled: on ? on.checked : false,
-    provider_name: (document.getElementById('providerPreset') || {}).value || 'custom',
-    provider_base_url: (document.getElementById('providerBase') || {}).value || '',
-    provider_model: (document.getElementById('providerModel') || {}).value || '',
-    provider_key: (document.getElementById('providerKey') || {}).value || '',
-    provider_prices: {
-      in: parseFloat((document.getElementById('providerPriceIn') || {}).value) || 0,
-      out: parseFloat((document.getElementById('providerPriceOut') || {}).value) || 0,
-      cache: parseFloat((document.getElementById('providerPriceCache') || {}).value) || 0
-    }
-  };
-}
-/** 保存后刷新运行态与品牌位。 */
-function applyProviderConfig() {
-  const pc = collectProviderConfig();
-  providerState = {
-    enabled: !!pc.provider_enabled,
-    name: pc.provider_name, base_url: pc.provider_base_url,
-    model: pc.provider_model, key: pc.provider_key, prices: pc.provider_prices
-  };
-  updateBrandModel();
-}
+/** 品牌位 / 会话头标题：显示当前生效模型名（手动态取文本框）。 */
 function updateBrandModel() {
-  const txt = (localState && localState.mode && localState.model)
-    ? localState.model
-    : providerState.enabled && providerState.model
-      ? providerState.model
-      : (document.getElementById('modelSelect')?.value || 'glm-5.3-flash');
+  let txt = '';
+  if (typeof connectModelValue === 'function') txt = connectModelValue();
+  if (!txt) {
+    const sel = document.getElementById('modelSelect');
+    const v = sel ? String(sel.value || '') : '';
+    txt = (v && v !== '__manual__' && v !== '__group__') ? v : '';
+  }
+  if (!txt) txt = 'glm-5.3-flash';
   const bm = document.getElementById('brandModel');
   const ht = document.getElementById('headerTitle');
   if (bm) bm.textContent = txt;
@@ -6756,8 +7704,9 @@ async function loadAll() {
   tempEl.addEventListener('input', () => { updateLabels(); queueSaveConfig(); });
   topPEl.addEventListener('input', () => { updateLabels(); queueSaveConfig(); });
   document.getElementById('modelSelect').addEventListener('change', () => {
+    if (typeof connectOnModelChange === 'function') connectOnModelChange();   // v4：下拉 ⇄ 手动态同步
     queueSaveConfig();
-    updateBrandModel();   // v1.2 R6：品牌位优先显示自定义端点模型
+    updateBrandModel();   // v1.2 R6 / v4：品牌位显示当前生效模型
   });
   ['toolMode','maxTokens','reasoningEffort','searchEngine'].forEach(id =>
     document.getElementById(id).addEventListener('change', queueSaveConfig));
@@ -6767,12 +7716,13 @@ async function loadAll() {
   });
   document.getElementById('systemPrompt').addEventListener('input', queueSaveConfig);
   document.getElementById('apiKey').addEventListener('input', queueSaveConfig);
-  /* v1.2：服务商/更新源字段改动即保存并即时生效 */
-  ['providerBase','providerModel','providerKey','providerPriceIn','providerPriceOut','providerPriceCache','updateManifestUrl']
-    .forEach(id => {
-      const el = document.getElementById(id);
-      if (el) el.addEventListener('change', () => { queueSaveConfig(); applyProviderConfig(); });
-    });
+  /* v1.2：更新源字段改动即保存 */
+  ['updateManifestUrl'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener('change', () => { queueSaveConfig(); });
+  });
+  /* v4「连接与模型」合并块：预设切换 / 单一 URL·Key·模型流 / 识别与测试按钮 */
+  try { connectInit(); } catch (e) { console.warn('连接与模型初始化失败', e); }
   document.getElementById('enableSearch').addEventListener('change', function () {
     document.getElementById('searchEngineWrap').style.display = this.checked ? 'flex' : 'none';
     queueSaveConfig();
@@ -6860,10 +7810,11 @@ async function loadAll() {
   if (cfg.shot_quality) document.getElementById('shotQuality').value = cfg.shot_quality;
   if (cfg.saver_level) document.getElementById('saverLevel').value = cfg.saver_level;
   if (cfg.session_budget != null) document.getElementById('sessionBudget').value = cfg.session_budget;
-  /* v1.2：回填更新源 + 服务商 + 安全护栏配置 */
+  /* v1.2：回填更新源 + 安全护栏配置 */
   if (cfg.update_manifest_url) document.getElementById('updateManifestUrl').value = cfg.update_manifest_url;
-  loadProviderUI(cfg);
-  try { loadLocalUI(cfg); } catch (e) {}   // v1.5 本地模型（预留接口层 UI；local_* 键回填）
+  /* v4「连接与模型」单块：预设 + 单一 URL/Key/模型流回填（含旧配置一次性 seed 迁移，幂等） */
+  try { connectLoadFromConfig(cfg); } catch (e) { console.warn('连接与模型回填失败', e); }
+  try { loadLocalUI(cfg); } catch (e) {}   // v1.5 本地专属项（ctx 覆盖 / 工具调用；local_* 键回填）
   try { await loadGuardConfig(); } catch (e) {}
   document.getElementById('searchEngineWrap').style.display = cfg.enable_search ? 'flex' : 'none';
   updateLabels();

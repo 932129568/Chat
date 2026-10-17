@@ -23,8 +23,9 @@ async function loadAll() {
   tempEl.addEventListener('input', () => { updateLabels(); queueSaveConfig(); });
   topPEl.addEventListener('input', () => { updateLabels(); queueSaveConfig(); });
   document.getElementById('modelSelect').addEventListener('change', () => {
+    if (typeof connectOnModelChange === 'function') connectOnModelChange();   // v4：下拉 ⇄ 手动态同步
     queueSaveConfig();
-    updateBrandModel();   // v1.2 R6：品牌位优先显示自定义端点模型
+    updateBrandModel();   // v1.2 R6 / v4：品牌位显示当前生效模型
   });
   ['toolMode','maxTokens','reasoningEffort','searchEngine'].forEach(id =>
     document.getElementById(id).addEventListener('change', queueSaveConfig));
@@ -34,12 +35,13 @@ async function loadAll() {
   });
   document.getElementById('systemPrompt').addEventListener('input', queueSaveConfig);
   document.getElementById('apiKey').addEventListener('input', queueSaveConfig);
-  /* v1.2：服务商/更新源字段改动即保存并即时生效 */
-  ['providerBase','providerModel','providerKey','providerPriceIn','providerPriceOut','providerPriceCache','updateManifestUrl']
-    .forEach(id => {
-      const el = document.getElementById(id);
-      if (el) el.addEventListener('change', () => { queueSaveConfig(); applyProviderConfig(); });
-    });
+  /* v1.2：更新源字段改动即保存 */
+  ['updateManifestUrl'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener('change', () => { queueSaveConfig(); });
+  });
+  /* v4「连接与模型」合并块：预设切换 / 单一 URL·Key·模型流 / 识别与测试按钮 */
+  try { connectInit(); } catch (e) { console.warn('连接与模型初始化失败', e); }
   document.getElementById('enableSearch').addEventListener('change', function () {
     document.getElementById('searchEngineWrap').style.display = this.checked ? 'flex' : 'none';
     queueSaveConfig();
@@ -127,10 +129,11 @@ async function loadAll() {
   if (cfg.shot_quality) document.getElementById('shotQuality').value = cfg.shot_quality;
   if (cfg.saver_level) document.getElementById('saverLevel').value = cfg.saver_level;
   if (cfg.session_budget != null) document.getElementById('sessionBudget').value = cfg.session_budget;
-  /* v1.2：回填更新源 + 服务商 + 安全护栏配置 */
+  /* v1.2：回填更新源 + 安全护栏配置 */
   if (cfg.update_manifest_url) document.getElementById('updateManifestUrl').value = cfg.update_manifest_url;
-  loadProviderUI(cfg);
-  try { loadLocalUI(cfg); } catch (e) {}   // v1.5 本地模型（预留接口层 UI；local_* 键回填）
+  /* v4「连接与模型」单块：预设 + 单一 URL/Key/模型流回填（含旧配置一次性 seed 迁移，幂等） */
+  try { connectLoadFromConfig(cfg); } catch (e) { console.warn('连接与模型回填失败', e); }
+  try { loadLocalUI(cfg); } catch (e) {}   // v1.5 本地专属项（ctx 覆盖 / 工具调用；local_* 键回填）
   try { await loadGuardConfig(); } catch (e) {}
   document.getElementById('searchEngineWrap').style.display = cfg.enable_search ? 'flex' : 'none';
   updateLabels();

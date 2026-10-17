@@ -504,11 +504,15 @@ class Api:
                 return err('ports 需要是 JSON 数组，如 [11434,1234]')
         return ok(self._local.probe(ports=port_list))
 
-    def local_models(self, base_url):
+    def local_models(self, base_url, api_key=''):
         """A3：补拉模型清单（探测过期时用）。
 
+        api_key 可选（v4「连接与模型」单端点合并）：非空时请求带
+        `Authorization: Bearer {key}` —— 云端 OpenAI 兼容端点（DeepSeek/Moonshot/
+        通义…）的 /models 清单需鉴权；本地服务器免 Key，单参调用行为不变。
+
         返回 {ok, base_url, models:[{id, ctx_window, tool_capable, estimated}]}。"""
-        return ok(self._local.models(base_url))
+        return ok(self._local.models(base_url, api_key=api_key))
 
     # ============ v1.6 WebDAV 数据主权（预留接口，_V12_EXTRA 隐身）============
     def webdav_get_config(self):

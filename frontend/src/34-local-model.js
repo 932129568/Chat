@@ -1,19 +1,28 @@
-/* ================= v1.5 本地模型（预留接口层 UI） =================
+/* ================= v1.5 本地模型（合并后：并入「连接与模型」单块） =================
  * 覆盖 roadmap 连接层 A（A1-A5）：预设 / 探测 / 模型清单 / 元数据展示 / 本地计费 / 无 Key 测试连接。
  * 适配层 B（B1-B5）判定接口已就绪（后端 local_model_service）：上下文窗口自适应阈值 /
- * 工具能力降级 / 慢推理状态 / Ollama 特情 / 本地 MCP 保守策略——Agent 主链路编排
- * （去 tools 重发、watchdog、确认文案注入）在后续迭代接线，本模块先落 UI 与配置面。
+ * 工具能力降级 / 慢推理状态 / Ollama 特情 / 本地 MCP 保守策略。
+ *
+ * v4「完全单端点」合并后本模块的定位变化：
+ * - 本地服务器不再是独立模式，而是 PRESETS 里的本地系预设（ollama/lmstudio/vllm/
+ *   llamacpp/localai）——端点开关由 36-connect.js 的预设状态机统一决定；
+ * - 本模块只保留「本地专属」能力：并行端口探测 / 模型清单（带 ctx 元数据）/ 免 Key
+ *   测试连接 / ctx 徽标 / 本地压缩阈值；控件已并入合并块（探测按钮 = 识别按钮同一颗，
+ *   模型下拉 = modelSelect，ctx 徽标 = cmCtxBadge）；
+ * - 运行态仍由 localState 承载（36-connect 的 connectSyncState 从预设 + local_* 键派生），
+ *   60-agent-loop 的本地模型分支因此继续有效。
  *
  * 契约红线：
  * - js_api：local_probe / local_models / test_provider_endpoint(local=true)（均已登记 _V12_EXTRA）；
- * - 配置：local_* 键经 collectConfig → save_config 合并（运行期合法、测试期不触发）；
- * - DOM/CSS：全部纯新增（id：localModeEnable/localFields/localPreset/localProbeBtn/
- *   localBaseUrl/localModelsBtn/localModelSelect/localMetaBadge/localToolCapable/
- *   localCtxWindow/localTestBtn/localTestStatus/localProbeResult）。
+ * - 配置：local_* 键经 collectLocalConfig → save_config 合并（运行期合法、测试期不触发）；
+ * - DOM：合并块沿用 v1.5 id 语义的子集（localProbeResult/localToolCapable/localCtxWindow
+ *   原样保留）；已并入合并块的控件经 localEl() 双 id 解析（老 id 优先，回落合并块 id），
+ *   单元/联调沙箱（只加载本模块 + 老 id）与真实合并块（新 id）都能工作。
  */
 let localState = { mode: false, base_url: '', model: '', ctx_window: 0, tool_capable: 'auto' };
 
-/* 预设表（与后端 LOCAL_PRESETS 同源；UI 一键填充 + 本地零费语义） */
+/* 预设表（与后端 LOCAL_PRESETS 同源；UI 一键填充 + 本地零费语义）。
+ * 合并后 UI 的预设下拉由 36-connect.js 的 PRESETS 提供，本表保留为数据源/兼容引用。 */
 const LOCAL_UI_PRESETS = {
   ollama:  { name: 'Ollama',          base_url: 'http://localhost:11434/v1' },
   lmstudio:{ name: 'LM Studio',       base_url: 'http://localhost:1234/v1' },
@@ -23,63 +32,95 @@ const LOCAL_UI_PRESETS = {
   custom:  { name: '自定义',           base_url: '' }
 };
 
+/** 合并块 id 解析：老 id（v1.5 独立区块 / 单模块沙箱）优先，回落合并块 id。 */
+function localEl(legacyId, mergedId) {
+  const legacy = legacyId ? document.getElementById(legacyId) : null;
+  if (legacy) return legacy;
+  return mergedId ? document.getElementById(mergedId) : null;
+}
+
+/** 识别/探测按钮复位：单模块沙箱（老 id 存在）→ v1.5 原文案；
+ *  真实合并块（老 id 都不存在）→ 当前预设的按钮文案。 */
+function localRestoreIdentifyBtn(btn, legacyText) {
+  if (!btn) return;
+  btn.disabled = false;
+  const merged = !document.getElementById('localProbeBtn') && !document.getElementById('localModelsBtn');
+  btn.textContent = (merged && typeof connectIdentifyLabel === 'function')
+    ? connectIdentifyLabel() : legacyText;
+}
+
 function loadLocalUI(cfg) {
   cfg = cfg || {};
-  localState = {
-    mode: !!cfg.local_mode,
-    base_url: cfg.local_base_url || '',
-    model: cfg.local_model || '',
-    ctx_window: parseInt(cfg.local_ctx_window) || 0,
-    tool_capable: cfg.local_tool_capable || 'auto'
-  };
-  const on = document.getElementById('localModeEnable');
-  if (on) on.checked = localState.mode;
-  const preset = document.getElementById('localPreset');
-  if (preset) preset.value = cfg.local_preset || 'custom';
-  const set = (id, v) => { const el = document.getElementById(id); if (el && v != null) el.value = v; };
-  set('localBaseUrl', localState.base_url);
-  set('localCtxWindow', localState.ctx_window || 0);
-  set('localToolCapable', localState.tool_capable);
-  refreshLocalModelOptions(localState.model ? [localState.model] : [], localState.model);
-  syncLocalUiState();
+  /* 合并后端点信息（base_url/model/mode）由 connectLoadFromConfig 统一回填，
+     本函数只负责「本地专属项」：ctx 覆盖 / 工具调用偏好（local_* 键）。 */
+  const ctx = parseInt(cfg.local_ctx_window, 10) || 0;
+  const tool = cfg.local_tool_capable || 'auto';
+  const ctxEl = localEl('localCtxWindow', 'localCtxWindow');
+  if (ctxEl) ctxEl.value = ctx;
+  const toolEl = localEl('localToolCapable', 'localToolCapable');
+  if (toolEl) toolEl.value = tool;
+  localState.ctx_window = ctx;
+  localState.tool_capable = tool;
   applyLocalMetaBadge();
 }
+
 function collectLocalConfig() {
   const g = id => (document.getElementById(id) || {}).value || '';
-  const on = document.getElementById('localModeEnable');
-  const preset = document.getElementById('localPreset');
+  const isLocal = (typeof connectIsLocalPreset === 'function')
+    ? connectIsLocalPreset()
+    : !!(localState && localState.mode);
+  const preset = (typeof connectCurrentPreset === 'function') ? connectCurrentPreset() : '';
+  const base = (typeof connectBaseUrl === 'function') ? connectBaseUrl() : (localState.base_url || '');
+  const model = (typeof connectModelValue === 'function') ? connectModelValue() : (localState.model || '');
   return {
-    local_mode: on ? !!on.checked : false,
-    local_preset: preset ? preset.value : 'custom',
-    local_base_url: g('localBaseUrl').trim(),
-    local_model: g('localModelSelect').trim(),
-    local_ctx_window: parseInt(g('localCtxWindow')) || 0,
-    local_tool_capable: g('localToolCapable') || 'auto'
+    /* 本地专属项（设计书 D5：ctx/工具继续写 local_*，与 provider_* 并列不互斥） */
+    local_ctx_window: parseInt(g('localCtxWindow'), 10) || 0,
+    local_tool_capable: g('localToolCapable') || 'auto',
+    /* 兼容键（v1.5 老配置可被老版本回读；仅在本地系预设时携带实际端点） */
+    local_mode: !!isLocal,
+    local_preset: isLocal ? preset : 'custom',
+    local_base_url: isLocal ? base : '',
+    local_model: isLocal ? model : ''
   };
 }
+
 function applyLocalConfig() {
-  const lc = collectLocalConfig();
-  localState = { mode: !!lc.local_mode, base_url: lc.local_base_url, model: lc.local_model,
-                 ctx_window: lc.local_ctx_window, tool_capable: lc.local_tool_capable };
+  localState.ctx_window = connectCtxWindowSafe();
+  localState.tool_capable = (document.getElementById('localToolCapable') || {}).value || 'auto';
   applyLocalMetaBadge();
 }
+
+/** ctx 覆盖读取（无 36-connect 时直接读元素）。 */
+function connectCtxWindowSafe() {
+  const el = localEl('localCtxWindow', 'localCtxWindow');
+  return el ? (parseInt(el.value, 10) || 0) : 0;
+}
+
+/** 合并后无独立「启用本地模式」勾选：本地系预设即生效（保留函数供旧调用点）。 */
 function syncLocalUiState() {
   const wrap = document.getElementById('localFields');
-  const on = document.getElementById('localModeEnable');
-  if (wrap && on) wrap.style.display = on.checked ? '' : 'none';
+  if (wrap && wrap.style) wrap.style.display = '';
 }
+
+/** 旧签名兼容：本地预设切换统一走合并块预设状态机。 */
 function onLocalPresetChange(v) {
+  if (typeof connectApplyPreset === 'function') { connectApplyPreset(v, { animate: true }); return; }
   const p = LOCAL_UI_PRESETS[v] || LOCAL_UI_PRESETS.custom;
-  const base = document.getElementById('localBaseUrl');
+  const base = localEl('localBaseUrl', 'providerBase');
   if (base && p.base_url) base.value = p.base_url;   // custom 不覆盖手输
   applyLocalMetaBadge();
 }
 
 /* ---- 元数据徽标（后端 model_meta 三级来源：精确表 → 前缀启发式 → 保守默认） ---- */
 function applyLocalMetaBadge() {
-  const badge = document.getElementById('localMetaBadge');
+  const badge = localEl('localMetaBadge', 'cmCtxBadge');
   if (!badge) return;
-  const model = localState.model || (document.getElementById('localModelSelect') || {}).value || '';
+  /* 合并后徽标只在本地系预设下有意义（GLM/云端预设由计费与价格表接管） */
+  const isLocal = (typeof connectIsLocalPreset === 'function') ? connectIsLocalPreset() : true;
+  if (badge.style) badge.style.display = isLocal ? '' : 'none';
+  if (!isLocal) return;
+  const sel = localEl('localModelSelect', 'modelSelect');
+  const model = localState.model || (sel || {}).value || '';
   if (!model) { badge.textContent = '元数据待获取'; badge.className = 'local-badge'; return; }
   const ctx = localState.ctx_window > 0 ? localState.ctx_window : null;
   const meta = localMetaCache[model];
@@ -99,15 +140,15 @@ let localMetaCache = {};    // model -> {ctx_window, tool_capable, estimated}
 
 /* ---- A2：并行探测（4 端口并行，各 2s 超时，总墙钟 ≤1s 目标） ---- */
 async function localProbeNow() {
-  const btn = document.getElementById('localProbeBtn');
-  const box = document.getElementById('localProbeResult');
+  const btn = localEl('localProbeBtn', 'cmIdentifyBtn');
+  const box = localEl('localProbeResult', 'localProbeResult');
   if (btn) { btn.disabled = true; btn.textContent = '探测中…'; }
   try {
     const r = JSON.parse(await callApi('local_probe', []));
     if (box) box.innerHTML = '';
     if (!r.ok) { toast('探测失败：' + (r.error || ''), 'err'); return; }
+    localMetaCache = {};    // 新探测结果 → 元数据缓存失效
     (r.reachable || []).forEach(it => {
-      localMetaCache = {};    // 新探测结果 → 元数据缓存失效
       const row = document.createElement('div');
       row.className = 'local-probe-item ok';
       row.innerHTML = '<span class="dot"></span><span></span><span class="models"></span>';
@@ -116,8 +157,14 @@ async function localProbeNow() {
       if (box) box.appendChild(row);
       /* 命中预设 → 一键填充 base_url 并拉清单 */
       if (it.kind !== 'custom') {
-        const base = document.getElementById('localBaseUrl');
+        const base = localEl('localBaseUrl', 'providerBase');
         if (base) base.value = it.base_url;
+        /* 合并块：探测到的服务器类型即当前预设（label/条件显隐随之对齐） */
+        if (typeof connectApplyPreset === 'function' && typeof PRESETS === 'object'
+            && PRESETS[it.kind] && PRESETS[it.kind].local
+            && typeof connectCurrentPreset === 'function' && connectCurrentPreset() !== it.kind) {
+          connectApplyPreset(it.kind, { animate: false, base: it.base_url, quiet: true });
+        }
         localLoadModels(it.base_url);
       }
     });
@@ -130,56 +177,87 @@ async function localProbeNow() {
     });
     const hit = (r.reachable || []).length;
     toast(hit ? '探测到 ' + hit + ' 个本地服务器' : '未探测到本地服务器（' + r.elapsed_ms + 'ms）', hit ? 'ok' : 'warn');
+    if (typeof connectSyncState === 'function') connectSyncState();
     applyLocalMetaBadge();
   } catch (e) {
     toast('探测失败：' + e.message, 'err');
   } finally {
-    if (btn) { btn.disabled = false; btn.textContent = '探测本机'; }
+    localRestoreIdentifyBtn(btn, '探测本机');
   }
 }
 
 /* ---- A3：补拉模型清单（探测过期时用；返回 {id, ctx_window, tool_capable, estimated}） ---- */
 async function localLoadModels(baseUrl) {
-  const base = (baseUrl || (document.getElementById('localBaseUrl') || {}).value || '').trim();
+  const baseInp = localEl('localBaseUrl', 'providerBase');
+  const base = (baseUrl || (baseInp || {}).value || '').trim();
   if (!base) { toast('请先填写 Base URL', 'warn'); return; }
-  const btn = document.getElementById('localModelsBtn');
+  const btn = localEl('localModelsBtn', 'cmIdentifyBtn');
   if (btn) { btn.disabled = true; btn.textContent = '拉取中…'; }
   try {
+    /* 本地端点免 Key（云端清单鉴权走 36-connect 的识别通道带 Key） */
     const r = JSON.parse(await callApi('local_models', [base]));
     if (!r.ok) { toast('获取模型清单失败：' + (r.error || ''), 'err'); return; }
-    refreshLocalModelOptions((r.models || []).map(m => m.id), localState.model);
+    const models = r.models || [];
     localMetaCache = {};
-    (r.models || []).forEach(m => { localMetaCache[m.id] = m; });
+    models.forEach(m => { localMetaCache[m.id] = m; });
+    refreshLocalModelOptions(models.map(m => m.id), localState.model);
     applyLocalMetaBadge();
-    if (typeof CS !== 'undefined' && CS.syncAll) CS.syncAll();
-    toast('已获取 ' + (r.models || []).length + ' 个模型', 'ok');
+    if (document.getElementById('localModelSelect') && typeof CS !== 'undefined' && CS.syncAll) CS.syncAll();
+    toast('已获取 ' + models.length + ' 个模型', 'ok');
   } catch (e) {
     toast('获取模型清单失败：' + e.message, 'err');
   } finally {
-    if (btn) { btn.disabled = false; btn.textContent = '拉取模型清单'; }
+    localRestoreIdentifyBtn(btn, '拉取模型清单');
   }
 }
+
+/** 清单 → 模型下拉。
+ *  真实合并块（无 localModelSelect 元素）：走 connectFillModels（智能档/分组/ctx 徽标/
+ *  末项手动态）；单模块沙箱（有 localModelSelect）：保持 v1.5 的纯 option 列表语义。 */
 function refreshLocalModelOptions(ids, keep) {
-  const sel = document.getElementById('localModelSelect');
+  const legacySel = document.getElementById('localModelSelect');
+  const sel = legacySel || document.getElementById('modelSelect');
   if (!sel) return;
+  const list = (ids || []).slice();
+  if (!legacySel && typeof connectFillModels === 'function') {
+    /* 合并块：识别/探测成功即以下拉结果为准（旧预设猜测值只在新清单里仍存在时保留） */
+    const cur = String(sel.value || '');
+    connectFillModels(list.map(id => ({
+      id: id, text: id,
+      badge: localMetaCache[id] ? connectCtxBadgeSafe(localMetaCache[id]) : ''
+    })), { auto: false, group: list.length ? '识别结果' : '',
+          keep: (cur && list.indexOf(cur) !== -1) ? cur : '' });
+    applyLocalMetaBadge();
+    return;
+  }
   const prev = keep || sel.value;
   sel.innerHTML = '';
-  (ids || []).forEach(id => {
+  list.forEach(id => {
     const opt = document.createElement('option');
     opt.value = id; opt.textContent = id;
     sel.appendChild(opt);
   });
-  if (prev && (ids || []).includes(prev)) sel.value = prev;
-  else if ((ids || []).length) sel.value = ids[0];
+  if (prev && list.includes(prev)) sel.value = prev;
+  else if (list.length) sel.value = list[0];
   applyLocalMetaBadge();
+}
+
+/** ctx 徽标文本（36-connect 未加载时的本地实现，语义同 connectCtxBadge）。 */
+function connectCtxBadgeSafe(meta) {
+  if (typeof connectCtxBadge === 'function') return connectCtxBadge(meta);
+  const ctx = parseInt((meta || {}).ctx_window, 10) || 0;
+  if (ctx <= 0) return '';
+  return ctx >= 1024 ? Math.round(ctx / 1024) + 'k' : String(ctx);
 }
 
 /* ---- A5：本地测试连接（免 Key；503 冷启动返回 loading 态而非失败） ---- */
 async function localTestNow() {
-  const base = (document.getElementById('localBaseUrl') || {}).value.trim();
-  const model = (document.getElementById('localModelSelect') || {}).value.trim();
-  const btn = document.getElementById('localTestBtn');
-  const st = document.getElementById('localTestStatus');
+  const baseEl = localEl('localBaseUrl', 'providerBase');
+  const modelEl = localEl('localModelSelect', 'modelSelect');
+  const base = ((baseEl || {}).value || '').trim();
+  const model = ((modelEl || {}).value || '').trim();
+  const btn = localEl('localTestBtn', 'providerTestBtn');
+  const st = localEl('localTestStatus', 'providerTestStatus');
   if (!base || !model) { toast('请先填写 Base URL 并选择模型', 'warn'); return; }
   if (btn) { btn.disabled = true; btn.textContent = '测试中…'; }
   try {

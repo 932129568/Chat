@@ -1,0 +1,23 @@
+// connect-merge 原型独立验证（主理人用）
+const fs = require('fs');
+const html = fs.readFileSync('deliverables/design/v4/connect-merge.html', 'utf8');
+let fail = 0;
+const ok = (n, c) => { console.log((c ? 'PASS' : 'FAIL') + ' ' + n); if (!c) fail++; };
+const m = html.match(/<script>([\s\S]*)<\/script>/);
+ok('js-syntax', !!m && (() => { try { new Function(m[1]); return true; } catch (e) { console.log('  ' + e.message); return false; } })());
+ok('no-segment', !/cm-seg|seg-btn|端点分段/.test(html));
+ok('preset-flow', /cmPreset/.test(html) && (html.match(/<option/g) || []).length >= 10);
+ok('single-key', /仅保存在本机/.test(html) && /本地服务器通常无需 Key/.test(html));
+ok('model-identify', /识别模型/.test(html) && /手动输入模型名/.test(html));
+ok('advanced-details', /高级/.test(html) && /<details/.test(html));
+ok('cond-effort', /仅智谱 GLM/.test(html));
+ok('cond-prices', /计费/.test(html));
+ok('cond-local', /窗口覆盖|上下文窗口/.test(html));
+ok('probe-local', /探测本机/.test(html));
+ok('no-transition-all', !/transition:\s*all/.test(html));
+ok('no-layout-kf', !/@keyframes[^{]*\{[^}]*\b(width|height|margin|top|left)\s*:/.test(html));
+ok('no-external', !/(?:src|href)\s*=\s*["'](?:https?:)?\/\//.test(html));
+ok('v4-tokens', html.includes('--dur-micro') && html.includes('--ease-out-soft'));
+ok('demo-console', /演示|控制台/.test(html));
+console.log(fail === 0 ? '=== ALL-PASS ===' : '=== ' + fail + ' FAILED ===');
+process.exit(fail ? 1 : 0);

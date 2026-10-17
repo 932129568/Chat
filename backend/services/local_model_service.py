@@ -398,18 +398,39 @@ def probe(ports=None, host='127.0.0.1', timeout=PROBE_PORT_TIMEOUT):
             'elapsed_ms': int((time.monotonic() - t0) * 1000)}
 
 
-def models(base_url, timeout=5.0):
+def auth_header_value(api_key):
+    """把用户 Key 归一化为可安全放进 HTTP 头的值（空 / 含控制字符 → ''）。
+
+    合并后「连接与模型」单端点化：云端自定义端点（DeepSeek/Moonshot/通义…）的
+    /models 清单需要鉴权，仍走后端 urlopen_no_redirect（禁重定向、Key 不出前端）。
+    """
+    key = str(api_key or '').strip()
+    if not key:
+        return ''
+    if any(ord(ch) < 0x20 or ord(ch) == 0x7f for ch in key):
+        return ''      # 头注入防护：控制字符一律忽略（等同未填 Key）
+    return key
+
+
+def models(base_url, timeout=5.0, api_key=''):
     """A3：补拉模型清单（探测过期时用）。返回 {ok, base_url, models[]}。
 
     models[] 每项 {id, ctx_window, tool_capable, estimated}——元数据内嵌，
     前端下拉直接可用（roadmap：新 js_api 只有 local_probe/local_models 两个）。
+
+    api_key 可选（v4 连接合并）：非空时请求带 `Authorization: Bearer {key}`，
+    供云端 OpenAI 兼容端点（DeepSeek/Moonshot/通义/vLLM 网关）拉清单；为空时
+    与 v1.5 行为逐字节一致（本地服务器免 Key，单参调用向后兼容）。
     """
     url = models_url(base_url)
     if not url:
         return {'ok': False, 'error': '缺少 Base URL'}
+    headers = {'Accept': 'application/json'}
+    token = auth_header_value(api_key)
+    if token:
+        headers['Authorization'] = 'Bearer ' + token
     try:
-        req = urllib.request.Request(url, method='GET',
-                                     headers={'Accept': 'application/json'})
+        req = urllib.request.Request(url, method='GET', headers=headers)
         with urlopen_no_redirect(req, timeout=timeout) as resp:
             raw = resp.read(256 * 1024)
     except Exception as e:
@@ -591,8 +612,8 @@ class LocalModelService:
     def probe(self, ports=None):
         return probe(ports=ports)
 
-    def models(self, base_url):
-        return models(base_url)
+    def models(self, base_url, api_key=''):
+        return models(base_url, api_key=api_key)
 
     def test_local_endpoint(self, base_url, model, timeout=30):
         return test_local_endpoint(base_url, model, timeout=timeout)

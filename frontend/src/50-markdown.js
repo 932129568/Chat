@@ -84,7 +84,27 @@ function addMessage(role, content, extra) {
     <div class="content ${role === 'error' ? 'error' : ''}">${body}${extraHtml}</div>`;
   container.appendChild(div);
   container.scrollTop = container.scrollHeight;
+  // v4 配色重设计（用户反馈「气泡颜色太深」）：错误气泡前缀红字加粗、正文中性色——
+  // 语义色收窄到标题（完整规则见模板 .message .content.error：中性卡+红色左边条）
+  if (role === 'error') fillErrorBubble(div.querySelector('.content'), content);
   return div.querySelector('.content');
+}
+/* v4 配色重设计：错误气泡文本装配——「请求失败:」前缀红字（b.err-title），
+   正文中性色；textContent 组装不碰 innerHTML（端点错误文本=不可信输入，防注入）。 */
+function fillErrorBubble(el, text) {
+  if (!el) return;
+  const txt = String(text == null ? '' : text);
+  const m = /^([^:：]{0,12}[:：])\s*/.exec(txt);
+  el.textContent = '';
+  if (m) {
+    const t = document.createElement('b');
+    t.className = 'err-title';
+    t.textContent = m[1] + ' ';
+    el.appendChild(t);
+    el.appendChild(document.createTextNode(txt.slice(m[0].length)));
+  } else {
+    el.textContent = txt;
+  }
 }
 function addMsgActions(contentEl, text, onlyCopy) {
   if (!contentEl || !text) return;

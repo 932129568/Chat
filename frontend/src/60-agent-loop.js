@@ -669,7 +669,7 @@ async function runAgentLoop(s, apiKey) {
       const shown = humanizeApiError(err.message);   // v1.2 R5：错误人话 + 可行操作
       if (aiContent) {
         aiContent.className = 'content error';
-        aiContent.textContent = '请求失败: ' + shown;
+        fillErrorBubble(aiContent, '请求失败: ' + shown);   // v4：前缀红字+正文中性（防注入装配）
       } else {
         addMessage('error', '请求失败: ' + shown);   // 修复 ㉗：循环未建气泡前出错不再砸在 null 上
       }

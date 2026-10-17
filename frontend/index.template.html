@@ -28,7 +28,7 @@
   --border:#e4e6ec; --border-strong:#d2d6e0;
   --text:#14161c; --text-2:#5f6674; --text-3:#6a7180;
   --primary:#4f6ef7; --primary-hover:#3d5ae6; --primary-soft:#eef1fe;
-  --user-bubble:#4059e0; --user-bubble-text:#ffffff; --ai-bubble:#ffffff;
+  --user-bubble:#4f6ef7; --user-bubble-text:#ffffff; --ai-bubble:#ffffff;
   --hover:#f1f3f7; --active:#eef1fe; --chip-bg:#f1f3f7;
   --ok:#1a7f4e; --warn:#b7791f; --err:#cf3222;
   --ok-bg:#e8f6ee; --warn-bg:#fdf5e6; --err-bg:#fdecea;
@@ -123,7 +123,7 @@ body.dark{
   --border:#272a32; --border-strong:#343843;
   --text:#e6e7ea; --text-2:#8b909c; --text-3:#9298a6;
   --primary:#6b84ff; --primary-hover:#8098ff; --primary-soft:#1d2337;
-  --user-bubble:#3b53c9; --user-bubble-text:#ffffff; --ai-bubble:#1a1c22;
+  --user-bubble:#4c5fd4; --user-bubble-text:#ffffff; --ai-bubble:#1a1c22;
   --hover:#212429; --active:#232a3f; --chip-bg:#212429;
   --ok:#4ade80; --warn:#fbbf24; --err:#f87171;
   --ok-bg:#12251b; --warn-bg:#2a2213; --err-bg:#2b1618;
@@ -477,7 +477,8 @@ body.fx-off .settings-panel input:focus,body.fx-off .settings-panel textarea:foc
   white-space:pre-wrap;}
 .message.assistant .content{background:var(--ai-bubble);border:1px solid var(--border);
   border-bottom-left-radius:var(--radius-xs);box-shadow:var(--shadow-sm);}
-.message .content.error{background:var(--err-bg);color:var(--err);border:1px solid var(--err);}
+.message .content.error{background:var(--card-bg);color:var(--text-2);border:1px solid var(--border);border-left:3px solid var(--err);}
+.message .content.error .err-title{color:var(--err);font-weight:600;}
 .msg-images{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;}
 .msg-images img{max-width:220px;max-height:220px;border-radius:var(--radius-md);object-fit:cover;
   cursor:pointer;transition:transform var(--dur-micro) var(--ease-out-soft);}
@@ -526,7 +527,7 @@ body.dark .md-body :not(pre)>code{background:var(--chip-bg);color:#f87171;}
 .md-body .hljs-variable,.md-body .hljs-template-variable{color:#f07178;}
 .md-body .hljs-meta{color:#89ddff;}
 .copy-btn{margin-top:8px;margin-right:6px;padding:3px 10px;font-size:11px;color:var(--text-2);
-  background:transparent;border:1px solid var(--border);border-radius:var(--radius-sm);
+  background:var(--surface-2);border:1px solid var(--border-strong);border-radius:var(--radius-sm);
   cursor:pointer;font-family:inherit;}
 .copy-btn:hover{color:var(--primary);border-color:var(--primary);background:var(--primary-soft);}
 .stop-note{font-size:11px;color:var(--text-3);margin-top:6px;}
@@ -844,6 +845,57 @@ body.fx-off .panel,body.fx-off .message,body.fx-off .settings-panel.show{animati
 .mcp-tool-desc{font-size:11.5px;color:var(--text-2);margin-top:2px;line-height:1.5;}
 .mcp-kv{width:100%;margin-top:4px;padding:8px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--main-bg);color:var(--text);font-size:12px;font-family:var(--font-mono,ui-monospace,Consolas,monospace);resize:vertical;}
 .mcp-instructions{margin-top:10px;padding:10px 12px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--main-bg);}
+/* ================= v4「连接与模型」合并块（完全单端点 · cm-* / 纯新增） =================
+ * 一个区块一条纵向流：预设 → Base URL → Key → 模型 → 测试连接（+「高级」折叠）。
+ * 显隐规则由 36-connect.js 按预设写入（connectUpdateAdvanced）；本段只负责布局与观感。
+ * 动效铁律：只动 opacity / transform / 颜色族（时长走 v4 令牌，不硬编码）。 */
+.cm-block{grid-column:1/-1;}
+.cm-head{display:flex;flex-direction:column;gap:3px;margin-bottom:2px;}
+.cm-sub{font-size:11.5px;color:var(--text-3);line-height:1.5;}
+.cm-flow{margin-top:10px;transition:opacity var(--dur-comp) var(--ease-out-soft);}
+.cm-flow.swapping{opacity:0;transition:opacity var(--dur-comp-out) var(--ease-in-soft);}
+.cm-preset-slot{width:170px;max-width:100%;}
+.cm-row{display:flex;gap:8px;align-items:center;margin-top:8px;flex-wrap:wrap;}
+.cm-row>.cs{flex:1;min-width:180px;}
+.cm-row>input{flex:1;min-width:180px;}
+.cm-pick{flex:1;min-width:220px;display:flex;gap:8px;align-items:center;}
+.cm-pick .cs{flex:1;min-width:0;}
+.cm-manual{display:none;flex:1;min-width:0;gap:6px;align-items:center;}
+.cm-pick.manual .cs{display:none;}
+.cm-pick.manual .cm-manual{display:flex;}
+.cm-back{width:34px;height:34px;flex-shrink:0;display:flex;align-items:center;justify-content:center;
+  border:1px solid var(--border);border-radius:var(--radius-md);background:var(--card-bg);color:var(--text-2);
+  font-size:12px;cursor:pointer;transition:background-color var(--dur-micro) var(--ease-out-soft),
+  color var(--dur-micro) var(--ease-out-soft),border-color var(--dur-micro) var(--ease-out-soft);}
+.cm-back:hover{background:var(--hover);color:var(--text);border-color:var(--border-strong);}
+.cm-identify{flex-shrink:0;white-space:nowrap;}
+.cm-chip{margin-top:8px;color:var(--primary);background:var(--primary-soft);}
+.cm-status{font-size:12px;color:var(--text-2);flex:1;min-width:0;line-height:1.5;}
+.cm-status.ok{color:var(--ok);}
+.cm-status.err{color:var(--err);}
+.cm-details{margin-top:12px;border:1px solid var(--border);border-radius:var(--radius-md);
+  background:var(--card-bg);}
+.cm-details>summary{list-style:none;cursor:pointer;display:flex;align-items:center;gap:7px;
+  padding:9px 12px;font-size:12.5px;color:var(--text-2);font-weight:500;}
+.cm-details>summary::-webkit-details-marker{display:none;}
+.cm-details>summary:hover{color:var(--text);}
+.cm-details>summary .caret{font-size:9px;color:var(--text-3);
+  transition:transform var(--dur-micro) var(--ease-out-soft);}
+.cm-details[open]>summary .caret{transform:rotate(90deg);}
+.cm-details-body{padding:2px 12px 12px;}
+.cm-price{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;}
+.cm-price input{min-width:0;}
+.adv-off{font-size:11px;color:var(--text-3);line-height:1.6;margin:8px 0 0;padding:7px 10px;
+  background:var(--chip-bg);border-radius:var(--radius-sm);}
+.adv-off:first-child{margin-top:0;}
+.cm-bottom-hint{margin-top:12px;}
+/* 自定义下拉扩展：分组标题（option[data-group]）+ 行内徽标（option[data-badge]） */
+.cs-group{padding:7px 10px 3px;font-size:10.5px;font-weight:600;letter-spacing:.04em;
+  color:var(--text-3);text-transform:uppercase;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.cs-opt-t{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.cs-opt{display:flex;align-items:center;}
+.cs-badge{margin-left:7px;font-size:10px;font-family:var(--font-mono);color:var(--primary);
+  background:var(--primary-soft);padding:1px 6px;border-radius:var(--radius-full);flex-shrink:0;}
 </style>
 </head>
 <body>
@@ -912,28 +964,118 @@ body.fx-off .panel,body.fx-off .message,body.fx-off .settings-panel.show{animati
         <!-- 修复 UX-4（v1.4）：设置锚点导航条（纯新增；按钮与 set-block 一一对应，滚动高亮） -->
         <nav class="set-nav" id="setNav" aria-label="设置分区导航"></nav>
         <div class="set-grid">
-          <div class="set-block">
-            <div class="set-title">连接与模型</div>
-            <label for="apiKey">API Key（仅保存在本机）</label>
-            <input type="password" id="apiKey" placeholder="粘贴你的智谱 API Key">
-            <div class="field">
-              <label>模型</label>
-              <select id="modelSelect">
-                <option value="auto" selected>智能档（按任务自动调节，最省）</option>
-                <option value="glm-5.3-flash">glm-5.3-flash（通用 · 更省钱）</option>
-                <option value="glm-5.3-flashx">glm-5.3-flashx（极速）</option>
-              </select>
+          <!-- v4「连接与模型」完全单端点（设计书 v4/connect-merge-design.md）：
+               原「连接与模型」「模型服务商（OpenAI 兼容端点）」「本地模型（v1.5）」三块合并为一块。
+               预设下拉 = 唯一端点开关（GLM 官方只是 name='glm' 的预设，不再有独立模式）；
+               单一 Base URL / Key / 模型流；GLM 专属（推理力度）与本地专属（工具调用 / 窗口覆盖）
+               控件进「高级 ▾」折叠并按预设条件显隐（36-connect.js connectUpdateAdvanced）。
+               契约钉住 id：apiKey / modelSelect / reasoningEffort 三者全部保留。 -->
+          <div class="set-block cm-block" id="cmBlock">
+            <div class="cm-head">
+              <div class="set-title">连接与模型</div>
+              <div class="cm-sub">一个 Key，连所有端点：选预设 → 填 Key → 识别模型，即填即用</div>
             </div>
-            <div class="field">
-              <label>推理力度</label>
-              <select id="reasoningEffort">
-                <option value="auto" selected>auto（智能档联动，推荐）</option>
-                <option value="off">off（关闭思考 · 最省输出）</option>
-                <option value="low">low（快速省钱）</option>
-                <option value="medium">medium</option>
-                <option value="high">high</option>
-                <option value="max">max（最深思考，最贵）</option>
-              </select>
+
+            <div class="cm-flow" id="cmFlow">
+              <label for="providerPreset">预设</label>
+              <div class="cm-preset-slot">
+                <select id="providerPreset" onchange="onProviderPresetChange(this.value)">
+                  <option value="glm" selected>智谱 GLM</option>
+                  <option value="deepseek">DeepSeek</option>
+                  <option value="moonshot">Moonshot</option>
+                  <option value="qwen">通义千问</option>
+                  <option value="ollama">Ollama</option>
+                  <option value="lmstudio">LM Studio</option>
+                  <option value="vllm">vLLM</option>
+                  <option value="llamacpp">llama.cpp</option>
+                  <option value="localai">LocalAI</option>
+                  <option value="custom">自定义</option>
+                </select>
+              </div>
+
+              <label for="providerBase">Base URL</label>
+              <input type="text" id="providerBase" placeholder="https://open.bigmodel.cn/api/paas/v4" autocomplete="off" spellcheck="false">
+
+              <div id="cmKeyRow">
+                <label for="apiKey">API Key（仅保存在本机）</label>
+                <input type="password" id="apiKey" placeholder="粘贴你的智谱 API Key">
+              </div>
+              <div class="local-badge cm-chip" id="cmNoKey" style="display:none;">ℹ 本地服务器通常无需 Key（免 Key · 零费用）</div>
+
+              <label for="modelSelect">模型</label>
+              <div class="cm-row">
+                <div class="cm-pick" id="cmPick">
+                  <select id="modelSelect">
+                    <option value="auto" selected>智能档（按任务自动调节，最省）</option>
+                    <option value="glm-5.3-flash">glm-5.3-flash（通用 · 更省钱）</option>
+                    <option value="glm-5.3-flashx">glm-5.3-flashx（极速）</option>
+                  </select>
+                  <div class="cm-manual" id="cmManual">
+                    <input type="text" id="cmManualInput" placeholder="输入模型名，如 deepseek-v4.1" autocomplete="off" spellcheck="false">
+                    <button type="button" class="cm-back" id="cmManualBack" title="切回下拉选择" aria-label="切回下拉选择">▾</button>
+                  </div>
+                </div>
+                <span class="local-badge" id="cmCtxBadge" style="display:none;">元数据待获取</span>
+                <button type="button" class="modal-btn cm-identify" id="cmIdentifyBtn" onclick="connectIdentifyNow(true)">↻ 识别模型</button>
+              </div>
+              <!-- 本地系预设：并行端口探测结果（local_probe） -->
+              <div class="local-probe-result" id="localProbeResult"></div>
+
+              <div class="cm-row">
+                <button type="button" class="modal-btn primary" id="providerTestBtn" onclick="connectTestNow()">测试连接</button>
+                <span class="cm-status" id="providerTestStatus"></span>
+              </div>
+            </div>
+
+            <!-- 高级 ▾：原 GLM 专属 / 云端自定义专属 / 本地专属控件，按预设条件显隐 -->
+            <details class="cm-details" id="cmAdv">
+              <summary><span class="caret">▶</span>高级</summary>
+              <div class="cm-details-body">
+                <div id="advReasoning">
+                  <label for="reasoningEffort">推理力度</label>
+                  <div style="width:220px;max-width:100%;">
+                    <select id="reasoningEffort">
+                      <option value="auto" selected>auto（智能档联动，推荐）</option>
+                      <option value="off">off（关闭思考 · 最省输出）</option>
+                      <option value="low">low（快速省钱）</option>
+                      <option value="medium">medium</option>
+                      <option value="high">high</option>
+                      <option value="max">max（最深思考，最贵）</option>
+                    </select>
+                  </div>
+                </div>
+                <div class="adv-off" id="advReasoningOff">推理力度 — 仅智谱 GLM 预设可用</div>
+
+                <div id="advBilling">
+                  <label>计费三价（¥ / 百万 tokens，留 0 不计费）</label>
+                  <div class="cm-price">
+                    <input type="number" id="providerPriceIn" step="0.1" min="0" title="输入价 ¥/百万 tokens" placeholder="输入价">
+                    <input type="number" id="providerPriceOut" step="0.1" min="0" title="输出价 ¥/百万 tokens" placeholder="输出价">
+                    <input type="number" id="providerPriceCache" step="0.1" min="0" title="缓存命中价 ¥/百万 tokens" placeholder="缓存价">
+                  </div>
+                </div>
+                <div class="adv-off" id="advBillingOff">计费三价 — 仅第三方服务商预设可用（GLM 按内置价格表，本地零费用）</div>
+
+                <div id="advLocal">
+                  <label for="localToolCapable">工具调用</label>
+                  <div style="width:220px;max-width:100%;">
+                    <select id="localToolCapable">
+                      <option value="auto" selected>自动识别</option>
+                      <option value="on">开</option>
+                      <option value="off">关</option>
+                    </select>
+                  </div>
+                  <label for="localCtxWindow" style="margin-top:10px;">上下文窗口覆盖（tokens，0 = 按模型元数据自动）</label>
+                  <input type="number" id="localCtxWindow" min="0" max="2000000" step="1024" placeholder="0 = 自动">
+                </div>
+                <div class="adv-off" id="advLocalOff">工具调用与上下文覆盖 — 仅本地服务器预设可用</div>
+              </div>
+            </details>
+
+            <div class="set-hint cm-bottom-hint">
+              预设切换后立即生效；GLM 专属能力（智能档 / 推理力度 / 联网搜索）仅智谱预设可用；<br>
+              本地预设零费用，上下文按模型窗口自适应压缩；识别失败自动切手动输入，不影响保存与发送。<br>
+              在 <a href="https://bigmodel.cn/usercenter/proj-mgmt/apikeys" target="_blank">智谱开放平台</a> 创建 Key 后粘贴即可。
             </div>
           </div>
 
@@ -995,91 +1137,6 @@ body.fx-off .panel,body.fx-off .message,body.fx-off .settings-panel.show{animati
             <div class="set-hint">
               在 <a href="https://bigmodel.cn/usercenter/proj-mgmt/apikeys" target="_blank">智谱开放平台</a> 创建 Key 后粘贴即可。<br>
               模型名 <code>glm-5.3-flash</code> 已内置。系统设定在缓存前缀内，后续轮按约 0.3 折计费。
-            </div>
-          </div>
-
-          <div class="set-block">
-            <div class="set-title">模型服务商（OpenAI 兼容端点）</div>
-            <label class="check-row" for="providerEnabled">
-              <input type="checkbox" id="providerEnabled" onchange="syncProviderUiState();queueSaveConfig();applyProviderConfig()"> 启用自定义端点（默认使用智谱 GLM）
-            </label>
-            <div id="providerFields" style="display:none">
-              <div class="provider-row">
-                <select id="providerPreset" onchange="onProviderPresetChange(this.value);queueSaveConfig();applyProviderConfig()" style="width:170px;">
-                  <option value="deepseek">DeepSeek（预设）</option>
-                  <option value="custom" selected>自定义</option>
-                </select>
-                <input type="text" id="providerModel" placeholder="模型名，如 deepseek-v4.1-256k">
-              </div>
-              <div class="provider-row">
-                <input type="text" id="providerBase" placeholder="Base URL，如 https://api.deepseek.com/v1">
-              </div>
-              <div class="provider-row">
-                <input type="password" id="providerKey" placeholder="该服务商的 API Key（仅保存在本机）">
-              </div>
-              <div class="provider-row">
-                <input type="number" id="providerPriceIn" step="0.1" min="0" title="输入价 ¥/百万 tokens" placeholder="输入价 ¥/M">
-                <input type="number" id="providerPriceOut" step="0.1" min="0" title="输出价 ¥/百万 tokens" placeholder="输出价 ¥/M">
-                <input type="number" id="providerPriceCache" step="0.1" min="0" title="缓存命中价 ¥/百万 tokens" placeholder="缓存价 ¥/M">
-              </div>
-              <div class="provider-row">
-                <button class="modal-btn primary" id="providerTestBtn" onclick="testProviderNow()">测试连接</button>
-                <span id="providerTestStatus" style="font-size:12px;color:var(--text-2)"></span>
-              </div>
-              <div class="set-hint">
-                服务商切换后立即生效；GLM 专属能力（联网搜索/思考力度）在自定义端点自动关闭；<br>
-                计费按所填价格换算，token 数取该端点返回的 usage 字段。
-              </div>
-            </div>
-          </div>
-
-          <!-- v1.5 本地模型（预留接口层 UI：连接层 A 实现就绪 / 适配层 B 判定就绪；
-               DOM/CSS 纯新增——UI 契约只增不改；local_* 键运行期合法、测试期不触发） -->
-          <div class="set-block">
-            <div class="set-title">本地模型（v1.5 · Ollama / LM Studio 等）</div>
-            <label class="check-row" for="localModeEnable">
-              <input type="checkbox" id="localModeEnable" onchange="syncLocalUiState();queueSaveConfig();applyLocalConfig()"> 启用本地模式（连接本机 OpenAI 兼容服务器 · 零费用）
-            </label>
-            <div id="localFields" style="display:none">
-              <div class="provider-row">
-                <select id="localPreset" onchange="onLocalPresetChange(this.value);queueSaveConfig();applyLocalConfig()" style="width:170px;">
-                  <option value="ollama">Ollama</option>
-                  <option value="lmstudio">LM Studio</option>
-                  <option value="vllm">vLLM</option>
-                  <option value="llamacpp">llama.cpp server</option>
-                  <option value="localai">LocalAI</option>
-                  <option value="custom" selected>自定义</option>
-                </select>
-                <button class="modal-btn" id="localProbeBtn" onclick="localProbeNow()">探测本机</button>
-              </div>
-              <div class="provider-row">
-                <input type="text" id="localBaseUrl" placeholder="Base URL，如 http://localhost:11434/v1" onchange="queueSaveConfig();applyLocalConfig()">
-                <button class="modal-btn" id="localModelsBtn" onclick="localLoadModels()">拉取模型清单</button>
-              </div>
-              <div class="provider-row">
-                <div style="flex:1;min-width:140px;"><select id="localModelSelect" onchange="queueSaveConfig();applyLocalConfig()"></select></div>
-                <span class="local-badge" id="localMetaBadge">元数据待获取</span>
-              </div>
-              <div class="provider-row">
-                <div style="width:170px;">
-                  <select id="localToolCapable" onchange="queueSaveConfig();applyLocalConfig()">
-                    <option value="auto" selected>工具调用：自动识别</option>
-                    <option value="on">工具调用：开启</option>
-                    <option value="off">工具调用：关闭</option>
-                  </select>
-                </div>
-                <input type="number" id="localCtxWindow" min="0" max="2000000" step="1024" title="上下文窗口覆盖（tokens，0 = 按模型元数据自动）" placeholder="窗口覆盖 0=自动" style="width:150px;">
-              </div>
-              <div class="provider-row">
-                <button class="modal-btn primary" id="localTestBtn" onclick="localTestNow()">测试连接</button>
-                <span id="localTestStatus" style="font-size:12px;color:var(--text-2)"></span>
-              </div>
-              <div class="local-probe-result" id="localProbeResult"></div>
-              <div class="set-hint">
-                只连接、不内嵌：本地服务器暴露 OpenAI 兼容端点，复用服务商抽象；<br>
-                计费在本地模式显示「本地 · 0 费用」；上下文窗口按「模型窗口 × 档位系数」自适应压缩；<br>
-                模型冷启动（Ollama 首问 10-60s）会显示等待态，不会误报失败。
-              </div>
             </div>
           </div>
 
