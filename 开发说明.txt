@@ -1,0 +1,66 @@
+﻿# GLM-Chat v1.0.0 开发说明
+
+## 环境要求
+- Python 3.10+
+- pywebview == 5.4
+- PyInstaller
+
+## 安装依赖
+pip install pywebview==5.4 pyinstaller
+
+## 本地运行
+python main.py
+
+## 打包正常版
+python -m PyInstaller --onefile --windowed --clean --name "GLM-Chat" --icon "glm-chat.ico" --add-data "glm-chat.html;." --add-data "libs;libs" main.py --noconfirm
+
+## 打包调试版
+python -m PyInstaller --onefile --clean --name "GLM-Chat-Debug" --icon "glm-chat.ico" --add-data "glm-chat.html;." --add-data "libs;libs" main.py --noconfirm
+
+## 目录结构
+- main.py       后端 Python（pywebview API + 工具实现）
+- glm-chat.html 前端单文件（全部 UI + 逻辑）
+- glm-chat.ico  图标
+- libs/         前端依赖库（marked / purify / flate / highlight）
+
+## 配置目录
+%USERPROFILE%\.glm-chat\
+
+## 运行测试（v1.1 重构后新增）
+pip install pytest   # 或使用任意 Python 3.10+ 环境
+pytest tests/ -q     # 契约差分测试（legacy vs 重构后逐字节一致）+ 安全修复测试
+
+## 前端源码构建（v1.1 重构后新增）
+- 前端源码在 frontend/：index.template.html（骨架）+ src/*.js（按文件名顺序拼接）
+- 修改前端后必须重新构建：node frontend/build.js
+- 构建产物为根目录 glm-chat.html（pywebview 加载/打包的就是它）
+- 不要直接修改根目录的 glm-chat.html，改动会在下次构建时被覆盖
+
+## 目录结构（v1.1 重构后）
+- main.py            薄入口（装配 + 启动，<60 行）
+- backend/           后端包（api.py 门面 + services/ 八个 service + tools_schema.py）
+- frontend/          前端源码（模板 + src 模块 + build.js 零依赖构建脚本）
+- tests/             pytest 契约差分 + 安全测试（subprocess/ctypes/PIL/webview 全打桩，免 GUI）
+- main_v1.0.0_legacy.py / glm-chat.v1.0.0.html   v1.0.0 原始备份（行为对照基准）
+- VERSION            应用版本号单一数据源（自动更新比对用；发版时只改这个文件，勿在代码里手改版本号）
+
+## 发版流程（v1.2 起）
+1. 改 VERSION 为目标版本号（如 1.2.3）
+2. node frontend/build.js 重建前端
+3. pytest tests/ -q 全绿 + python deliverables/design/check_contract.py 通过
+4. PyInstaller 打包（VERSION 已随 datas 进包）
+5. 在更新源发布 update-manifest.json（version/url/sha256/notes）——
+   注意 settings 面板「更新清单地址」：默认源为占位地址，分发前必须配置真实源
+
+## v1.2「信任版」（R1–R6，2026-10-15 一次性完成三批发布内容）
+版本号：APP_VERSION = 1.2.2（自动更新比对用）；js_api 契约版本 API_VERSION='v1.0.0' 保持不变。
+新增后端 service：guard_service（确认矩阵/保护名单/审计）、update_service（检查/下载校验/自替换）、
+provider_service（OpenAI 兼容端点测试）。
+新增前端模块：18-toast（toast+模态）、26-guard（护栏拦截+设置）、27-update、36-cost-defense、
+71-provider、76-cost-estimate。
+新增 js_api 方法 9 个（guard_*/update_*/test_provider_endpoint），对 get_api_info 方法清单隐身
+（_V12_EXTRA 过滤，保证 get_api_info 输出与 legacy 逐字节一致）。
+新增测试：tests/test_v12_features.py（31 项，全打桩）。运行：pytest tests/ -q  → 62 passed。
+新配置文件：~/.glm-chat/guard.json（护栏）、~/.glm-chat/audit_log.jsonl（审计）；
+自动更新下载产物在系统临时目录 glm-chat-update/。
+发版前自检：pytest tests/ -q && node frontend/build.js && python deliverables/design/check_contract.py

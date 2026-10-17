@@ -1,0 +1,2146 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<!-- 渐进式 CSP 纵深（与真实 App 一致）：object-src/base-uri 禁插件与基址劫持；
+     script/style 须 unsafe-inline（单文件全内联架构，不压可 Scripting 主轴线） -->
+<meta http-equiv="Content-Security-Policy" content="object-src 'none'; base-uri 'none'; form-action 'none'">
+<title>GLM Chat · v4 原型（精致静谧的现代工具感）</title>
+<style>
+/* ============================================================
+   GLM-Chat v4 设计系统原型 · 精致静谧的现代工具感
+   令牌来源：deliverables/design/v4（彩格调交付，主理人中转）
+   —— :root / body.dark 变量块原样采用，v2 值不动
+   本文件为零依赖单文件原型：无 CDN / 无动画库 / 无外部图片 / 无网络请求
+   动效铁律：
+     · 只动 transform / opacity / 颜色族（+ box-shadow 一次性 settle）
+     · 禁 width/height/margin/padding/top/left/inset/font-size 动画
+     · 唯一例外登记：.sidebar 折叠 margin-left（单元素一次性 240ms）
+     · JS 不硬编码动效时长，一律走 MOTION 读 CSS 变量
+   ============================================================ */
+:root{
+  /* ===== v2 保留（值不变，禁止删改）===== */
+  --bg:#f6f7f9; --sidebar-bg:#ffffff; --main-bg:#f6f7f9; --header-bg:rgba(255,255,255,.78);
+  --card-bg:#ffffff; --surface-2:#f1f3f7;
+  --border:#e4e6ec; --border-strong:#d2d6e0;
+  --text:#14161c; --text-2:#5f6674; --text-3:#6a7180;
+  --primary:#4f6ef7; --primary-hover:#3d5ae6; --primary-soft:#eef1fe;
+  --user-bubble:#4059e0; --user-bubble-text:#ffffff; --ai-bubble:#ffffff;
+  --hover:#f1f3f7; --active:#eef1fe; --chip-bg:#f1f3f7;
+  --ok:#1a7f4e; --warn:#b7791f; --err:#cf3222;
+  --ok-bg:#e8f6ee; --warn-bg:#fdf5e6; --err-bg:#fdecea;
+  --shadow-sm:0 1px 2px rgba(16,18,28,.06);
+  --shadow-md:0 2px 8px rgba(16,18,28,.08);
+  --shadow-lg:0 12px 28px rgba(16,18,28,.14);
+  --radius-xs:4px; --radius-sm:6px; --radius-md:9px; --radius-lg:12px; --radius-xl:16px; --radius-full:999px;
+  --font-sans:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei","Noto Sans SC",sans-serif;
+  --font-mono:"JetBrains Mono","Cascadia Code",Consolas,"SFMono-Regular",Menlo,monospace;
+  --dur-fast:120ms; --dur-base:180ms; --dur-slow:280ms;
+  --ease:cubic-bezier(.4,0,.2,1); --ease-out:cubic-bezier(.16,1,.3,1);
+  --sidebar-w:264px; --content-w:820px;
+  --brand-gradient:linear-gradient(135deg,#6b84ff,#4f6ef7);
+
+  /* ===== v4 玻璃层 ===== */
+  --glass-bg:rgba(255,255,255,.62); --glass-bg-2:rgba(255,255,255,.80);
+  --glass-border:rgba(255,255,255,.72); --glass-blur:18px; --glass-fallback:#f4f6fb;
+  --glass-saturate:1.15;
+
+  /* ===== v4 极光（2 光斑 · 青/紫 · 品红退役 · 纯 translate）===== */
+  --aurora-1:#22d3ee; --aurora-2:#4f6ef7; --aurora-3:#8b5cf6; --aurora-4:#ec4899;
+  --aurora-opacity:.12; --aurora-bg-opacity:.50; --aurora-blur:64px;
+
+  /* ===== v4 发光 ===== */
+  --glow-color:rgba(79,110,247,.50);
+  --glow:0 0 0 1px var(--glass-border),0 0 22px -6px var(--glow-color);
+  --glow-strong:0 0 0 1px rgba(79,110,247,.60),0 0 34px -4px rgba(79,110,247,.70);
+  --glow-focus:0 0 0 3px var(--primary-soft),0 0 20px -4px var(--glow-color);
+  --brand-glow:radial-gradient(circle at 30% 30%,var(--glow-color),transparent 70%);
+
+  /* ===== v4 图表色板 ===== */
+  --chart-1:#4f6ef7; --chart-2:#22d3ee; --chart-3:#8b5cf6; --chart-4:#ec4899;
+  --chart-grid:rgba(16,18,28,.08); --chart-axis:#6a7180;
+  --chart-area-from:rgba(79,110,247,.26); --chart-area-to:rgba(79,110,247,0);
+
+  /* ===== v4 动效时长 · 四层模型 ===== */
+  --dur-press:90ms; --dur-micro:130ms; --dur-micro-out:90ms;
+  --dur-comp:200ms; --dur-comp-out:140ms;
+  --dur-panel:240ms; --dur-panel-out:200ms; --dur-narr:220ms; --dur-theme:280ms;
+  --dur-count:600ms; --dur-chart:800ms;
+  --dur-ambient:34s; --dur-ambient-2:52s; --dur-sheen:6s; --dur-breathe:2.6s; --dur-stream:1.4s;
+
+  /* ===== v4 动效缓动 ===== */
+  --ease-out-soft:cubic-bezier(.25,.8,.35,1); --ease-in-soft:cubic-bezier(.42,0,1,1);
+  --ease-spring:cubic-bezier(.34,1.3,.5,1); --ease-glow:var(--ease-out-soft);
+
+  /* ===== v4 编排令牌 ===== */
+  --stagger-xs:40ms; --stagger-sm:60ms;
+
+  /* ===== v4 位移令牌 ===== */
+  --shift-tip:4px; --shift-comp:6px; --shift-toast:8px; --shift-msg:8px; --shift-panel:12px;
+
+  /* ===== v4 兼容别名 ===== */
+  --dur-glow:var(--dur-micro); --dur-aurora:var(--dur-ambient); --dur-aurora-2:var(--dur-ambient-2);
+
+  /* ===== v4 导航与面板尺寸 ===== */
+  --rail-w:60px; --rail-btn:40px; --rail-gap:6px;
+  --panel-pad:22px; --panel-gap:16px; --panel-title:18px;
+  --chart-h:240px; --chart-h-sm:160px;
+  --main-veil:rgba(246,247,249,.88);
+}
+body.dark{
+  /* v2 深色（值不变） */
+  --bg:#101114; --sidebar-bg:#16181d; --main-bg:#101114; --header-bg:rgba(22,24,29,.78);
+  --card-bg:#1a1c22; --surface-2:#212429;
+  --border:#272a32; --border-strong:#343843;
+  --text:#e6e7ea; --text-2:#8b909c; --text-3:#9298a6;
+  --primary:#6b84ff; --primary-hover:#8098ff; --primary-soft:#1d2337;
+  --user-bubble:#3b53c9; --user-bubble-text:#ffffff; --ai-bubble:#1a1c22;
+  --hover:#212429; --active:#232a3f; --chip-bg:#212429;
+  --ok:#4ade80; --warn:#fbbf24; --err:#f87171;
+  --ok-bg:#12251b; --warn-bg:#2a2213; --err-bg:#2b1618;
+  --shadow-sm:0 1px 2px rgba(0,0,0,.4); --shadow-md:0 2px 10px rgba(0,0,0,.45); --shadow-lg:0 16px 40px rgba(0,0,0,.6);
+  --glass-bg:rgba(26,28,34,.60); --glass-bg-2:rgba(30,33,41,.78);
+  --glass-border:rgba(255,255,255,.10); --glass-blur:20px; --glass-fallback:#171a21; --glass-saturate:1.15;
+  --aurora-1:#22d3ee; --aurora-2:#6b84ff; --aurora-3:#8b5cf6; --aurora-4:#ec4899;
+  --aurora-opacity:.12; --aurora-bg-opacity:.55; --aurora-blur:64px;
+  --glow-color:rgba(107,132,255,.55);
+  --glow:0 0 0 1px var(--glass-border),0 0 22px -6px var(--glow-color);
+  --glow-strong:0 0 0 1px rgba(107,132,255,.65),0 0 34px -4px rgba(107,132,255,.75);
+  --glow-focus:0 0 0 3px var(--primary-soft),0 0 20px -4px var(--glow-color);
+  --brand-glow:radial-gradient(circle at 30% 30%,var(--glow-color),transparent 70%);
+  --chart-1:#6b84ff; --chart-2:#34e0f5; --chart-3:#a78bfa; --chart-4:#f472b6;
+  --chart-grid:rgba(255,255,255,.09); --chart-axis:#8b909c;
+  --chart-area-from:rgba(107,132,255,.30); --chart-area-to:rgba(107,132,255,0);
+  --main-veil:rgba(16,17,20,.88);
+}
+
+/* ================= 基础 ================= */
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:var(--font-sans);background:var(--bg);height:100vh;display:flex;overflow:hidden;
+  color:var(--text);font-size:14px;line-height:1.6;
+  transition:background var(--dur-theme) var(--ease-out-soft),color var(--dur-theme) var(--ease-out-soft);}
+button{font-family:inherit;border:none;background:none;cursor:pointer;color:inherit}
+input,textarea,select{font-family:inherit;font-size:inherit;color:inherit}
+::selection{background:var(--primary-soft);color:var(--primary)}
+::-webkit-scrollbar{width:10px;height:10px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:var(--border-strong);border-radius:var(--radius-full);
+  border:2px solid transparent;background-clip:content-box}
+::-webkit-scrollbar-thumb:hover{background:var(--text-3);background-clip:content-box}
+:focus-visible{outline:2px solid var(--primary);outline-offset:2px}
+
+/* ================= §3 极光背景（v4：2 光斑 · 青/紫 · 品红退役 · 周期 ≥30s · 纯 translate）=================
+ * 纪律：只在 z-index:-1 背景层；内容区极光有效渗透 ≤12%（--main-veil 88% 物理锁死） */
+#auroraBg{position:fixed;inset:0;z-index:-1;overflow:hidden;pointer-events:none;
+  opacity:var(--aurora-bg-opacity);background:var(--bg);}
+#auroraBg .au{position:absolute;width:58vmax;height:58vmax;border-radius:50%;
+  filter:blur(var(--aurora-blur));will-change:transform;}
+#auroraBg .au-1{top:-20vmax;left:-14vmax;opacity:.66;
+  background:radial-gradient(circle at 50% 50%,var(--aurora-1),transparent 62%);
+  animation:v4AuroraA var(--dur-ambient) ease-in-out infinite alternate;}
+#auroraBg .au-2{bottom:-22vmax;right:-16vmax;opacity:.62;
+  background:radial-gradient(circle at 50% 50%,var(--aurora-3),transparent 62%);
+  animation:v4AuroraB var(--dur-ambient-2) ease-in-out infinite alternate;}
+#auroraBg .au-3{display:none;}
+@keyframes v4AuroraA{from{transform:translate3d(0,0,0)}to{transform:translate3d(8vmax,5vmax,0)}}
+@keyframes v4AuroraB{from{transform:translate3d(0,0,0)}to{transform:translate3d(-7vmax,-6vmax,0)}}
+
+/* ================= §5 流式进度条（v4：transform 版 · 禁布局属性）================= */
+.stream-bar{position:fixed;top:0;left:0;height:2px;width:32%;z-index:10000;
+  background:var(--primary);box-shadow:0 0 12px 0 var(--glow-color);
+  transform:translateX(-100%);opacity:0;transition:opacity var(--dur-micro) var(--ease-out-soft);}
+.stream-bar.on{opacity:1;animation:v4Stream var(--dur-stream) ease-in-out infinite;will-change:transform;}
+@keyframes v4Stream{from{transform:translateX(-100%)}to{transform:translateX(100vw)}}
+
+/* ================= §5 按钮家族（v4：hover 130ms out-soft / 退场 90ms in-soft / press 90ms scale）=================
+ * 家族成员：静态标记 .v4-h + 运行时动态生成的 .modal-btn / .toast-close / .toast-more /
+ *           .cs-opt / .ctx-menu-item（审查 S5：动态元素无类名可挂，走选择器级家族扩展）*/
+.v4-h,.modal-btn,.toast-close,.toast-more,.cs-opt,.ctx-menu-item{
+  transition:background-color var(--dur-micro-out) var(--ease-in-soft),
+  color var(--dur-micro-out) var(--ease-in-soft),
+  border-color var(--dur-micro-out) var(--ease-in-soft),
+  box-shadow var(--dur-micro-out) var(--ease-in-soft),
+  opacity var(--dur-micro-out) var(--ease-in-soft),
+  transform var(--dur-micro-out) var(--ease-in-soft);}
+.v4-h:hover,.modal-btn:hover,.toast-close:hover,.toast-more:hover,.cs-opt:hover,.ctx-menu-item:hover{
+  transition:background-color var(--dur-micro) var(--ease-out-soft),
+  color var(--dur-micro) var(--ease-out-soft),
+  border-color var(--dur-micro) var(--ease-out-soft),
+  box-shadow var(--dur-micro) var(--ease-out-soft),
+  opacity var(--dur-micro) var(--ease-out-soft),
+  transform var(--dur-micro) var(--ease-out-soft);}
+.v4-press:active{transform:scale(.94);transition-duration:var(--dur-press);}
+.v4-press.wide:active{transform:scale(.97);}
+.send-btn:disabled:active{transform:none;}
+
+/* ================= 左侧图标栏（60px rail）================= */
+.rail{width:var(--rail-w);flex-shrink:0;display:flex;flex-direction:column;align-items:center;
+  gap:var(--rail-gap);padding:12px 0 10px;z-index:20;position:relative;
+  background:linear-gradient(var(--glass-bg),var(--glass-bg)),var(--glass-fallback);
+  backdrop-filter:blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  -webkit-backdrop-filter:blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  border-right:1px solid var(--glass-border);}
+.rail-btn{position:relative;width:var(--rail-btn);height:var(--rail-btn);border-radius:var(--radius-md);
+  display:flex;align-items:center;justify-content:center;color:var(--text-2);flex-shrink:0;}
+.rail-btn svg{width:20px;height:20px}
+.rail-btn:hover{background:var(--hover);color:var(--text);}
+/* §3.2 纪律：v4 发光白名单不含 rail 选中态（审查 P2-1）——
+   选中语义由底色 + 图标色 + 左竖条承担，同屏发光 ≤2 处 */
+.rail-btn.on{background:var(--active);color:var(--primary)}
+.rail-btn::before{content:"";position:absolute;left:-8px;top:50%;width:3px;height:16px;
+  border-radius:var(--radius-full);background:var(--primary);
+  transform:translateY(-50%) scaleY(0);transform-origin:center;
+  transition:transform var(--dur-comp) var(--ease-out-soft);}
+.rail-btn.on::before{transform:translateY(-50%) scaleY(1);}
+/* L0 tooltip：opacity + transform translateX(-4px)→0 130ms 入 / 90ms 出 */
+.rail-btn::after{content:attr(data-tip);position:absolute;left:calc(100% + 10px);top:50%;
+  transform:translateY(-50%) translateX(calc(-1 * var(--shift-tip)));white-space:nowrap;
+  background:var(--text);color:var(--bg);font-size:12px;line-height:1;padding:6px 10px;
+  border-radius:var(--radius-sm);opacity:0;pointer-events:none;box-shadow:var(--shadow-lg);z-index:60;
+  transition:opacity var(--dur-micro-out) var(--ease-in-soft),transform var(--dur-micro-out) var(--ease-in-soft);}
+.rail-btn:hover::after{opacity:1;transform:translateY(-50%) translateX(0);
+  transition:opacity var(--dur-micro) var(--ease-out-soft),transform var(--dur-micro) var(--ease-out-soft);}
+.rail-spacer{flex:1}
+.rail-sep{width:22px;height:1px;background:var(--border);margin:4px 0}
+
+/* ================= 侧栏（可折叠 · 会话列表）================= */
+/* 例外登记（性能白名单唯一）：.sidebar 折叠 margin-left 单元素一次性 240ms */
+.sidebar{width:var(--sidebar-w);flex-shrink:0;display:flex;flex-direction:column;z-index:10;
+  background:linear-gradient(var(--glass-bg),var(--glass-bg)),var(--glass-fallback);
+  backdrop-filter:blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  -webkit-backdrop-filter:blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  border-right:1px solid var(--glass-border);
+  transition:margin-left var(--dur-panel) var(--ease-out-soft);}
+.sidebar.collapsed{margin-left:calc(-1 * var(--sidebar-w));}
+.sidebar-brand{display:flex;align-items:center;gap:10px;padding:16px 14px 12px;flex-shrink:0}
+.brand-logo{width:32px;height:32px;border-radius:var(--radius-md);background:var(--brand-gradient);
+  color:#fff;display:flex;align-items:center;justify-content:center;
+  font-weight:700;font-size:15px;flex-shrink:0;box-shadow:0 2px 10px -2px var(--glow-color);}
+.brand-name{font-weight:600;font-size:14.5px;white-space:nowrap}
+.brand-sub{font-size:11px;color:var(--text-3);font-family:var(--font-mono);white-space:nowrap}
+.sidebar-header{padding:2px 10px 8px;display:flex;flex-direction:column;gap:8px;flex-shrink:0}
+.new-chat-btn{display:flex;align-items:center;justify-content:center;gap:7px;width:100%;
+  padding:9px 12px;border-radius:var(--radius-md);background:var(--primary);color:#fff;
+  font-size:13px;font-weight:500;}
+.new-chat-btn:hover{background:var(--primary-hover);}
+.new-chat-btn svg{width:15px;height:15px}
+.side-actions{display:flex;gap:6px}
+.ghost-btn{flex:1;display:flex;align-items:center;justify-content:center;gap:5px;
+  padding:6px 8px;border-radius:var(--radius-sm);border:1px solid var(--border);
+  background:var(--card-bg);color:var(--text-2);font-size:12px;}
+.ghost-btn:hover{background:var(--hover);color:var(--text);border-color:var(--border-strong);}
+.ghost-btn svg{width:13px;height:13px}
+.section-label{padding:10px 14px 6px;font-size:11px;font-weight:600;letter-spacing:.06em;
+  color:var(--text-3);text-transform:uppercase;flex-shrink:0}
+.session-list{flex:1;overflow-y:auto;padding:0 8px 8px;min-height:0}
+/* §5 会话竖条：::before height:18px + translateY(-50%) scaleY(0→1) 200ms out-soft */
+.session-item{position:relative;display:flex;align-items:center;gap:8px;padding:9px 10px;
+  border-radius:var(--radius-md);cursor:pointer;margin-bottom:2px;}
+.session-item:hover{background:var(--hover);}
+.session-item.active{background:var(--active);}
+.session-item::before{content:"";position:absolute;left:0;top:50%;width:2px;height:18px;
+  border-radius:var(--radius-full);background:var(--primary);
+  transform:translateY(-50%) scaleY(0);
+  transition:transform var(--dur-comp) var(--ease-out-soft);}
+.session-item.active::before{transform:translateY(-50%) scaleY(1);}
+.session-item-main{flex:1;min-width:0}
+.session-title{font-size:13px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.session-time{font-size:11px;color:var(--text-3);font-family:var(--font-mono);white-space:nowrap;flex-shrink:0}
+.session-acts{display:none;align-items:center;gap:2px;flex-shrink:0}
+.session-item:hover .session-acts{display:inline-flex}
+.session-acts .session-del{position:static;transform:none}
+.session-exp,.session-del{width:24px;height:24px;border-radius:var(--radius-sm);display:none;
+  align-items:center;justify-content:center;color:var(--text-3);flex-shrink:0;}
+.session-item:hover .session-exp,.session-item:hover .session-del{display:inline-flex}
+.session-exp:hover,.session-del:hover{background:var(--surface-2);color:var(--text)}
+.session-del:hover{background:var(--err-bg);color:var(--err)}
+.session-exp svg,.session-del svg{width:14px;height:14px}
+.side-note{margin:auto 10px 10px;padding:9px 11px;border-radius:var(--radius-md);
+  background:var(--chip-bg);font-size:11.5px;line-height:1.55;color:var(--text-2);flex-shrink:0}
+.token-stat{flex-shrink:0;display:flex;gap:8px;align-items:center;padding:8px 14px;border-top:1px solid var(--border);
+  font-size:11.5px;color:var(--text-2);white-space:nowrap;overflow:hidden}
+.token-stat b{color:var(--text);font-weight:600;font-family:var(--font-mono)}
+
+/* ================= 主区 ================= */
+.main{flex:1;min-width:0;display:flex;flex-direction:column;position:relative;
+  background:var(--main-veil);}
+.header{height:48px;flex-shrink:0;display:flex;align-items:center;justify-content:space-between;
+  padding:0 14px;gap:12px;background:var(--header-bg);
+  backdrop-filter:blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  -webkit-backdrop-filter:blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  border-bottom:1px solid var(--glass-border);z-index:15}
+.header-left{display:flex;align-items:center;gap:10px;min-width:0}
+.header-right{display:flex;align-items:center;gap:8px;flex-shrink:0}
+.header-title{font-size:13.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.header-badge{font-size:10.5px;color:var(--primary);background:var(--primary-soft);
+  padding:3px 8px;border-radius:var(--radius-full);white-space:nowrap;flex-shrink:0;font-weight:500}
+.icon-btn{width:32px;height:32px;border-radius:var(--radius-sm);display:flex;align-items:center;
+  justify-content:center;color:var(--text-2);flex-shrink:0}
+.icon-btn:hover{background:var(--hover);color:var(--text)}
+.icon-btn svg{width:17px;height:17px}
+.pill-btn{display:inline-flex;align-items:center;gap:6px;height:30px;padding:0 12px;
+  border-radius:var(--radius-full);border:1px solid var(--border);background:var(--card-bg);
+  color:var(--text-2);font-size:12.5px;font-weight:500;white-space:nowrap}
+.pill-btn:hover{background:var(--hover);color:var(--text);border-color:var(--border-strong)}
+.pill-btn svg{width:14px;height:14px}
+
+/* ================= §5 面板切换（双交叉淡化 + 方向性 + _panelLeaving 收尸）================= */
+.panels{flex:1;display:flex;min-height:0;position:relative}
+.panel{display:none;flex:1;min-width:0;min-height:0;flex-direction:column}
+.panel.on{display:flex}
+.panel.leaving{position:absolute;inset:0;z-index:0;pointer-events:none}
+.panel.in-fwd,.panel.in-back{position:relative;z-index:1}
+.panel.in-fwd{animation:v4PanelInFwd var(--dur-panel) var(--ease-out)}
+.panel.in-back{animation:v4PanelInBack var(--dur-panel) var(--ease-out)}
+.panel.out-fwd{animation:v4PanelOutFwd var(--dur-panel-out) var(--ease-in-soft) forwards}
+.panel.out-back{animation:v4PanelOutBack var(--dur-panel-out) var(--ease-in-soft) forwards}
+@keyframes v4PanelInFwd{from{opacity:0;transform:translateX(var(--shift-panel))}to{opacity:1;transform:none}}
+@keyframes v4PanelInBack{from{opacity:0;transform:translateX(calc(-1 * var(--shift-panel)))}to{opacity:1;transform:none}}
+@keyframes v4PanelOutFwd{from{opacity:1;transform:none}to{opacity:0;transform:translateX(calc(-1 * var(--shift-panel)))}}
+@keyframes v4PanelOutBack{from{opacity:1;transform:none}to{opacity:0;transform:translateX(var(--shift-panel))}}
+.panel-head{flex-shrink:0;display:flex;align-items:flex-end;justify-content:space-between;gap:12px;
+  padding:var(--panel-pad) var(--panel-pad) 0}
+.panel-head-text{min-width:0}
+.panel-title{font-size:var(--panel-title);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.panel-sub{font-size:12px;color:var(--text-2);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.panel-scroll{flex:1;overflow-y:auto;min-height:0;padding:var(--panel-gap) var(--panel-pad) var(--panel-pad)}
+.panel-scroll.narrow{max-width:var(--content-w);width:100%;margin:0 auto}
+
+/* ================= §5 设置浮层（v4：show 200ms translateY(-6px) / hiding 140ms）================= */
+.settings-panel{flex-shrink:0;max-height:52vh;overflow-y:auto;
+  background:var(--card-bg);border-bottom:1px solid var(--border);
+  box-shadow:var(--shadow-md);display:none;position:relative;z-index:5}
+.settings-panel.show{display:block;animation:v4SetIn var(--dur-comp) var(--ease-out-soft)}
+.settings-panel.hiding{animation:v4SetOut var(--dur-comp-out) var(--ease-in-soft) forwards}
+@keyframes v4SetIn{from{opacity:0;transform:translateY(calc(-1 * var(--shift-comp)))}to{opacity:1;transform:none}}
+@keyframes v4SetOut{from{opacity:1;transform:none}to{opacity:0;transform:translateY(calc(-1 * var(--shift-comp)))}}
+.set-nav{position:sticky;top:0;z-index:6;display:flex;gap:2px;padding:6px 10px;
+  background:var(--card-bg);border-bottom:1px solid var(--border);overflow-x:auto;flex-shrink:0}
+.set-nav-btn{padding:5px 10px;border-radius:var(--radius-sm);font-size:12px;color:var(--text-2);
+  white-space:nowrap;flex-shrink:0}
+.set-nav-btn:hover{background:var(--hover);color:var(--text)}
+.set-nav-btn.on{background:var(--primary-soft);color:var(--primary);font-weight:500}
+.set-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));
+  gap:var(--panel-gap);padding:var(--panel-gap)}
+.set-block{background:var(--surface-2);border:1px solid var(--border);border-radius:var(--radius-lg);
+  padding:14px;min-width:0}
+.set-title{font-size:12px;font-weight:600;color:var(--text-2);margin-bottom:10px;
+  letter-spacing:.02em;text-transform:uppercase}
+.set-block label{display:flex;align-items:center;gap:7px;font-size:12.5px;color:var(--text-2);
+  margin:9px 0 4px;cursor:pointer}
+.set-block input[type=number],.set-block input[type=password],.set-block textarea{
+  width:100%;padding:7px 10px;border:1px solid var(--border);border-radius:var(--radius-sm);
+  background:var(--card-bg);color:var(--text);font-size:12.5px;outline:none}
+.set-block input[type=number]:focus,.set-block input[type=password]:focus,.set-block textarea:focus{
+  border-color:var(--primary);box-shadow:var(--glow-focus)}
+.set-block textarea{resize:vertical;line-height:1.55}
+.set-block input[type=range]{width:100%;accent-color:var(--primary);margin:2px 0}
+.range-row{display:flex;align-items:center;gap:8px}
+.range-row span{font-family:var(--font-mono);font-size:11.5px;color:var(--text-2);flex-shrink:0;min-width:34px;text-align:right}
+.set-hint{font-size:11px;color:var(--text-3);line-height:1.55;margin-top:6px}
+.cs-src{display:none!important}
+
+/* ================= 自定义下拉（§5 v4：v4CsIn 200ms scale(.98) / v4CsOut 140ms / 箭头 130ms）================= */
+.cs{position:relative;width:100%}
+.cs-trigger{display:flex;align-items:center;justify-content:space-between;gap:8px;width:100%;
+  padding:7px 10px;border:1px solid var(--border);border-radius:var(--radius-sm);
+  background:var(--card-bg);color:var(--text);font-size:12.5px;text-align:left;cursor:pointer}
+.cs-trigger:hover{border-color:var(--border-strong);background:var(--hover)}
+.cs.open .cs-trigger{border-color:var(--primary);box-shadow:var(--glow-focus)}
+.cs-label{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cs-arrow{font-size:9px;color:var(--text-3);flex-shrink:0;
+  transition:transform var(--dur-micro) var(--ease-out-soft)}
+.cs.open .cs-arrow{transform:rotate(180deg)}
+.cs-menu{position:absolute;top:calc(100% + 4px);left:0;right:0;z-index:120;display:none;
+  background:var(--card-bg);border:1px solid var(--border);border-radius:var(--radius-md);
+  box-shadow:var(--shadow-lg);padding:4px;max-height:220px;overflow-y:auto;
+  transform-origin:top center}
+.cs.open .cs-menu{display:block;animation:v4CsIn var(--dur-comp) var(--ease-spring)}
+.cs.open.hiding .cs-menu{animation:v4CsOut var(--dur-comp-out) var(--ease-in-soft) forwards}
+@keyframes v4CsIn{from{opacity:0;transform:translateY(calc(-1 * var(--shift-comp))) scale(.98)}to{opacity:1;transform:none}}
+@keyframes v4CsOut{from{opacity:1;transform:none}to{opacity:0;transform:translateY(calc(-1 * var(--shift-tip))) scale(.98)}}
+.cs-opt{padding:7px 10px;border-radius:var(--radius-sm);font-size:12.5px;cursor:pointer;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cs-opt:hover{background:var(--hover)}
+.cs-opt.on{background:var(--primary-soft);color:var(--primary);font-weight:500}
+
+/* ================= 对话面板：消息流（§5 v4MsgIn 220ms / batch 抑制）================= */
+.chat-container{flex:1;overflow-y:auto;min-height:0;padding:24px 20px 8px;
+  max-width:var(--content-w);width:100%;margin:0 auto;
+  transition:opacity var(--dur-comp) var(--ease-out-soft)}
+.chat-container.swapping{opacity:0;transition:opacity var(--dur-comp-out) var(--ease-in-soft)}
+.message{display:flex;gap:11px;margin-bottom:20px;animation:v4MsgIn var(--dur-narr) var(--ease-out-soft)}
+.chat-container.batch .message{animation:none}
+@keyframes v4MsgIn{from{opacity:0;transform:translateY(var(--shift-msg))}to{opacity:1;transform:none}}
+.message .avatar{width:28px;height:28px;border-radius:var(--radius-sm);flex-shrink:0;
+  display:flex;align-items:center;justify-content:center;font-size:10.5px;font-weight:600}
+.message.user .avatar{background:var(--user-bubble);color:var(--user-bubble-text)}
+.message.assistant .avatar{background:var(--brand-gradient);color:#fff}
+.message .content{min-width:0;flex:1;padding:9px 12px;border-radius:var(--radius-lg);
+  font-size:13.5px;line-height:1.65;word-break:break-word}
+.message.user .content{background:var(--user-bubble);color:var(--user-bubble-text);
+  border-bottom-right-radius:var(--radius-xs)}
+.message.assistant .content{background:var(--ai-bubble);border:1px solid var(--border);
+  border-bottom-left-radius:var(--radius-xs)}
+.md-body p{margin:0 0 8px}
+.md-body p:last-child{margin-bottom:0}
+.md-body :not(pre)>code{font-family:var(--font-mono);font-size:12px;background:var(--chip-bg);
+  padding:1px 5px;border-radius:var(--radius-xs);color:var(--primary)}
+.md-body pre{position:relative;background:var(--surface-2);border:1px solid var(--border);
+  border-radius:var(--radius-md);padding:11px 12px;overflow-x:auto;margin:8px 0;font-size:12px;line-height:1.6}
+.md-body pre code{font-family:var(--font-mono);background:none;padding:0;color:var(--text)}
+.code-lang{position:absolute;top:6px;right:10px;font-size:10px;color:var(--text-3);
+  font-family:var(--font-mono);letter-spacing:.04em}
+.code-copy{position:absolute;top:5px;right:8px;width:24px;height:24px;border-radius:var(--radius-sm);
+  display:flex;align-items:center;justify-content:center;background:var(--card-bg);
+  border:1px solid var(--border);color:var(--text-3)}
+.code-copy:hover{color:var(--primary);border-color:var(--primary)}
+.code-copy svg{width:12px;height:12px}
+.usage-info{display:flex;flex-wrap:wrap;gap:12px;margin-top:9px;padding-top:8px;
+  border-top:1px dashed var(--border);font-size:11px;color:var(--text-3)}
+.usage-info b{color:var(--text-2);font-weight:600;font-family:var(--font-mono)}
+.typing-dots{display:inline-flex;gap:4px;padding:3px 0}
+.typing-dots span{width:6px;height:6px;border-radius:50%;background:var(--text-3);
+  animation:v4Bounce var(--dur-breathe) ease-in-out infinite}
+.typing-dots span:nth-child(2){animation-delay:.18s}
+.typing-dots span:nth-child(3){animation-delay:.36s}
+@keyframes v4Bounce{0%,100%{opacity:.35;transform:translateY(0)}50%{opacity:1;transform:translateY(-3px)}}
+
+/* ================= §5 工具调用卡（三态 · 呼吸 / 扫光 / 一次性收敛）================= */
+.tool-call-item{position:relative;display:flex;align-items:center;gap:8px;overflow:hidden;
+  margin:8px 0;padding:8px 10px;border-radius:var(--radius-md);
+  background:var(--card-bg);border:1px solid var(--border);border-left:2px solid var(--primary);
+  font-size:12px;color:var(--text-2);
+  transition:border-color var(--dur-comp) var(--ease-out-soft),
+    background-color var(--dur-comp) var(--ease-out-soft),
+    color var(--dur-comp) var(--ease-out-soft)}
+.tool-call-item .tc-label{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  font-family:var(--font-mono);font-size:11.5px}
+.tool-call-item .tc-meta{font-size:10.5px;color:var(--text-3);white-space:nowrap;flex-shrink:0}
+.tool-call-item .tc-dot{width:7px;height:7px;border-radius:50%;background:var(--primary);flex-shrink:0}
+body:not(.fx-off) .tool-call-item:not(.done):not(.fail){animation:v4ToolBreathe var(--dur-breathe) ease-in-out infinite}
+body:not(.fx-off) .tool-call-item:not(.done):not(.fail)::after{content:"";position:absolute;inset:0;
+  pointer-events:none;
+  background:linear-gradient(105deg,transparent 42%,rgba(255,255,255,.26) 50%,transparent 58%);
+  transform:translateX(-100%);animation:v4ToolSheen var(--dur-sheen) linear infinite}
+.tool-call-item.done{border-left-color:var(--ok);color:var(--text-2)}
+.tool-call-item.done .tc-dot{background:var(--ok)}
+body:not(.fx-off) .tool-call-item.done{animation:v4ToolSettle var(--dur-comp) var(--ease-out-soft)}
+.tool-call-item.fail{border-left-color:var(--err);background:var(--err-bg);color:var(--err)}
+.tool-call-item.fail .tc-dot{background:var(--err)}
+body:not(.fx-off) .tool-call-item.fail{animation:none}
+.tool-spinner{width:12px;height:12px;flex-shrink:0;border-radius:50%;
+  border:2px solid var(--primary-soft);border-top-color:var(--primary);
+  animation:v4Spin var(--dur-stream) linear infinite}
+@keyframes v4Spin{to{transform:rotate(360deg)}}
+@keyframes v4ToolBreathe{0%,100%{opacity:.88}50%{opacity:1}}
+@keyframes v4ToolSheen{from{transform:translateX(-100%)}to{transform:translateX(100%)}}
+@keyframes v4ToolSettle{0%{box-shadow:0 0 10px -2px var(--ok)}100%{box-shadow:0 0 0 0 transparent}}
+
+/* ================= §5 附件条（v4：show 200ms translateY(6px) / 单项 scale(.9)→1 / 删除键 hover scale(1.12)）================= */
+.attach-preview{display:none;flex-wrap:wrap;gap:8px;margin-bottom:8px;flex-shrink:0}
+.attach-preview.show{display:flex;animation:v4AttachIn var(--dur-comp) var(--ease-out-soft)}
+.attach-preview.hiding{animation:v4AttachOut var(--dur-comp-out) var(--ease-in-soft) forwards}
+.attach-item.enter{animation:v4AttachItemIn var(--dur-comp) var(--ease-spring)}
+.attach-item{position:relative;width:64px;height:64px;border-radius:var(--radius-md);
+  border:1px solid var(--border);background:var(--card-bg);overflow:hidden;flex-shrink:0}
+.attach-item img,.attach-item svg.ph-img{width:100%;height:100%;object-fit:cover;display:block}
+.attach-item .remove{position:absolute;top:2px;right:2px;width:16px;height:16px;border-radius:50%;
+  background:rgba(16,18,28,.62);color:#fff;display:flex;align-items:center;justify-content:center;
+  font-size:9px;line-height:1;transition:transform var(--dur-micro) var(--ease-out-soft)}
+.attach-item .remove:hover{transform:scale(1.12)}
+.file-icon{width:100%;height:100%;display:flex;flex-direction:column;align-items:center;
+  justify-content:center;gap:3px;padding:5px;background:var(--surface-2)}
+.file-icon svg{width:18px;height:18px;color:var(--text-2)}
+.file-icon span{font-size:9px;color:var(--text-2);max-width:100%;overflow:hidden;
+  text-overflow:ellipsis;white-space:nowrap}
+@keyframes v4AttachIn{from{opacity:0;transform:translateY(var(--shift-comp))}to{opacity:1;transform:none}}
+@keyframes v4AttachOut{from{opacity:1;transform:none}to{opacity:0;transform:translateY(var(--shift-tip))}}
+@keyframes v4AttachItemIn{from{opacity:0;transform:scale(.9)}to{opacity:1;transform:scale(1)}}
+
+/* ================= 输入区 ================= */
+.input-area{flex-shrink:0;max-width:var(--content-w);width:100%;margin:0 auto;padding:8px 20px 14px}
+.input-row{display:flex;align-items:flex-end;gap:6px;background:var(--card-bg);
+  border:1px solid var(--border);border-radius:var(--radius-lg);padding:7px 9px;
+  transition:border-color var(--dur-micro-out) var(--ease-in-soft),box-shadow var(--dur-micro-out) var(--ease-in-soft)}
+.input-row:focus-within{border-color:var(--primary);box-shadow:var(--glow-focus)}
+body.fx-off .input-row:focus-within{box-shadow:0 0 0 3px var(--primary-soft)}
+.tool-btn{width:32px;height:32px;border-radius:var(--radius-sm);display:flex;align-items:center;
+  justify-content:center;color:var(--text-2);flex-shrink:0}
+.tool-btn:hover{background:var(--hover);color:var(--primary)}
+.tool-btn svg{width:17px;height:17px}
+#userInput{flex:1;border:none;outline:none;background:none;resize:none;
+  font-size:13.5px;line-height:1.55;max-height:132px;padding:7px 4px;color:var(--text)}
+#userInput::placeholder{color:var(--text-3)}
+.send-btn{width:32px;height:32px;border-radius:var(--radius-sm);display:flex;align-items:center;
+  justify-content:center;background:var(--primary);color:#fff;flex-shrink:0}
+.send-btn:hover:not(:disabled){background:var(--primary-hover)}
+.send-btn:disabled{opacity:.45;cursor:default}
+.send-btn svg{width:15px;height:15px}
+.input-hint{display:flex;align-items:center;gap:12px;margin-top:7px;font-size:11px;
+  color:var(--text-3);flex-wrap:wrap}
+.input-hint b{color:var(--text-2);font-weight:600;font-family:var(--font-mono)}
+.continue-btn{margin-left:auto;font-size:11px;color:var(--primary);padding:2px 8px;
+  border-radius:var(--radius-full);border:1px solid var(--border)}
+.continue-btn:hover{background:var(--primary-soft);border-color:var(--primary)}
+/* 空状态入场（审查 P2-3）：复用消息入场 v4MsgIn，不用通用淡入动画 */
+.empty-state{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;
+  justify-content:center;gap:6px;color:var(--text-3);pointer-events:none;padding:20px;text-align:center;
+  animation:v4MsgIn var(--dur-narr) var(--ease-out-soft)}
+.empty-state .es-title{font-size:14px;font-weight:600;color:var(--text-2)}
+.empty-state .es-sub{font-size:12px;line-height:1.6;max-width:420px}
+
+/* ================= 会话面板 ================= */
+.sessions-search{position:relative;display:flex;align-items:center;gap:8px;margin-bottom:var(--panel-gap);
+  background:var(--card-bg);border:1px solid var(--border);border-radius:var(--radius-md);padding:0 12px;
+  transition:border-color var(--dur-micro-out) var(--ease-in-soft),box-shadow var(--dur-micro-out) var(--ease-in-soft)}
+.sessions-search:focus-within{border-color:var(--primary);box-shadow:var(--glow-focus)}
+.sessions-search svg{width:15px;height:15px;color:var(--text-3);flex-shrink:0}
+.sessions-search input{flex:1;border:none;outline:none;background:none;font-size:13px;padding:9px 0;color:var(--text)}
+.sessions-search input::placeholder{color:var(--text-3)}
+.search-count{font-size:11px;color:var(--text-3);font-family:var(--font-mono);white-space:nowrap;flex-shrink:0}
+#sessionList .session-item{background:var(--card-bg);border:1px solid var(--border);margin-bottom:6px;padding:11px 12px}
+#sessionList .session-item:hover{border-color:var(--border-strong)}
+#sessionList .session-item.active{border-color:var(--primary);background:var(--active)}
+
+/* ================= 分析面板（§5：count-up 600ms / 图表 draw 800ms+stagger / dot hover 130ms）================= */
+.stat-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:var(--panel-gap);
+  max-width:960px;margin:0 auto var(--panel-gap);width:100%}
+.stat-card{background:var(--card-bg);border:1px solid var(--border);border-radius:var(--radius-lg);
+  padding:14px 15px;min-width:0}
+.stat-label{font-size:11.5px;color:var(--text-2);margin-bottom:5px;white-space:nowrap;
+  overflow:hidden;text-overflow:ellipsis}
+.stat-value{font-size:23px;font-weight:600;font-family:var(--font-mono);
+  font-variant-numeric:tabular-nums;letter-spacing:-.01em;line-height:1.2;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.stat-sub{font-size:10.5px;color:var(--text-3);margin-top:3px;font-family:var(--font-mono)}
+.analytics-grid{display:grid;grid-template-columns:1fr 1fr;gap:var(--panel-gap);max-width:960px;margin:0 auto;width:100%}
+.chart-card{background:var(--card-bg);border:1px solid var(--border);border-radius:var(--radius-lg);
+  padding:15px 15px 10px;min-width:0}
+.chart-card-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px;flex-wrap:wrap}
+.chart-card-title{font-size:13px;font-weight:600}
+.chart-card-sub{font-size:11px;color:var(--text-3);margin-top:1px}
+.seg{display:inline-flex;background:var(--surface-2);border-radius:var(--radius-full);padding:2px;gap:2px}
+.seg-btn{padding:4px 11px;border-radius:var(--radius-full);font-size:11.5px;color:var(--text-2);white-space:nowrap}
+.seg-btn:hover{color:var(--text)}
+.seg-btn.on{background:var(--card-bg);color:var(--primary);font-weight:500;box-shadow:var(--shadow-sm)}
+.chart-wrap{width:100%;overflow:hidden}
+.chart-wrap svg{display:block;width:100%;height:auto}
+.chart-grid-line{stroke:var(--chart-grid);stroke-width:1}
+.chart-ax{fill:var(--chart-axis);font-size:10px;font-family:var(--font-mono)}
+.chart-line{fill:none;stroke:var(--chart-1);stroke-width:2;stroke-linecap:round;stroke-linejoin:round;
+  stroke-dasharray:1;stroke-dashoffset:1}
+body:not(.fx-off) .chart-line{transition:stroke-dashoffset var(--dur-chart) var(--ease-out-soft)}
+.chart-area{fill:url(#trendFill);opacity:0}
+body:not(.fx-off) .chart-area{transition:opacity var(--dur-chart) var(--ease-out-soft)}
+.chart-area-from{stop-color:var(--chart-area-from)}
+.chart-area-to{stop-color:var(--chart-area-to)}
+.chart-dot{fill:var(--chart-1);transform-box:fill-box;transform-origin:center;
+  transition:transform var(--dur-micro) var(--ease-out-soft)}
+.chart-dot:hover{transform:scale(1.67)}
+.chart-wrap.drawn .chart-line{stroke-dashoffset:0}
+.chart-wrap.drawn .chart-area{opacity:1}
+.chart-bar{fill:var(--chart-1);transform-box:fill-box;transform-origin:left center;
+  transform:scaleX(0)}
+body:not(.fx-off) .chart-bar{transition:transform var(--dur-chart) var(--ease-out-soft)}
+.chart-wrap.drawn .chart-bar{transform:scaleX(1)}
+.bar-label{fill:var(--text-2);font-size:10.5px;font-family:var(--font-mono)}
+.bar-val{fill:var(--text-3);font-size:10px;font-family:var(--font-mono);font-variant-numeric:tabular-nums}
+.ring-wrap{display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+.ring-svg-box{flex-shrink:0}
+.ring-num{fill:var(--text);font-size:17px;font-weight:600;font-family:var(--font-mono);font-variant-numeric:tabular-nums}
+.ring-cap{fill:var(--text-3);font-size:9px}
+.ring-val{transition:stroke-dashoffset var(--dur-chart) var(--ease-out-soft)}
+.chart-wrap.drawn .ring-val{stroke-dashoffset:var(--ring-offset,0)}
+.ring-legend{display:flex;flex-direction:column;gap:7px;min-width:0}
+.ring-legend-row{display:flex;align-items:center;gap:7px;font-size:11.5px;color:var(--text-2)}
+.ring-legend-row i{width:8px;height:8px;border-radius:2px;flex-shrink:0}
+.ring-legend-row b{margin-left:auto;font-family:var(--font-mono);color:var(--text);font-weight:600;
+  font-variant-numeric:tabular-nums}
+.chart-empty{font-size:11.5px;color:var(--text-3);padding:14px 0}
+
+/* ================= 工作区面板 ================= */
+.ws-card{background:var(--card-bg);border:1px solid var(--border);border-radius:var(--radius-lg);
+  padding:15px;margin-bottom:var(--panel-gap)}
+.ws-card>label{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:500;cursor:pointer}
+.ws-card .set-hint{font-size:11px;color:var(--text-3);line-height:1.55;margin:4px 0 0}
+.ws-sel{margin:10px 0}
+.ws-btn-row{display:flex;gap:8px;align-items:center;margin:4px 0}
+.ws-btn{padding:7px 13px;border-radius:var(--radius-sm);border:1px solid var(--border);
+  background:var(--card-bg);color:var(--text-2);font-size:12.5px}
+.ws-btn:hover{background:var(--hover);color:var(--text);border-color:var(--border-strong)}
+.field-row{display:flex;align-items:center;justify-content:space-between;gap:12px;
+  padding:11px 13px;background:var(--card-bg);border:1px solid var(--border);
+  border-radius:var(--radius-lg);margin-bottom:var(--panel-gap);font-size:13px}
+.field-row>span{font-weight:500;flex-shrink:0}
+.field-row .cs{max-width:200px;flex-shrink:0}
+.eff-row{display:flex;align-items:center;gap:8px;font-size:11.5px;color:var(--text-2);
+  padding:8px 13px;background:var(--chip-bg);border-radius:var(--radius-md);margin-bottom:var(--panel-gap);
+  min-width:0;flex-wrap:wrap}
+.eff-tag{font-size:10.5px;font-weight:600;padding:2px 8px;border-radius:var(--radius-full);
+  background:var(--primary-soft);color:var(--primary);flex-shrink:0}
+.eff-row span:last-child{font-family:var(--font-mono);font-size:11px;color:var(--text-3);
+  min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.guard-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;margin-top:10px}
+.guard-grid label{font-size:11.5px;color:var(--text-2);display:block;margin-bottom:4px}
+.guard-txt{width:100%;margin-top:10px;padding:8px 10px;border:1px solid var(--border);
+  border-radius:var(--radius-sm);background:var(--card-bg);color:var(--text);font-size:12.5px;
+  font-family:var(--font-mono);resize:vertical;outline:none;line-height:1.55}
+.guard-txt:focus{border-color:var(--primary);box-shadow:var(--glow-focus)}
+.provider-row{display:flex;align-items:center;gap:10px;margin-top:12px;flex-wrap:wrap}
+.provider-row .set-hint{margin:0;flex:1;min-width:120px}
+
+/* ================= §5 Toast（v4：v4ToastIn 200ms / .out 140ms 镜像）================= */
+#toastBox{position:fixed;right:14px;bottom:14px;z-index:10000;display:flex;flex-direction:column;
+  gap:8px;max-width:min(420px,90vw);pointer-events:none}
+.toast{display:flex;align-items:flex-start;gap:8px;padding:10px 12px;border-radius:var(--radius-md);
+  background:var(--card-bg);border:1px solid var(--border);box-shadow:var(--shadow-lg);
+  font-size:12.5px;line-height:1.5;color:var(--text);word-break:break-all;pointer-events:auto;
+  animation:v4ToastIn var(--dur-comp) var(--ease-out-soft)}
+.toast.out{opacity:0;transform:translateX(var(--shift-toast));
+  transition:opacity var(--dur-comp-out) var(--ease-in-soft),transform var(--dur-comp-out) var(--ease-in-soft)}
+@keyframes v4ToastIn{from{opacity:0;transform:translateX(var(--shift-toast))}to{opacity:1;transform:none}}
+.toast-ico{flex-shrink:0;font-size:12px;line-height:1.5;font-weight:700}
+.toast-ok .toast-ico{color:var(--ok)}
+.toast-warn .toast-ico{color:var(--warn)}
+.toast-err .toast-ico{color:var(--err)}
+.toast-info .toast-ico{color:var(--primary)}
+.toast-msg{flex:1;min-width:0}
+.toast-close,.toast-more{flex-shrink:0;font-size:11px;color:var(--text-3);padding:1px 5px;
+  border-radius:var(--radius-xs);line-height:1.4}
+.toast-close:hover,.toast-more:hover{background:var(--surface-2);color:var(--text)}
+.toast-detail{flex-basis:100%;margin-top:5px;padding:6px 8px;border-radius:var(--radius-sm);
+  background:var(--surface-2);font-family:var(--font-mono);font-size:10.5px;color:var(--text-2);
+  white-space:pre-wrap;word-break:break-all}
+
+/* ================= §5 模态（v4：v4MaskIn / v4ModalIn spring scale(.96)→1 / v4ModalOut 140ms）================= */
+#modalRoot{position:fixed;inset:0;z-index:10001}
+.modal-mask{position:absolute;inset:0;background:rgba(16,18,28,.45);
+  backdrop-filter:blur(2px);-webkit-backdrop-filter:blur(2px);
+  animation:v4MaskIn var(--dur-comp) var(--ease-out-soft)}
+.modal-card{position:absolute;left:50%;top:38%;transform:translate(-50%,-50%);
+  width:min(440px,92vw);background:var(--card-bg);border:1px solid var(--border);
+  border-radius:var(--radius-lg);box-shadow:var(--shadow-lg);padding:18px 18px 14px;
+  animation:v4ModalIn var(--dur-comp) var(--ease-spring)}
+#modalRoot.closing .modal-mask{animation:v4MaskOut var(--dur-comp-out) var(--ease-in-soft) forwards}
+#modalRoot.closing .modal-card{animation:v4ModalOut var(--dur-comp-out) var(--ease-in-soft) forwards}
+@keyframes v4MaskIn{from{opacity:0}to{opacity:1}}
+@keyframes v4MaskOut{from{opacity:1}to{opacity:0}}
+@keyframes v4ModalIn{from{opacity:0;transform:translate(-50%,-50%) scale(.96)}to{opacity:1;transform:translate(-50%,-50%) scale(1)}}
+@keyframes v4ModalOut{from{opacity:1;transform:translate(-50%,-50%) scale(1)}to{opacity:0;transform:translate(-50%,-50%) scale(.97)}}
+.modal-title{font-size:14.5px;font-weight:600;margin-bottom:6px}
+.modal-body{font-size:12.5px;color:var(--text-2);line-height:1.6;white-space:pre-wrap;word-break:break-word}
+.modal-input{width:100%;margin-top:10px;padding:8px 10px;border:1px solid var(--border);
+  border-radius:var(--radius-sm);background:var(--surface-2);color:var(--text);font-size:12.5px;outline:none}
+.modal-input:focus{border-color:var(--primary);box-shadow:var(--glow-focus)}
+.modal-check{display:flex;align-items:center;gap:7px;margin-top:11px;font-size:12px;
+  color:var(--text-2);cursor:pointer}
+.modal-btns{display:flex;justify-content:flex-end;gap:8px;margin-top:15px}
+.modal-btn{padding:7px 14px;border-radius:var(--radius-sm);font-size:12.5px;font-weight:500}
+.modal-cancel{border:1px solid var(--border);background:var(--card-bg);color:var(--text-2)}
+.modal-cancel:hover{background:var(--hover);color:var(--text)}
+.modal-btn.primary{background:var(--primary);color:#fff}
+.modal-btn.primary:hover{background:var(--primary-hover)}
+.modal-btn.danger{background:var(--err);color:#fff}
+.modal-btn.danger:hover{filter:brightness(1.08)}
+
+/* ================= §5 右键菜单（v4：origin top left / scale(.97) translateY(-6px) / 条目 stagger 40ms）================= */
+.ctx-menu{position:fixed;z-index:9999;min-width:132px;display:none;padding:4px;
+  background:var(--card-bg);border:1px solid var(--border);border-radius:var(--radius-md);
+  box-shadow:var(--shadow-lg);transform-origin:top left}
+.ctx-menu.show{display:block;animation:v4CtxIn var(--dur-comp) var(--ease-spring)}
+.ctx-menu.hiding{animation:v4CtxOut var(--dur-comp-out) var(--ease-in-soft) forwards}
+.ctx-menu.show .ctx-menu-item{animation:v4CtxItemIn var(--dur-comp) var(--ease-out-soft) both}
+.ctx-menu.show .ctx-menu-item:nth-child(2){animation-delay:var(--stagger-xs)}
+.ctx-menu.show .ctx-menu-item:nth-child(3){animation-delay:calc(var(--stagger-xs) * 2)}
+.ctx-menu.show .ctx-menu-item:nth-child(4){animation-delay:calc(var(--stagger-xs) * 3)}
+@keyframes v4CtxIn{from{opacity:0;transform:scale(.97) translateY(calc(-1 * var(--shift-comp)))}to{opacity:1;transform:none}}
+@keyframes v4CtxOut{from{opacity:1;transform:none}to{opacity:0;transform:scale(.98) translateY(calc(-1 * var(--shift-tip)))}}
+@keyframes v4CtxItemIn{from{opacity:0;transform:translateX(calc(-1 * var(--shift-tip)))}to{opacity:1;transform:none}}
+.ctx-menu-item{padding:7px 11px;border-radius:var(--radius-sm);font-size:12.5px;cursor:pointer;white-space:nowrap}
+.ctx-menu-item:hover{background:var(--hover)}
+
+/* ================= §5 系统提示（v4TipIn 200ms / .out 140ms 镜像）================= */
+.sys-tip{position:fixed;left:50%;top:16px;transform:translateX(-50%);z-index:10002;
+  padding:8px 14px;border-radius:var(--radius-full);background:var(--text);color:var(--bg);
+  font-size:12px;box-shadow:var(--shadow-lg);animation:v4TipIn var(--dur-comp) var(--ease-out-soft)}
+.sys-tip.out{opacity:0;transform:translateX(-50%) translateY(calc(-1 * var(--shift-comp)));
+  transition:opacity var(--dur-comp-out) var(--ease-in-soft),transform var(--dur-comp-out) var(--ease-in-soft)}
+@keyframes v4TipIn{from{opacity:0;transform:translateX(-50%) translateY(calc(-1 * var(--shift-comp)))}to{opacity:1;transform:translateX(-50%)}}
+
+/* ================= §5 主题过渡（body.theming + 显式表面列表 280ms 同源同速）================= */
+body.theming .rail,body.theming .sidebar,body.theming .header,body.theming .main,
+body.theming .panel-head,body.theming .g-card,body.theming .stat-card,body.theming .chart-card,
+body.theming .cs-trigger,body.theming .cs-menu,body.theming .input-row,body.theming .toast,
+body.theming .modal-card,body.theming .ctx-menu,body.theming .tool-call-item,body.theming .session-item,
+body.theming .message,body.theming .content,body.theming .attach-item,body.theming .ws-card,
+body.theming .mcp-row,body.theming .search-hit,body.theming .eff-row,body.theming .set-nav,
+body.theming .header-badge,body.theming .pill-btn,body.theming .seg,body.theming .code-copy,
+body.theming .token-stat,body.theming .demo-console{
+  transition:background-color var(--dur-theme) var(--ease-out-soft),
+    color var(--dur-theme) var(--ease-out-soft),
+    border-color var(--dur-theme) var(--ease-out-soft),
+    box-shadow var(--dur-theme) var(--ease-out-soft),
+    fill var(--dur-theme) var(--ease-out-soft),
+    stroke var(--dur-theme) var(--ease-out-soft);
+}
+
+/* ================= 演示控制台（原型专用，非 App 组件）================= */
+.demo-console{position:fixed;left:12px;bottom:12px;z-index:10003;width:224px;
+  background:var(--glass-bg-2);backdrop-filter:blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  -webkit-backdrop-filter:blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  border:1px solid var(--glass-border);border-radius:var(--radius-lg);
+  box-shadow:var(--shadow-lg);overflow:hidden}
+.demo-head{display:flex;align-items:center;justify-content:space-between;padding:8px 10px;
+  border-bottom:1px solid var(--border);background:var(--card-bg)}
+.demo-title{font-size:11.5px;font-weight:600;letter-spacing:.04em;color:var(--text-2)}
+.demo-collapse{width:22px;height:22px;border-radius:var(--radius-xs);display:flex;align-items:center;
+  justify-content:center;color:var(--text-3)}
+.demo-collapse:hover{background:var(--hover);color:var(--text)}
+.demo-collapse svg{width:12px;height:12px;transition:transform var(--dur-micro) var(--ease-out-soft)}
+.demo-console.collapsed .demo-collapse svg{transform:rotate(180deg)}
+.demo-body{padding:9px 10px 10px;display:flex;flex-direction:column;gap:8px}
+.demo-grid{display:grid;grid-template-columns:1fr 1fr;gap:5px}
+.demo-btn{padding:6px 7px;border-radius:var(--radius-sm);border:1px solid var(--border);
+  background:var(--card-bg);color:var(--text-2);font-size:11px;line-height:1.35;text-align:center}
+.demo-btn:hover{border-color:var(--primary);color:var(--primary);background:var(--primary-soft)}
+.demo-btn.wide{grid-column:span 2}
+.demo-fx{display:flex;align-items:center;gap:7px;font-size:11px;color:var(--text-2);cursor:pointer}
+.demo-note{font-size:10px;line-height:1.5;color:var(--text-3);border-top:1px dashed var(--border);padding-top:7px}
+
+/* ================= §6 降级矩阵 ================= */
+/* fx-off 变量级降级：时长清零 + 循环动画显式停（流式条循环保留，仅去发光）*/
+body.fx-off{--dur-press:1ms;--dur-micro:1ms;--dur-micro-out:1ms;--dur-comp:1ms;--dur-comp-out:1ms;--dur-panel:1ms;--dur-panel-out:1ms;--dur-narr:1ms;--dur-theme:1ms;--dur-count:1ms;--dur-chart:1ms;--stagger-xs:0ms;--stagger-sm:0ms}
+body.fx-off #auroraBg .au,body.fx-off .tool-call-item,body.fx-off .tool-call-item::after{animation:none}
+body.fx-off .stream-bar{box-shadow:none}
+/* reduced-motion：功能优先——流式条/spinner/typing-dots 不受 fx-off 约束，受此约束 */
+@media (prefers-reduced-motion: reduce){
+  *,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}
+  #auroraBg .au{animation:none!important}
+  .tool-call-item::after{display:none!important}
+  .stream-bar{box-shadow:none!important}
+}
+/* prefers-reduced-transparency：玻璃层回退不透明，遮罩去模糊 */
+@media (prefers-reduced-transparency: reduce){
+  :root{--glass-bg:#f4f6fb;--glass-bg-2:#ffffff;--glass-blur:0px}
+  body.dark{--glass-bg:#171a21;--glass-bg-2:#1a1c22;--glass-blur:0px}
+  .header{background:var(--card-bg)}
+  .main{background:var(--main-bg)}
+  .modal-mask{background:rgba(16,18,28,.72);backdrop-filter:none}
+}
+</style>
+</head>
+<body>
+
+<!-- ============ §3 极光背景氛围层（v4：2 光斑 · 青/紫 · 品红退役 · 纯 translate）============ -->
+<div id="auroraBg" aria-hidden="true">
+  <div class="au au-1"></div>
+  <div class="au au-2"></div>
+  <div class="au au-3"></div>
+</div>
+
+<!-- ============ §5 流式进度条（v4：transform 版 · 禁布局属性动画）============ -->
+<div class="stream-bar" id="streamBar"></div>
+
+<!-- ============ 左侧图标栏（60px rail：4 面板 + 设置 / 余额 / 主题）============ -->
+<nav class="rail" id="rail" aria-label="主导航">
+  <button class="rail-btn v4-h v4-press on" data-panel="chat" data-tip="对话" onclick="switchPanel('chat')" aria-label="对话">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a8 8 0 0 1-8 8H5l-2 2V12a8 8 0 0 1 8-8h2a8 8 0 0 1 8 8z"/></svg>
+  </button>
+  <button class="rail-btn v4-h v4-press" data-panel="sessions" data-tip="会话历史" onclick="switchPanel('sessions')" aria-label="会话历史">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8v4l3 3"/><circle cx="12" cy="12" r="9"/></svg>
+  </button>
+  <button class="rail-btn v4-h v4-press" data-panel="analytics" data-tip="分析 · 成本与工具统计" onclick="switchPanel('analytics')" aria-label="分析">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M7 14l4-4 3 3 5-6"/></svg>
+  </button>
+  <button class="rail-btn v4-h v4-press" data-panel="workspace" data-tip="工作区与工具权限" onclick="switchPanel('workspace')" aria-label="工作区">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
+  </button>
+  <button class="rail-btn v4-h v4-press" data-tip="设置" onclick="toggleSettings()" aria-label="设置">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h.08a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h.08a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v.08a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+  </button>
+  <div class="rail-spacer"></div>
+  <div class="rail-sep"></div>
+  <button class="rail-btn v4-h v4-press" data-tip="余额" onclick="openBilling()" aria-label="余额">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+  </button>
+  <button class="rail-btn v4-h v4-press" id="themeBtn" data-tip="切换深色 / 浅色" onclick="toggleTheme()" aria-label="切换主题"></button>
+</nav>
+
+<!-- ============ 可折叠侧栏（会话列表 · hover 删除/导出 · 选中竖条）============ -->
+<aside class="sidebar" id="sidebar">
+  <div class="sidebar-brand">
+    <div class="brand-logo">G</div>
+    <div style="min-width:0">
+      <div class="brand-name">GLM Chat</div>
+      <div class="brand-sub" id="brandModel">glm-5.3-flash</div>
+    </div>
+  </div>
+  <div class="sidebar-header">
+    <button class="new-chat-btn v4-h v4-press wide" onclick="newSession()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+      新建对话
+    </button>
+    <div class="side-actions">
+      <button class="ghost-btn v4-h v4-press" onclick="openSessionSearch()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+        搜索
+      </button>
+      <button class="ghost-btn v4-h v4-press" onclick="exportChat()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12M7 10l5 5 5-5M5 21h14"/></svg>
+        导出
+      </button>
+    </div>
+  </div>
+  <div class="section-label">最近会话</div>
+  <div class="session-list" id="sidebarSessionList"></div>
+  <div class="side-note">原型说明：静态假数据，无后端；动效规格与真实 App 一致（v4 令牌）。</div>
+  <div class="token-stat" id="tokenStat">tokens <b>2,481</b> · <b>¥0.83</b> · 缓存 <b>62%</b>（示意）</div>
+</aside>
+
+<!-- ============ 主区（header + 四面板，DOM 常驻仅切 class）============ -->
+<div class="main">
+  <header class="header">
+    <div class="header-left">
+      <button class="icon-btn v4-h v4-press" onclick="toggleSidebar()" title="折叠 / 展开侧栏" aria-label="折叠侧栏">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M3 6h18M3 12h18M3 18h18"/></svg>
+      </button>
+      <div class="header-title" id="headerTitle">glm-5.3-flash · 对话</div>
+      <div class="header-badge">多模态 Agent</div>
+    </div>
+    <div class="header-right">
+      <button class="pill-btn v4-h v4-press" onclick="toggleSettings()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h.08a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h.08a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v.08a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+        设置
+      </button>
+    </div>
+  </header>
+
+  <div class="panels">
+    <!-- ================= 面板一：对话 ================= -->
+    <section class="panel on" id="panelChat">
+      <!-- 设置浮层（多个 set-block + 顶部锚点导航）-->
+      <div class="settings-panel" id="settingsPanel">
+        <div class="set-nav" id="setNav"></div>
+        <div class="set-grid">
+          <div class="set-block">
+            <div class="set-title">连接与模型</div>
+            <label for="apiKey">API Key</label>
+            <input type="password" id="apiKey" placeholder="sk-…（原型不读取真实密钥）">
+            <label for="modelSelect">模型</label>
+            <select id="modelSelect" onchange="setModelLabel(this.value)">
+              <option value="glm-5.3-flash" selected>glm-5.3-flash · 快而省</option>
+              <option value="glm-5.3-air">glm-5.3-air · 轻量</option>
+              <option value="glm-5.3-pro">glm-5.3-pro · 深度推理</option>
+            </select>
+            <label for="reasoningSelect">推理力度</label>
+            <select id="reasoningSelect">
+              <option value="off" selected>关闭（最快）</option>
+              <option value="low">低</option>
+              <option value="high">高（更稳更慢）</option>
+            </select>
+            <div class="set-hint">原型演示：自定义下拉由 initCustomSelect 包装原生 select。</div>
+          </div>
+          <div class="set-block">
+            <div class="set-title">省 Token 策略</div>
+            <label for="shotQuality">截图质量</label>
+            <select id="shotQuality">
+              <option value="low" selected>低（推荐，最省）</option>
+              <option value="mid">中</option>
+              <option value="high">高（仅必要时）</option>
+            </select>
+            <label for="saverLevel">历史压缩档位</label>
+            <select id="saverLevel">
+              <option value="light">轻度</option>
+              <option value="mid" selected>中度（推荐）</option>
+              <option value="heavy">重度</option>
+            </select>
+            <label for="tokenBudget">单会话 Token 预算</label>
+            <input type="number" id="tokenBudget" value="200000" min="10000" step="10000">
+            <div class="set-hint">超预算自动压缩历史，保障长会话不炸上下文。</div>
+          </div>
+          <div class="set-block">
+            <div class="set-title">生成参数</div>
+            <label for="maxTokens">单次回复上限（tokens）</label>
+            <input type="number" id="maxTokens" value="8192" min="256" step="256">
+            <label for="tempRange">温度 <span class="range-row"><input type="range" id="tempRange" min="0" max="1.5" step="0.1" value="0.7" oninput="syncRange('temp')"><span id="tempVal">0.7</span></span></label>
+            <label for="topPRange">Top-P <span class="range-row"><input type="range" id="topPRange" min="0.1" max="1" step="0.05" value="0.95" oninput="syncRange('topp')"><span id="toppVal">0.95</span></span></label>
+            <div class="set-hint">范围控件实时回显数值（tabular-nums 等宽对齐）。</div>
+          </div>
+          <div class="set-block">
+            <div class="set-title">角色与联网</div>
+            <label for="sysPrompt">系统提示词</label>
+            <textarea id="sysPrompt" rows="3">你是 GLM Chat 的桌面助手，回答简洁、先给结论。</textarea>
+            <label><input type="checkbox" id="webSearchChk" onchange="document.getElementById('searchEngineWrap').style.display=this.checked?'':'none'"> 启用联网搜索</label>
+            <div id="searchEngineWrap" style="display:none">
+              <label for="searchEngine">搜索引擎</label>
+              <select id="searchEngine">
+                <option value="zhipu" selected>智谱搜索</option>
+                <option value="bing">Bing</option>
+              </select>
+            </div>
+            <div class="set-hint">联网关闭时，搜索类工具调用会被路由层拦截。</div>
+          </div>
+          <div class="set-block">
+            <div class="set-title">外观与特效</div>
+            <label><input type="checkbox" id="fxToggle" onchange="toggleFx()"> 特效全开（极光 / 发光 / 动效）</label>
+            <div class="set-hint">关闭后进入 fx-off 变量级降级：动效时长清零、极光与工具卡循环动画显式停止；玻璃材质与焦点环保留。</div>
+            <div class="set-hint">主题切换走 body.theming 表面列表过渡（280ms）；系统开启「减少动态效果」时全局降级。</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 消息流 -->
+      <div class="chat-container" id="chatContainer">
+        <div class="empty-state" id="emptyState" style="display:none">
+          <div class="es-title">开始新对话</div>
+          <div class="es-sub">输入需求，或直接用工具栏发送截图 / 文件。原型为静态演示，回复不会调用真实后端。</div>
+        </div>
+      </div>
+
+      <!-- 输入区 -->
+      <div class="input-area">
+        <div class="attach-preview" id="attachPreview">
+          <div class="attach-item">
+            <svg class="ph-img" viewBox="0 0 60 60" aria-hidden="true"><rect width="60" height="60" fill="var(--surface-2)"/><circle cx="19" cy="19" r="7" fill="var(--chart-2)"/><path d="M6 54l16-18 10 10 8-7 14 15z" fill="var(--chart-1)"/></svg>
+            <button class="remove" title="移除附件" aria-label="移除附件" onclick="removeAttach(this)">✕</button>
+          </div>
+          <div class="attach-item">
+            <div class="file-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M9 13h6M9 17h6"/></svg>
+              <span>notes.txt</span>
+            </div>
+            <button class="remove" title="移除附件" aria-label="移除附件" onclick="removeAttach(this)">✕</button>
+          </div>
+        </div>
+        <div class="input-row">
+          <button class="tool-btn v4-h v4-press" title="发送图片" aria-label="发送图片" onclick="pickFile('图片')">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>
+          </button>
+          <button class="tool-btn v4-h v4-press" title="发送视频" aria-label="发送视频" onclick="pickFile('视频')">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M23 7l-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg>
+          </button>
+          <button class="tool-btn v4-h v4-press" title="发送文件" aria-label="发送文件" onclick="pickFile('文件')">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66L9.41 17.41a2 2 0 0 1-2.83-2.83l8.49-8.49"/></svg>
+          </button>
+          <button class="tool-btn v4-h v4-press" title="发送压缩包" aria-label="发送压缩包" onclick="pickFile('压缩包')">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8v13H3V8M1 3h22v5H1zM10 12h4"/></svg>
+          </button>
+          <textarea id="userInput" rows="1" placeholder="输入消息，Enter 发送，Shift+Enter 换行…"></textarea>
+          <button class="send-btn v4-h v4-press" id="sendBtn" title="发送" aria-label="发送" onclick="sendMessage()">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4z"/></svg>
+          </button>
+        </div>
+        <div class="input-hint">
+          <span>Enter 发送 · Shift+Enter 换行</span>
+          <span>本会话约 <b id="costEstimate">¥0.83</b>（示意）</span>
+          <span>当前对话 <b id="liveTokenStat">2,481</b> tokens（示意）</span>
+          <button class="continue-btn v4-h v4-press" onclick="continueInNewSession()">在新对话中继续</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= 面板二：会话 ================= -->
+    <section class="panel" id="panelSessions">
+      <div class="panel-head">
+        <div class="panel-head-text">
+          <h1 class="panel-title">会话</h1>
+          <p class="panel-sub">历史对话都在这里，点击即可接着聊</p>
+        </div>
+        <button class="pill-btn v4-h v4-press" onclick="newSession()">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+          新建对话
+        </button>
+      </div>
+      <div class="panel-scroll">
+        <div class="sessions-search">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+          <input type="text" id="sessionSearch" placeholder="搜索会话标题或内容…" oninput="filterSessions()">
+          <span class="search-count" id="searchCount"></span>
+        </div>
+        <div class="session-list" id="sessionList"></div>
+      </div>
+    </section>
+
+    <!-- ================= 面板三：分析 ================= -->
+    <section class="panel" id="panelAnalytics">
+      <div class="panel-head">
+        <div class="panel-head-text">
+          <h1 class="panel-title">分析</h1>
+          <p class="panel-sub">成本与工具统计 · 进面板 60ms 后开始 draw</p>
+        </div>
+        <button class="pill-btn v4-h v4-press" onclick="renderAnalytics()">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.6-6.4M21 3v6h-6"/></svg>
+          刷新数据
+        </button>
+      </div>
+      <div class="panel-scroll">
+        <div class="stat-cards" id="statCards">
+          <div class="stat-card">
+            <div class="stat-label">总会话数</div>
+            <div class="stat-value" data-count="18">0</div>
+            <div class="stat-sub">近 30 天（示意）</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">总 Tokens</div>
+            <div class="stat-value" data-count="1284506">0</div>
+            <div class="stat-sub">输入 + 输出合计（示意）</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">估算成本</div>
+            <div class="stat-value" data-count="42.68" data-format="cny">¥0.00</div>
+            <div class="stat-sub">缓存命中按约 0.3 折（示意）</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">缓存命中率</div>
+            <div class="stat-value" data-count="61.4" data-format="pct">0%</div>
+            <div class="stat-sub">较上周 +6.2pp（示意）</div>
+          </div>
+        </div>
+        <div class="analytics-grid">
+          <div class="chart-card">
+            <div class="chart-card-head">
+              <div>
+                <div class="chart-card-title">Token 趋势</div>
+                <div class="chart-card-sub">按会话顺序 · 示意数据</div>
+              </div>
+              <div class="seg" id="trendSeg">
+                <button class="seg-btn v4-h v4-press on" data-metric="total" onclick="setTrendMetric('total')">Tokens</button>
+                <button class="seg-btn v4-h v4-press" data-metric="cost" onclick="setTrendMetric('cost')">成本</button>
+                <button class="seg-btn v4-h v4-press" data-metric="cached" onclick="setTrendMetric('cached')">缓存</button>
+              </div>
+            </div>
+            <div class="chart-wrap" id="chartTrend" style="height:220px"></div>
+          </div>
+          <div class="chart-card">
+            <div class="chart-card-head">
+              <div>
+                <div class="chart-card-title">工具调用 Top 6</div>
+                <div class="chart-card-sub">条形 stagger 60ms 递进入场 · 示意数据</div>
+              </div>
+            </div>
+            <div class="chart-wrap" id="toolBars"></div>
+          </div>
+          <div class="chart-card">
+            <div class="chart-card-head">
+              <div>
+                <div class="chart-card-title">工具成功率</div>
+                <div class="chart-card-sub">环形 800ms draw + 中心数字 count-up</div>
+              </div>
+            </div>
+            <div class="chart-wrap" id="toolRing"></div>
+          </div>
+          <div class="chart-card">
+            <div class="chart-card-head">
+              <div>
+                <div class="chart-card-title">平均耗时（Top 3）</div>
+                <div class="chart-card-sub">单位 ms · 示意数据</div>
+              </div>
+            </div>
+            <div class="chart-wrap" id="toolMs"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= 面板四：工作区 ================= -->
+    <section class="panel" id="panelWorkspace">
+      <div class="panel-head">
+        <div class="panel-head-text">
+          <h1 class="panel-title">工作区</h1>
+          <p class="panel-sub">绑定文件夹，决定 AI 能碰你电脑的哪些地方</p>
+        </div>
+      </div>
+      <div class="panel-scroll narrow">
+        <div class="ws-card" id="wsCard">
+          <label><input type="checkbox" id="wsEnabled" onchange="onFolderEnabled(this.checked)"> 使用工作区文件夹</label>
+          <div id="wsBody" style="display:none">
+            <label style="margin-top:9px"><input type="checkbox" id="wsInd" onchange="onWsInd()"> 本会话独立（不影响全局）</label>
+            <div class="ws-sel">
+              <select id="wsSel" onchange="onWsSelect(this.value)">
+                <option>D:\Projects\glm-chat</option>
+                <option>D:\Data\csv</option>
+                <option>D:\Desktop\整理</option>
+              </select>
+            </div>
+            <div class="ws-btn-row">
+              <button class="ws-btn v4-h v4-press" onclick="browseWs()">浏览…</button>
+              <button class="ws-btn v4-h v4-press" id="wsUnbindBtn" style="display:none" onclick="unbindSession()">↩ 跟随全局</button>
+            </div>
+          </div>
+          <div class="eff-row"><span class="eff-tag" id="wsEffTag">未启用</span><span id="wsEffPath"></span></div>
+        </div>
+        <div class="field-row">
+          <span>工具权限</span>
+          <select id="toolMode" onchange="onToolMode(this.value)">
+            <option value="full" selected>完整（可读写）</option>
+            <option value="readonly">只读</option>
+            <option value="off">纯聊天</option>
+          </select>
+        </div>
+        <div class="eff-row"><span class="eff-tag" id="effTag">完整</span><span id="effPath">D:\Projects\glm-chat（示意）</span></div>
+        <div class="set-hint" style="padding:0 2px">纯聊天模式下所有文件 / 截图 / MCP 工具调用会被拦截，仅保留对话。</div>
+        <div class="ws-card" style="margin-top:14px">
+          <label style="font-weight:600">安全护栏</label>
+          <div class="set-hint">破坏性操作走应用内确认（不用系统弹窗），可随时在审计日志追溯。</div>
+          <div class="guard-grid">
+            <div>
+              <label for="guardDelete">删除文件 / 目录</label>
+              <select id="guardDelete" onchange="saveGuardSettings()">
+                <option value="recycle" selected>进回收站</option>
+                <option value="confirm">每次确认</option>
+                <option value="off">直接删除</option>
+              </select>
+            </div>
+            <div>
+              <label for="guardOverwrite">覆盖已存在文件</label>
+              <select id="guardOverwrite" onchange="saveGuardSettings()">
+                <option value="confirm" selected>每次确认</option>
+                <option value="allow">直接覆盖</option>
+              </select>
+            </div>
+            <div>
+              <label for="guardRun">执行脚本</label>
+              <select id="guardRun" onchange="saveGuardSettings()">
+                <option value="confirm" selected>每次确认</option>
+                <option value="allow">直接执行</option>
+              </select>
+            </div>
+            <div>
+              <label for="guardMcp">MCP 工具调用</label>
+              <select id="guardMcp" onchange="saveGuardSettings()">
+                <option value="confirm" selected>每次确认</option>
+                <option value="allow">直接执行</option>
+              </select>
+            </div>
+          </div>
+          <label for="protectPaths" style="display:block;margin-top:11px;font-size:11.5px;color:var(--text-2)">保护名单 · 路径（每行一条，支持通配）</label>
+          <textarea class="guard-txt" id="protectPaths" rows="2">C:\Windows\*
+D:\Projects\glm-chat\.git\*</textarea>
+          <div class="provider-row">
+            <button class="modal-btn primary v4-h v4-press" onclick="openAuditViewer()">查看审计日志</button>
+            <button class="ws-btn v4-h v4-press" onclick="resetAllGuardTrust()">重置全部「不再提示」</button>
+            <span class="set-hint">审计日志仅存本地，原型以静态示意呈现。</span>
+          </div>
+        </div>
+      </div>
+    </section>
+  </div>
+</div>
+
+<!-- ============ Toast 队列容器 ============ -->
+<div id="toastBox"></div>
+
+<!-- ============ 右键菜单（§5 v4：origin top left / 条目 stagger 40ms）============ -->
+<div class="ctx-menu" id="ctxMenu" role="menu"></div>
+
+<!-- ============ 演示控制台（原型专用）============ -->
+<aside class="demo-console" id="demoConsole" aria-label="原型演示控制台">
+  <div class="demo-head">
+    <span class="demo-title">演示控制台</span>
+    <button class="demo-collapse" id="demoCollapse" onclick="toggleDemoConsole()" aria-label="折叠控制台">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>
+    </button>
+  </div>
+  <div class="demo-body" id="demoBody">
+    <div class="demo-grid">
+      <button class="demo-btn v4-h v4-press" id="demoStreamBtn" onclick="simulateStream()">模拟流式生成</button>
+      <button class="demo-btn v4-h v4-press" onclick="renderChatHistory()">回放消息流（batch）</button>
+      <button class="demo-btn v4-h v4-press" onclick="completeToolCard()">工具卡 → 完成</button>
+      <button class="demo-btn v4-h v4-press" onclick="failToolCard()">工具卡 → 失败</button>
+      <button class="demo-btn v4-h v4-press" onclick="demoToasts()">Toast 队列</button>
+      <button class="demo-btn v4-h v4-press" onclick="demoModal()">模态确认</button>
+      <button class="demo-btn v4-h v4-press" onclick="demoCtx(this)">右键菜单</button>
+      <button class="demo-btn v4-h v4-press" onclick="showAttach()">附件条</button>
+      <button class="demo-btn v4-h v4-press" onclick="toggleTheme()">主题切换</button>
+      <button class="demo-btn v4-h v4-press" onclick="toggleSidebar()">折叠侧栏</button>
+      <button class="demo-btn v4-h v4-press" onclick="switchPanel('analytics')">分析图表</button>
+      <button class="demo-btn v4-h v4-press" onclick="toggleSettings()">设置浮层</button>
+    </div>
+    <label class="demo-fx"><input type="checkbox" id="demoFx" onchange="toggleFxFrom(this)"> 特效全开（fx-off 变量级降级）</label>
+    <p class="demo-note">静态原型 · 无后端 / 无网络依赖<br>动效时长一律走 MOTION 读 CSS 变量</p>
+  </div>
+</aside>
+
+<script>
+/* ============================================================
+   附录 A · MOTION 常量表（v4 文档原样采用）
+   —— JS 不硬编码动效时长，全部读 CSS 变量；fx-off / reduced-motion
+      时 readMs 自然拿到降级值（1ms），实现零分支降级
+   ============================================================ */
+const MOTION = (() => {
+  const readMs = (name, fallback) => {
+    let v = '';
+    try { v = getComputedStyle(document.body).getPropertyValue(name).trim(); } catch (e) {}
+    if (!v) return fallback;
+    const m = /^(-?[\d.]+)(m?s)$/.exec(v);
+    return m ? (m[2] === 's' ? parseFloat(m[1]) * 1000 : parseFloat(m[1])) : fallback;
+  };
+  function cubicBezier(p1x, p1y, p2x, p2y) {
+    const cx = 3 * p1x, bx = 3 * (p2x - p1x) - cx, ax = 1 - cx - bx;
+    const cy = 3 * p1y, by = 3 * (p2y - p1y) - cy, ay = 1 - cy - by;
+    const sx = t => ((ax * t + bx) * t + cx) * t;
+    const sy = t => ((ay * t + by) * t + cy) * t;
+    const dx = t => (3 * ax * t + 2 * bx) * t + cx;
+    return x => { let t = x;
+      for (let i = 0; i < 8; i++) { const e = sx(t) - x;
+        if (Math.abs(e) < 1e-6) break;
+        const d = dx(t); if (Math.abs(d) < 1e-6) break; t -= e / d; }
+      return sy(t); };
+  }
+  const easeOutSoft = cubicBezier(.25, .8, .35, 1);
+  return {
+    press: () => readMs('--dur-press', 90), micro: () => readMs('--dur-micro', 130),
+    comp: () => readMs('--dur-comp', 200), compOut: () => readMs('--dur-comp-out', 140),
+    panel: () => readMs('--dur-panel', 240), panelOut: () => readMs('--dur-panel-out', 200),
+    narr: () => readMs('--dur-narr', 220), theme: () => readMs('--dur-theme', 280),
+    count: () => readMs('--dur-count', 600), chart: () => readMs('--dur-chart', 800),
+    staggerXs: () => readMs('--stagger-xs', 40), staggerSm: () => readMs('--stagger-sm', 60),
+    easeOutSoft,
+    prefersReduced: () => !!(window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches),
+    fxOff: () => document.body.classList.contains('fx-off'),
+    instant: () => document.body.classList.contains('fx-off') ||
+                    !!(window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches),
+    sleep: ms => new Promise(r => setTimeout(r, ms)),
+    onAnimEnd: (el, ev, ms) => new Promise(res => {
+      let done = false;
+      const fin = () => { if (done) return; done = true; el.removeEventListener(ev, fin); res(); };
+      el.addEventListener(ev, fin);
+      setTimeout(fin, ms + 80);
+    })
+  };
+})();
+
+/* ================= 演示节奏常量（内容 pacing，非动效时长）================= */
+const STREAM_PACE = 900;       // 流式演示消息间隔（内容节奏）
+const TYPING_PACE = 1200;      // 模拟打字停顿（内容节奏）
+const TOAST_DEMO_GAP = 260;    // toast 队列演示间隔（编排节奏）
+/* 图表 draw 延迟：进面板 60ms 后开始 draw（v4 规格）——走 MOTION.staggerSm() 读令牌，不硬编码 */
+
+/* ================= 主题（§5 v4：body.theming 表面列表 280ms）================= */
+const THEME_ICON_SUN = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>';
+const THEME_ICON_MOON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M20 14.5A8.5 8.5 0 1 1 9.5 4a7 7 0 0 0 10.5 10.5z"/></svg>';
+function applyTheme(t) {
+  document.body.classList.toggle('dark', t === 'dark');
+  const b = document.getElementById('themeBtn');
+  if (b) b.innerHTML = t === 'dark' ? THEME_ICON_SUN : THEME_ICON_MOON;
+}
+function toggleTheme() {
+  const t = document.body.classList.contains('dark') ? 'light' : 'dark';
+  applyTheme(t);
+  document.body.classList.add('theming');
+  setTimeout(() => document.body.classList.remove('theming'), MOTION.theme() + 60);
+  try { localStorage.setItem('glm_theme', t); } catch (e) {}
+}
+
+/* ================= 特效总开关（§6 fx-off 变量级降级）================= */
+function applyFx(on) {
+  document.body.classList.toggle('fx-off', !on);
+  const t = document.getElementById('fxToggle');
+  if (t) t.checked = !!on;
+  const d = document.getElementById('demoFx');
+  if (d) d.checked = !!on;
+}
+function toggleFx() {
+  const t = document.getElementById('fxToggle');
+  const on = t ? !!t.checked : true;
+  applyFx(on);
+  try { localStorage.setItem('glm_fx', on ? '1' : '0'); } catch (e) {}
+}
+function toggleFxFrom(el) {
+  applyFx(!!el.checked);
+  try { localStorage.setItem('glm_fx', el.checked ? '1' : '0'); } catch (e) {}
+}
+function initFx() {
+  let on = true;
+  try { on = localStorage.getItem('glm_fx') !== '0'; } catch (e) {}
+  applyFx(on);
+}
+
+/* ================= 面板路由（§5 v4：双交叉淡化 + 方向性 + _panelLeaving 收尸）================= */
+const PANELS = ['chat', 'sessions', 'analytics', 'workspace'];
+const PANEL_TITLES = {
+  chat: 'glm-5.3-flash · 对话',
+  sessions: '会话历史',
+  analytics: '分析 · 成本与工具统计',
+  workspace: '工作区与工具权限'
+};
+let currentPanel = 'chat';
+let _panelLeaving = null;
+function _finalizeLeaving() {
+  if (_panelLeaving && _panelLeaving.el) {
+    const el = _panelLeaving.el;
+    el.classList.remove('on', 'leaving', 'in-fwd', 'in-back', 'out-fwd', 'out-back');
+  }
+  _panelLeaving = null;
+}
+function switchPanel(name) {
+  if (!PANELS.includes(name) || name === currentPanel) return;
+  closeAllCS();
+  const from = PANELS.indexOf(currentPanel), to = PANELS.indexOf(name);
+  const fwd = to > from;   // 方向即信息：目标索引 > 当前 = 前进
+  const oldEl = document.getElementById('panel' + currentPanel.charAt(0).toUpperCase() + currentPanel.slice(1));
+  const newEl = document.getElementById('panel' + name.charAt(0).toUpperCase() + name.slice(1));
+  _finalizeLeaving();   // 快速连切：强制收尸上一个退场面板
+  if (MOTION.instant()) {
+    // 降级分支（审查 P2-4，与真实代码库一致）：fx-off / reduced-motion 时同步切换，不走动画
+    if (oldEl) oldEl.classList.remove('on', 'leaving', 'in-fwd', 'in-back', 'out-fwd', 'out-back');
+    if (newEl) newEl.classList.add('on');
+  } else {
+    if (oldEl) {
+      oldEl.classList.add('leaving', fwd ? 'out-fwd' : 'out-back');
+      _panelLeaving = { el: oldEl };
+      MOTION.onAnimEnd(oldEl, 'animationend', MOTION.panelOut()).then(() => {
+        if (_panelLeaving && _panelLeaving.el === oldEl) {
+          oldEl.classList.remove('on', 'leaving', 'out-fwd', 'out-back');
+          _panelLeaving = null;
+        }
+      });
+    }
+    if (newEl) {
+      newEl.classList.add('on');
+      void newEl.offsetWidth;   // reflow：确保入场动画重新起跑
+      newEl.classList.add(fwd ? 'in-fwd' : 'in-back');
+      newEl.addEventListener('animationend', function onEnd() {
+        newEl.classList.remove('in-fwd', 'in-back');
+        newEl.removeEventListener('animationend', onEnd);
+      });
+    }
+  }
+  currentPanel = name;
+  document.querySelectorAll('.rail-btn[data-panel]').forEach(btn => {
+    btn.classList.toggle('on', btn.dataset.panel === name);
+  });
+  document.getElementById('headerTitle').textContent = PANEL_TITLES[name] || name;
+  if (name === 'analytics' && typeof renderAnalytics === 'function') renderAnalytics();
+  if (name !== 'chat' && _streaming) addSysTip('正在生成回复，可随时回到「对话」面板查看进度');
+}
+
+/* ================= 自定义下拉（§5 v4：v4CsIn / v4CsOut / 箭头 130ms / 重开去 hiding + reflow）================= */
+const CS = { reg: new Map(), seq: 0 };
+function initCustomSelect(sel) {
+  if (!sel || CS.reg.has(sel)) return;
+  try {
+    const wrap = document.createElement('div'); wrap.className = 'cs';
+    const trigger = document.createElement('div'); trigger.className = 'cs-trigger v4-h v4-press';
+    trigger.innerHTML = '<span class="cs-label"></span><span class="cs-arrow">▼</span>';
+    const menu = document.createElement('div'); menu.className = 'cs-menu';
+    wrap.appendChild(trigger); wrap.appendChild(menu);
+    sel.parentNode.insertBefore(wrap, sel);
+    sel.classList.add('cs-src');
+    CS.reg.set(sel, { wrap, trigger, menu });
+    trigger.addEventListener('click', (e) => {
+      e.preventDefault();          // 阻止外层 label 把点击转发给隐藏的 select
+      e.stopPropagation();
+      const willOpen = !wrap.classList.contains('open') || wrap.classList.contains('hiding');
+      closeAllCS();
+      if (willOpen) {
+        wrap.classList.remove('hiding');
+        void wrap.offsetWidth;     // reflow：重入时重放下入场动画
+        wrap.__csToken = ++CS.seq; // 令旧收尸 Promise 失效
+        CS.sync(sel);
+        wrap.classList.add('open');
+      }
+    });
+    menu.addEventListener('click', (e) => {
+      const opt = e.target.closest('.cs-opt'); if (!opt) return;
+      e.stopPropagation();
+      sel.value = opt.dataset.value;
+      CS.sync(sel);
+      closeAllCS();
+      sel.dispatchEvent(new Event('change'));
+    });
+    CS.sync(sel);
+  } catch (e) {
+    sel.classList.remove('cs-src');   // 兜底：直接用原生 select
+  }
+}
+CS.sync = function (sel) {
+  const st = CS.reg.get(sel); if (!st) return;
+  st.menu.innerHTML = '';
+  Array.from(sel.options).forEach(o => {
+    const d = document.createElement('div');
+    d.className = 'cs-opt' + (o.value === sel.value ? ' on' : '');
+    d.dataset.value = o.value;
+    d.textContent = o.textContent;
+    st.menu.appendChild(d);
+  });
+  const cur = sel.options[sel.selectedIndex];
+  st.trigger.querySelector('.cs-label').textContent = cur ? cur.textContent : (sel.value || '未选择');
+};
+CS.syncAll = function () { CS.reg.forEach((st, sel) => CS.sync(sel)); };
+function closeAllCS() {
+  CS.reg.forEach((st) => {
+    const w = st.wrap;
+    if (!w.classList.contains('open') || w.classList.contains('hiding')) return;
+    w.classList.add('hiding');
+    const token = ++CS.seq;
+    w.__csToken = token;
+    MOTION.onAnimEnd(st.menu, 'animationend', MOTION.compOut()).then(() => {
+      if (w.__csToken !== token) return;   // 已被重开，跳过收尸
+      w.classList.remove('open', 'hiding');
+    });
+  });
+}
+document.addEventListener('click', (e) => {
+  if (e.target && e.target.closest && e.target.closest('.cs')) return;
+  closeAllCS();
+});
+
+/* ================= 设置浮层（§5 v4：v4SetIn 200ms / v4SetOut 140ms）================= */
+let _settingsBusy = false;
+function toggleSettings() {
+  const sp = document.getElementById('settingsPanel');
+  const willShow = !sp.classList.contains('show') || sp.classList.contains('hiding');
+  if (willShow) {
+    switchPanel('chat');
+    sp.classList.remove('hiding');
+    void sp.offsetWidth;
+    sp.classList.add('show');
+    _settingsBusy = false;
+  } else if (!_settingsBusy) {
+    _settingsBusy = true;
+    sp.classList.add('hiding');
+    MOTION.onAnimEnd(sp, 'animationend', MOTION.compOut()).then(() => {
+      if (!sp.classList.contains('hiding')) { _settingsBusy = false; return; }  // 已被重开
+      sp.classList.remove('show', 'hiding');
+      _settingsBusy = false;
+    });
+  }
+}
+function buildSetNav() {
+  const nav = document.getElementById('setNav');
+  const sp = document.getElementById('settingsPanel');
+  const blocks = Array.from(sp.querySelectorAll('.set-block'));
+  nav.innerHTML = '';
+  blocks.forEach((b, i) => {
+    b.id = 'setBlock' + (i + 1);
+    const title = b.querySelector('.set-title');
+    const btn = document.createElement('button');
+    btn.className = 'set-nav-btn v4-h v4-press' + (i === 0 ? ' on' : '');
+    btn.textContent = title ? title.textContent : ('分区 ' + (i + 1));
+    btn.onclick = () => {
+      nav.querySelectorAll('.set-nav-btn').forEach(x => x.classList.remove('on'));
+      btn.classList.add('on');
+      b.scrollIntoView({ behavior: MOTION.instant() ? 'auto' : 'smooth', block: 'start' });
+    };
+    nav.appendChild(btn);
+  });
+  sp.addEventListener('scroll', () => {
+    const spRect = sp.getBoundingClientRect();
+    let idx = 0;
+    blocks.forEach((b, i) => {
+      const top = b.getBoundingClientRect().top - spRect.top + sp.scrollTop;
+      if (sp.scrollTop >= top - 44) idx = i;
+    });
+    nav.querySelectorAll('.set-nav-btn').forEach((x, i) => x.classList.toggle('on', i === idx));
+  });
+}
+function syncRange(which) {
+  if (which === 'temp') document.getElementById('tempVal').textContent = document.getElementById('tempRange').value;
+  else document.getElementById('toppVal').textContent = document.getElementById('topPRange').value;
+}
+function setModelLabel(v) {
+  document.getElementById('brandModel').textContent = v;
+  document.getElementById('headerTitle').textContent = v + ' · 对话';
+  toast('模型已切换为 ' + v + '（原型演示）', 'ok');
+}
+
+/* ================= Toast（§5 v4：进出对称 · __closing 去重 · onAnimEnd 双兜底 · 队列溢出关最旧）================= */
+function _toastBox() {
+  let box = document.getElementById('toastBox');
+  if (!box) {
+    box = document.createElement('div');
+    box.id = 'toastBox';
+    document.body.appendChild(box);
+  }
+  return box;
+}
+function toast(msg, type, opts) {
+  type = type || 'info';
+  opts = opts || {};
+  const box = _toastBox();
+  while (box.children.length >= 5) {           // 队列上限，永不重叠：溢出给最旧的调 close()
+    const old = box.firstChild;
+    if (old && typeof old.close === 'function') old.close();
+    else if (old) old.remove();
+  }
+  const t = document.createElement('div');
+  t.className = 'toast toast-' + type;
+  const icon = type === 'ok' ? '✓' : type === 'warn' ? '△' : type === 'err' ? '✕' : 'ℹ';
+  t.innerHTML = '<span class="toast-ico">' + icon + '</span>' +
+    '<span class="toast-msg"></span>' +
+    (opts.detail ? '<button class="toast-more">明细</button>' : '') +
+    '<button class="toast-close">✕</button>';
+  t.querySelector('.toast-msg').textContent = String(msg);
+  let __closing = false;
+  const close = () => {
+    if (__closing) return;
+    __closing = true;
+    t.classList.add('out');
+    MOTION.onAnimEnd(t, 'transitionend', MOTION.compOut()).then(() => t.remove());
+  };
+  t.querySelector('.toast-close').onclick = close;
+  if (opts.detail) {
+    t.querySelector('.toast-more').onclick = () => {
+      let d = t.querySelector('.toast-detail');
+      if (!d) { d = document.createElement('div'); d.className = 'toast-detail'; d.textContent = opts.detail; t.appendChild(d); }
+      else d.style.display = d.style.display === 'none' ? '' : 'none';
+    };
+  }
+  box.appendChild(t);
+  const ttl = opts.pinned ? Infinity : (opts.stay ? 60000 : (type === 'err' ? 9000 : type === 'warn' ? 6500 : 4500));
+  if (isFinite(ttl)) setTimeout(close, ttl);
+  t.close = close;
+  return t;
+}
+
+/* ================= 模态（§5 v4：v4ModalIn spring / closing 140ms forwards 后移除）================= */
+let _uiConfirmResolve = null;
+function _settlePendingModal(reason) {
+  if (_uiConfirmResolve) {
+    const r = _uiConfirmResolve; _uiConfirmResolve = null;
+    try { toast('确认框被其它窗口接管，本次操作按取消处理' + (reason ? '（' + reason + '）' : ''), 'warn'); } catch (e) {}
+    r({ ok: false, checked: undefined });
+  }
+}
+function _modalRoot() {
+  let m = document.getElementById('modalRoot');
+  // 修复（审查 S1）：退场中的旧 root 必须先移除再复用——
+  // 否则新模态继承 .closing 与 __closing，永远无法关闭
+  if (m && m.classList && m.classList.contains('closing')) { try { m.remove(); } catch (e) {} m = null; }
+  if (m) { _settlePendingModal('modal-reuse'); return m; }
+  m = document.createElement('div');
+  m.id = 'modalRoot';
+  document.body.appendChild(m);
+  return m;
+}
+function _closeModal() {
+  const m = document.getElementById('modalRoot');
+  if (!m || m.__closing) return;
+  m.__closing = true;
+  m.classList.add('closing');
+  MOTION.onAnimEnd(m.querySelector('.modal-card'), 'animationend', MOTION.compOut()).then(() => {
+    m.remove();
+  });
+  _settlePendingModal('modal-closed');
+}
+function uiConfirm(opts) {
+  opts = opts || {};
+  return new Promise(resolve => {
+    const m = _modalRoot();
+    _uiConfirmResolve = (v) => { _uiConfirmResolve = null; resolve(v); };
+    m.innerHTML =
+      '<div class="modal-mask"></div>' +
+      '<div class="modal-card" role="dialog" aria-modal="true">' +
+      '<div class="modal-title"></div>' +
+      '<div class="modal-body"></div>' +
+      (opts.checkboxLabel ? '<label class="modal-check"><input type="checkbox" id="modalChk"><span></span></label>' : '') +
+      '<div class="modal-btns">' +
+      '<button class="modal-btn modal-cancel"></button>' +
+      '<button class="modal-btn modal-ok"></button>' +
+      '</div></div>';
+    m.querySelector('.modal-title').textContent = opts.title || '确认';
+    const body = m.querySelector('.modal-body');
+    if (opts.bodyHtml) body.innerHTML = opts.bodyHtml;
+    else body.textContent = opts.body || '';
+    if (opts.checkboxLabel) m.querySelector('#modalChk').nextElementSibling.textContent = opts.checkboxLabel;
+    m.querySelector('.modal-ok').textContent = opts.okText || '确定';
+    m.querySelector('.modal-cancel').textContent = opts.cancelText || '取消';
+    m.querySelector('.modal-ok').classList.add(opts.danger ? 'danger' : 'primary');
+    const done = (ok) => {
+      const chk = m.querySelector('#modalChk');
+      const checked = chk ? chk.checked : undefined;
+      if (_uiConfirmResolve) _uiConfirmResolve({ ok, checked });
+      _closeModal();
+    };
+    m.querySelector('.modal-ok').onclick = () => done(true);
+    m.querySelector('.modal-cancel').onclick = () => done(false);
+    m.querySelector('.modal-mask').onclick = () => done(false);
+    setTimeout(() => m.querySelector('.modal-ok').focus(), 30);
+  });
+}
+function uiInfo(title, body) {
+  return new Promise(resolve => {
+    const m = _modalRoot();
+    m.innerHTML =
+      '<div class="modal-mask"></div>' +
+      '<div class="modal-card" role="dialog" aria-modal="true">' +
+      '<div class="modal-title"></div><div class="modal-body"></div>' +
+      '<div class="modal-btns"><button class="modal-btn primary modal-ok">知道了</button></div></div>';
+    m.querySelector('.modal-title').textContent = title || '提示';
+    m.querySelector('.modal-body').textContent = body || '';
+    const done = () => { resolve(); _closeModal(); };
+    m.querySelector('.modal-ok').onclick = done;
+    m.querySelector('.modal-mask').onclick = done;
+    setTimeout(() => m.querySelector('.modal-ok').focus(), 30);
+  });
+}
+
+/* ================= 右键菜单（§5 v4：origin top left / 条目 stagger 40ms 递加 / 重开去 hiding + reflow）================= */
+function setupContextMenu() {
+  const input = document.getElementById('userInput');
+  const menu = document.getElementById('ctxMenu');
+  if (!input || !menu || menu.__bound) return;
+  menu.__bound = true;
+  const buildItems = (hasSel) => ([
+    { label: '剪切', cmd: 'cut', enabled: hasSel },
+    { label: '复制', cmd: 'copy', enabled: hasSel },
+    { label: '粘贴', cmd: 'paste', enabled: true },
+    { label: '全选', cmd: 'selectAll', enabled: true }
+  ]);
+  const render = (hasSel) => {
+    menu.innerHTML = '';
+    buildItems(hasSel).forEach(it => {
+      const d = document.createElement('div');
+      d.className = 'ctx-menu-item' + (it.enabled ? '' : ' off');
+      if (!it.enabled) {
+        d.style.opacity = '.45';
+        d.style.cursor = 'default';
+        d.onclick = (ev) => { ev.stopPropagation(); };   // 置灰项不执行动作
+      } else {
+        d.onclick = () => { input.focus(); execCtx(it.cmd, input); hideCtxMenu(); };
+      }
+      d.textContent = it.label;
+      menu.appendChild(d);
+    });
+  };
+  input.addEventListener('contextmenu', (e) => {
+    e.preventDefault(); e.stopPropagation();
+    render(input.selectionStart !== input.selectionEnd);
+    showCtxMenuAt(e.clientX, e.clientY);
+  });
+  document.addEventListener('click', () => hideCtxMenu());
+  window.addEventListener('scroll', () => hideCtxMenu(), true);
+}
+function execCtx(cmd, input) {
+  if (cmd === 'selectAll') { input.select(); return; }
+  if (cmd === 'paste') {
+    if (navigator.clipboard && navigator.clipboard.readText) {
+      navigator.clipboard.readText().then(t => {
+        input.setRangeText(t, input.selectionStart || 0, input.selectionEnd || 0, 'end');
+      }).catch(() => toast('无法读取剪贴板，请用 Ctrl+V 粘贴', 'warn'));
+    } else toast('当前环境不支持菜单粘贴，请用 Ctrl+V', 'warn');
+    return;
+  }
+  try { document.execCommand(cmd); } catch (err) {}
+}
+function showCtxMenuAt(x, y) {
+  const menu = document.getElementById('ctxMenu');
+  menu.classList.remove('hiding');
+  void menu.offsetWidth;
+  menu.classList.add('show');
+  menu.style.left = Math.min(x, window.innerWidth - 150) + 'px';
+  menu.style.top = Math.min(y, window.innerHeight - 180) + 'px';
+}
+function hideCtxMenu() {
+  const menu = document.getElementById('ctxMenu');
+  if (!menu.classList.contains('show')) return;
+  menu.classList.add('hiding');
+  MOTION.onAnimEnd(menu, 'animationend', MOTION.compOut()).then(() => {
+    menu.classList.remove('show', 'hiding');
+  });
+}
+
+/* ================= 系统提示（§5 v4TipIn 200ms / .out 140ms 镜像）================= */
+function addSysTip(msg, ttl) {
+  ttl = ttl || 2600;
+  // 修复（审查 S3）：新提示创建前，先把栈上旧提示同步退场（双兜底后移除），
+  // 保证新提示从干净栈开始，不叠罗汉
+  document.querySelectorAll('.sys-tip').forEach(old => {
+    if (old.__closing) return;
+    old.__closing = true;
+    old.classList.add('out');
+    MOTION.onAnimEnd(old, 'transitionend', MOTION.compOut()).then(() => old.remove());
+  });
+  const el = document.createElement('div');
+  el.className = 'sys-tip';
+  el.textContent = msg;
+  document.body.appendChild(el);
+  setTimeout(() => {
+    if (el.__closing) return;
+    el.__closing = true;
+    el.classList.add('out');
+    MOTION.onAnimEnd(el, 'transitionend', MOTION.compOut()).then(() => el.remove());
+  }, ttl);
+}
+
+/* ================= 附件条（§5 v4：show 200ms / 单项 scale(.9)→1 spring / 删除键 hover scale(1.12)）================= */
+function showAttach() {
+  const ap = document.getElementById('attachPreview');
+  ap.classList.remove('hiding');
+  void ap.offsetWidth;
+  ap.classList.add('show');
+  ap.querySelectorAll('.attach-item').forEach((el, i) => {
+    el.classList.remove('enter');
+    void el.offsetWidth;
+    // stagger 封顶（审查 P2-5）：仅前 4 条递加（4×40ms=160ms ≤240ms 上限），第 5+ 条无 delay
+    el.style.animationDelay = i < 4 ? 'calc(var(--stagger-xs) * ' + i + ')' : '';
+    el.classList.add('enter');
+  });
+}
+function hideAttach() {
+  const ap = document.getElementById('attachPreview');
+  if (!ap.classList.contains('show')) return;
+  ap.classList.add('hiding');
+  MOTION.onAnimEnd(ap, 'animationend', MOTION.compOut()).then(() => {
+    if (!ap.classList.contains('hiding')) return;
+    ap.classList.remove('show', 'hiding');
+  });
+}
+function removeAttach(btn) {
+  const item = btn.closest('.attach-item');
+  if (item) item.remove();
+  const ap = document.getElementById('attachPreview');
+  if (ap && !ap.querySelector('.attach-item')) hideAttach();
+}
+function pickFile(kind) {
+  toast('原型演示：' + kind + '选择需要后端文件对话框支持', 'info');
+}
+
+/* ================= 对话：消息流（§5 v4MsgIn 220ms / .batch 批量回放抑制 / .swapping 140ms）================= */
+const _chatMessages = [
+  { role: 'user', text: '帮我把这个 Python 脚本的内存占用降下来，它在跑 200 万行 CSV，现在 OOM 了。' },
+  { role: 'assistant', html:
+    '<div class="md-body">' +
+    '<p>可以。把 <code>pd.read_csv</code> 换成 <code>csv.reader</code> 逐行迭代，聚合状态维护在字典里，峰值内存只跟窗口大小有关，与文件总行数解耦：</p>' +
+    '<pre><code>import csv\n\ndef stream_rows(path, chunk=8192):\n    with open(path, newline="", encoding="utf-8") as f:\n        yield from csv.reader(f)\n\nagg = {}\nfor row in stream_rows("big.csv"):\n    key = row[2]\n    agg[key] = agg.get(key, 0) + float(row[5] or 0)</code><button class="code-copy v4-h v4-press" title="复制代码" aria-label="复制代码" onclick="copyCode(this)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button><span class="code-lang">PYTHON</span></pre>' +
+    '<p>我先读一遍源码确认结构，再跑基准对比。</p>' +
+    '</div>' +
+    '<div class="tool-call-item"><span class="tool-spinner"></span><span class="tc-label">read_file · src/etl/pipeline.py</span><span class="tc-meta">执行中…</span></div>' +
+    '<div class="tool-call-item done"><span class="tc-dot"></span><span class="tc-label">read_file · src/etl/pipeline.py</span><span class="tc-meta">1.2KB · 86ms</span></div>' +
+    '<div class="tool-call-item fail"><span class="tc-dot"></span><span class="tc-label">write_file · /data/out.csv</span><span class="tc-meta">Permission denied</span></div>' +
+    '<div class="usage-info"><span>tokens <b>1,246</b></span><span>耗时 <b>3.8s</b></span><span>缓存命中 <b>62%</b></span></div>' },
+  { role: 'user', text: '第 3 步的写入还是失败了，能换成流式落盘吗？另外帮我看看为什么比原来慢了 5 倍。' },
+  { role: 'assistant', html:
+    '<div class="md-body">' +
+    '<p>写入失败是权限问题：/data 属于系统目录，换个输出路径即可。变慢 5 倍的原因在逐行 <code>float()</code> 转换上——200 万次 Python 层调用是主要开销。</p>' +
+    '<p>两个优化：① 输出改到用户目录；② 用 <code>map(float, ...)</code> 批量转换，或直接用 pandas 分块（<code>chunksize</code>），兼顾内存与速度：</p>' +
+    '<pre><code>for chunk in pd.read_csv("big.csv", chunksize=50000):\n    out = chunk.groupby("cat")["val"].sum()\n    out.to_csv("out.csv", mode="a")</code><button class="code-copy v4-h v4-press" title="复制代码" aria-label="复制代码" onclick="copyCode(this)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button><span class="code-lang">PYTHON</span></pre>' +
+    '</div>' +
+    '<div class="usage-info"><span>tokens <b>986</b></span><span>耗时 <b>2.6s</b></span><span>缓存命中 <b>71%</b></span></div>' }
+];
+/* 流式演示脚本（ ephemeral，不进 _chatMessages 正典）*/
+const _streamScript = [
+  { role: 'user', text: '把 pipeline.py 里读 CSV 的部分改成流式逐行处理，目标内存降到 200MB 以内。' },
+  { role: 'assistant', html:
+    '<div class="md-body"><p>可以，两步走：先把 <code>pd.read_csv</code> 换成逐行迭代，再用窗口聚合替代全量 groupby，峰值内存只跟窗口大小有关。</p></div>' },
+  { role: 'assistant', html:
+    '<div class="md-body"><p>改完了，跑一下基准验证：</p></div>' +
+    '<div class="tool-call-item"><span class="tool-spinner"></span><span class="tc-label">run_python · benchmark.py</span><span class="tc-meta">执行中…</span></div>' }
+];
+let _streaming = false;
+function buildMessage(m) {
+  const el = document.createElement('div');
+  el.className = 'message ' + m.role;
+  const av = document.createElement('div');
+  av.className = 'avatar';
+  av.textContent = m.role === 'user' ? '我' : 'AI';
+  const ct = document.createElement('div');
+  ct.className = 'content';
+  if (m.role === 'user') ct.textContent = m.text;
+  else if (m.html) ct.innerHTML = m.html;
+  else ct.textContent = m.text || '';
+  el.appendChild(av); el.appendChild(ct);
+  return el;
+}
+function buildTyping() {
+  const el = document.createElement('div');
+  el.className = 'message assistant';
+  el.innerHTML = '<div class="avatar">AI</div><div class="content"><span class="typing-dots"><span></span><span></span><span></span></span></div>';
+  return el;
+}
+function scrollChatBottom() {
+  const cc = document.getElementById('chatContainer');
+  cc.scrollTop = cc.scrollHeight;
+}
+function clearMessages() {
+  document.getElementById('chatContainer').querySelectorAll('.message').forEach(m => m.remove());
+}
+function showEmpty() { document.getElementById('emptyState').style.display = ''; }
+function hideEmpty() { document.getElementById('emptyState').style.display = 'none'; }
+/* renderChatHistory：批量回放——先挂 .batch 抑制逐条入场，两帧后移除（v4 规格）*/
+async function renderChatHistory() {
+  const cc = document.getElementById('chatContainer');
+  if (!MOTION.instant()) {
+    cc.classList.add('swapping');
+    await MOTION.sleep(MOTION.compOut());
+  }
+  clearMessages();
+  hideEmpty();
+  cc.classList.add('batch');                 // 批量抑制：本次回放不播逐条入场
+  _chatMessages.forEach(m => cc.appendChild(buildMessage(m)));
+  requestAnimationFrame(() => requestAnimationFrame(() => cc.classList.remove('batch')));
+  cc.classList.remove('swapping');
+  scrollChatBottom();
+}
+async function simulateStream() {
+  if (_streaming) return;
+  _streaming = true;
+  const cc = document.getElementById('chatContainer');
+  const bar = document.getElementById('streamBar');
+  const sendBtn = document.getElementById('sendBtn');
+  hideEmpty();
+  bar.classList.add('on');                    // 流式条：纯 transform 循环
+  sendBtn.disabled = true;
+  for (let i = 0; i < _streamScript.length; i++) {
+    cc.appendChild(buildMessage(_streamScript[i]));   // 逐条入场（无 .batch）
+    scrollChatBottom();
+    if (i < _streamScript.length - 1) await MOTION.sleep(STREAM_PACE);
+  }
+  await MOTION.sleep(STREAM_PACE);
+  bar.classList.remove('on');
+  sendBtn.disabled = false;
+  _streaming = false;
+  toast('流式生成完成（原型演示）', 'ok');
+}
+function currentRunCard() {
+  return document.querySelector('#chatContainer .tool-call-item:not(.done):not(.fail)');
+}
+async function completeToolCard() {
+  const card = currentRunCard();
+  if (!card) { toast('当前没有执行中的工具卡，请先「模拟流式生成」', 'warn'); return; }
+  card.classList.add('done');
+  const meta = card.querySelector('.tc-meta');
+  if (meta) meta.textContent = '2.4s · ok';
+  toast('工具调用完成：run_python · benchmark.py', 'ok');
+}
+async function failToolCard() {
+  const card = currentRunCard();
+  if (!card) { toast('当前没有执行中的工具卡，请先「模拟流式生成」', 'warn'); return; }
+  card.classList.add('fail');
+  const meta = card.querySelector('.tc-meta');
+  if (meta) meta.textContent = 'WinError 5';
+  toast('工具调用失败：write_file · Permission denied', 'err', { detail: 'write_file → /data/out.csv\nWinError 5：拒绝访问' });
+}
+async function sendMessage() {
+  const ta = document.getElementById('userInput');
+  const text = ta.value.trim();
+  if (!text) { toast('请输入内容再发送', 'warn'); return; }
+  hideEmpty();
+  const cc = document.getElementById('chatContainer');
+  cc.appendChild(buildMessage({ role: 'user', text }));
+  ta.value = '';
+  scrollChatBottom();
+  const typing = buildTyping();
+  cc.appendChild(typing);
+  scrollChatBottom();
+  await MOTION.sleep(TYPING_PACE);
+  typing.remove();
+  cc.appendChild(buildMessage({ role: 'assistant', text: '（原型演示）这里是模拟回复：真实环境中该文本由 GLM API 流式返回，并触发工具调用卡三态过渡。' }));
+  scrollChatBottom();
+}
+function copyCode(btn) {
+  const pre = btn.closest('pre');
+  const code = pre ? pre.querySelector('code') : null;
+  if (code && navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(code.textContent)
+      .then(() => toast('代码已复制（原型演示）', 'ok'))
+      .catch(() => toast('复制失败，请手动选择复制', 'warn'));
+  } else toast('当前环境不支持自动复制，请手动选择', 'warn');
+}
+function newSession() {
+  switchPanel('chat');
+  clearMessages();
+  showEmpty();
+  toast('已新建对话（原型演示）', 'ok');
+}
+function exportChat() { toast('原型演示：导出 Markdown 需要后端支持', 'info'); }
+function continueInNewSession() { toast('原型演示：在新对话中继续需要后端支持', 'info'); }
+function openBilling() {
+  uiInfo('余额', '剩余额度：¥86.40（示意）\n本会话已用：¥0.83\n计费口径：输入 × 单价 + 输出 × 单价，缓存命中按约 0.3 折。');
+}
+function toggleSidebar() { document.getElementById('sidebar').classList.toggle('collapsed'); }
+
+/* ================= 会话列表（静态假数据 · 搜索过滤 · 删除走模态确认）================= */
+const SESSIONS = [
+  { title: 'CSV 内存优化方案', time: '14:32', desc: 'pandas read_csv 逐行流式处理' },
+  { title: 'pywebview 打包体积排查', time: '昨天 21:07', desc: 'UPX 压缩与 DLL 裁剪' },
+  { title: 'v4 动效令牌评审', time: '昨天 16:40', desc: '四层动效模型与降级矩阵' },
+  { title: 'Windows 截屏 API 选择', time: '3 天前', desc: 'BitBlt 与 Windows.Graphics.Capture' },
+  { title: 'MCP 服务器接入实践', time: '上周', desc: 'stdio 本地服务器配置' },
+  { title: 'GLM-5.3 与 DeepSeek 对比', time: '上周', desc: '价格与长上下文实测' },
+  { title: 'Token 计费口径整理', time: '3 周前', desc: '缓存命中计费规则' }
+];
+const ICON_EXPORT = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12M7 10l5 5 5-5M5 21h14"/></svg>';
+const ICON_DEL = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6M10 11v6M14 11v6"/></svg>';
+function sessionItemEl(s, listId, activeFirst) {
+  const it = document.createElement('div');
+  it.className = 'session-item' + (activeFirst ? ' active' : '');
+  it.dataset.title = s.title;
+  it.dataset.desc = (s.desc || '').toLowerCase();
+  it.innerHTML =
+    '<div class="session-item-main"><div class="session-title"></div></div>' +
+    '<div class="session-time"></div>' +
+    '<div class="session-acts">' +
+    '<button class="session-exp v4-h v4-press" title="导出会话" aria-label="导出会话">' + ICON_EXPORT + '</button>' +
+    '<button class="session-del v4-h v4-press" title="删除会话" aria-label="删除会话">' + ICON_DEL + '</button>' +
+    '</div>';
+  it.querySelector('.session-title').textContent = s.title;
+  it.querySelector('.session-time').textContent = s.time;
+  it.addEventListener('click', () => {
+    document.querySelectorAll('#' + listId + ' .session-item').forEach(x => x.classList.remove('active'));
+    it.classList.add('active');
+    toast('已载入会话「' + s.title + '」（原型演示）', 'info');
+  });
+  it.querySelector('.session-exp').addEventListener('click', async (ev) => {
+    ev.stopPropagation();
+    toast('原型演示：导出「' + s.title + '」需要后端支持', 'info');
+  });
+  it.querySelector('.session-del').addEventListener('click', async (ev) => {
+    ev.stopPropagation();
+    const r = await uiConfirm({
+      title: '删除会话？',
+      body: '「' + s.title + '」删除后不可恢复，导出功能可在删除前留存记录。',
+      danger: true, okText: '删除', cancelText: '取消'
+    });
+    if (r.ok) {
+      it.style.display = 'none';
+      toast('已删除「' + s.title + '」（原型演示）', 'ok');
+    }
+  });
+  return it;
+}
+function renderSessionLists() {
+  const side = document.getElementById('sidebarSessionList');
+  const main = document.getElementById('sessionList');
+  side.innerHTML = ''; main.innerHTML = '';
+  SESSIONS.slice(0, 5).forEach((s, i) => side.appendChild(sessionItemEl(s, 'sidebarSessionList', i === 0)));
+  SESSIONS.forEach(s => main.appendChild(sessionItemEl(s, 'sessionList', false)));
+  filterSessions();
+}
+function filterSessions() {
+  const q = (document.getElementById('sessionSearch').value || '').trim().toLowerCase();
+  const list = document.getElementById('sessionList');
+  let n = 0;
+  list.querySelectorAll('.session-item').forEach(it => {
+    const hit = !q || it.dataset.title.toLowerCase().includes(q) || (it.dataset.desc || '').includes(q);
+    it.style.display = hit ? '' : 'none';
+    if (hit) n++;
+  });
+  document.getElementById('searchCount').textContent = q ? ('匹配 ' + n + ' 条') : ('共 ' + n + ' 条');
+}
+function openSessionSearch() {
+  switchPanel('sessions');
+  setTimeout(() => { const s = document.getElementById('sessionSearch'); if (s) s.focus(); }, MOTION.panel() + 40);
+}
+
+/* ================= 分析（count-up 600ms / 图表 draw 800ms+stagger / 进面板 60ms 后 draw）================= */
+const TREND_DATA = {
+  total:  { values: [12.1, 18.4, 15.2, 22.8, 19.6, 26.3, 24.1, 30.5], max: 35,  unit: '万',  fmt: v => v + '万' },
+  cost:   { values: [0.42, 0.61, 0.55, 0.83, 0.70, 0.97, 0.88, 1.12], max: 1.4, unit: '¥',   fmt: v => '¥' + v.toFixed(2) },
+  cached: { values: [41, 48, 52, 57, 55, 63, 66, 71],                max: 100, unit: '%',   fmt: v => v + '%' }
+};
+let _trendMetric = 'total';
+function countUpEl(el) {
+  const target = parseFloat(el.dataset.count);
+  const fmt = el.dataset.format;
+  const dur = MOTION.count();
+  const f = v => fmt === 'cny' ? '¥' + v.toFixed(2)
+    : fmt === 'pct' ? v.toFixed(1) + '%'
+    : Math.round(v).toLocaleString('en-US');
+  if (dur <= 0 || MOTION.instant()) { el.textContent = f(target); return; }
+  const t0 = performance.now();
+  const ease = MOTION.easeOutSoft;
+  const frame = (now) => {
+    const t = Math.min(1, (now - t0) / dur);
+    el.textContent = f(target * ease(t));
+    if (t < 1) requestAnimationFrame(frame);
+  };
+  requestAnimationFrame(frame);
+}
+function drawTrend() {
+  const wrap = document.getElementById('chartTrend');
+  const cfg = TREND_DATA[_trendMetric];
+  const W = 560, H = 220, padL = 46, padR = 14, padT = 14, padB = 26;
+  const iw = W - padL - padR, ih = H - padT - padB;
+  const x = i => padL + (iw / (cfg.values.length - 1)) * i;
+  const y = v => padT + ih - (v / cfg.max) * ih;
+  let g = '';
+  for (let i = 0; i <= 4; i++) {
+    const v = cfg.max / 4 * i, yy = y(v);
+    g += '<line class="chart-grid-line" x1="' + padL + '" y1="' + yy + '" x2="' + (W - padR) + '" y2="' + yy + '"/>';
+    g += '<text class="chart-ax" x="' + (padL - 8) + '" y="' + (yy + 3) + '" text-anchor="end">' + cfg.fmt(v) + '</text>';
+  }
+  cfg.values.forEach((v, i) => {
+    g += '<text class="chart-ax" x="' + x(i).toFixed(1) + '" y="' + (H - 8) + '" text-anchor="middle">S' + (i + 1) + '</text>';
+  });
+  const pts = cfg.values.map((v, i) => x(i).toFixed(1) + ',' + y(v).toFixed(1));
+  const area = '<path class="chart-area" d="M' + pts.join(' L') + ' L' + x(cfg.values.length - 1).toFixed(1) + ',' + y(0) + ' L' + x(0).toFixed(1) + ',' + y(0) + ' Z"/>';
+  const line = '<path class="chart-line" pathLength="1" d="M' + pts.join(' L') + '"/>';
+  const dots = cfg.values.map((v, i) => '<circle class="chart-dot" cx="' + x(i).toFixed(1) + '" cy="' + y(v).toFixed(1) + '" r="3.2"/>').join('');
+  wrap.innerHTML = '<svg viewBox="0 0 ' + W + ' ' + H + '" height="' + H + '" role="img" aria-label="趋势图（示意数据）">' +
+    '<defs><linearGradient id="trendFill" x1="0" y1="0" x2="0" y2="1">' +
+    '<stop class="chart-area-from" offset="0"/><stop class="chart-area-to" offset="1"/></linearGradient></defs>' +
+    g + area + line + dots + '</svg>';
+}
+function drawToolBars() {
+  const wrap = document.getElementById('toolBars');
+  const data = [['read_file', 142], ['run_python', 96], ['write_file', 61], ['take_screenshot', 34], ['web_search', 28], ['clipboard_read', 12]];
+  const W = 560, rowH = 26, H = data.length * rowH + 8, labelW = 118, valW = 42;
+  const barMax = W - labelW - valW - 14, max = 142;
+  let s = '';
+  data.forEach((d, i) => {
+    const y0 = 4 + i * rowH;
+    const bw = Math.max(4, barMax * d[1] / max);
+    s += '<text class="bar-label" x="0" y="' + (y0 + 14) + '">' + d[0] + '</text>';
+    s += '<rect class="chart-bar" x="' + labelW + '" y="' + (y0 + 4) + '" width="' + bw.toFixed(1) + '" height="12" rx="3" style="transition-delay:calc(var(--stagger-sm) * ' + i + ')"/>';
+    s += '<text class="bar-val" x="' + (labelW + bw + 8).toFixed(1) + '" y="' + (y0 + 15) + '">' + d[1] + '</text>';
+  });
+  wrap.innerHTML = '<svg viewBox="0 0 ' + W + ' ' + H + '" height="' + H + '" role="img" aria-label="工具调用条形图（示意数据）">' + s + '</svg>';
+}
+function drawToolMs() {
+  const wrap = document.getElementById('toolMs');
+  const data = [['run_python', 240], ['read_file', 86], ['write_file', 35]];
+  const W = 560, rowH = 30, H = data.length * rowH + 8, labelW = 96, valW = 52;
+  const barMax = W - labelW - valW - 14, max = 240;
+  let s = '';
+  data.forEach((d, i) => {
+    const y0 = 6 + i * rowH;
+    const bw = Math.max(4, barMax * d[1] / max);
+    s += '<text class="bar-label" x="0" y="' + (y0 + 14) + '">' + d[0] + '</text>';
+    s += '<rect class="chart-bar" x="' + labelW + '" y="' + (y0 + 3) + '" width="' + bw.toFixed(1) + '" height="12" rx="3" fill="var(--chart-2)" style="transition-delay:calc(var(--stagger-sm) * ' + i + ')"/>';
+    s += '<text class="bar-val" x="' + (labelW + bw + 8).toFixed(1) + '" y="' + (y0 + 14) + '">' + d[1] + 'ms</text>';
+  });
+  wrap.innerHTML = '<svg viewBox="0 0 ' + W + ' ' + H + '" height="' + H + '" role="img" aria-label="平均耗时条形图（示意数据）">' + s + '</svg>';
+}
+function drawToolRing() {
+  const wrap = document.getElementById('toolRing');
+  const r = 40, C = 2 * Math.PI * r, pct = 0.876;
+  wrap.innerHTML =
+    '<div class="ring-wrap"><div class="ring-svg-box">' +
+    '<svg width="108" height="108" viewBox="0 0 108 108" role="img" aria-label="工具成功率环形图（示意数据）">' +
+    '<circle cx="54" cy="54" r="' + r + '" fill="none" stroke="var(--chart-grid)" stroke-width="9"/>' +
+    '<circle class="ring-val" cx="54" cy="54" r="' + r + '" fill="none" stroke="var(--ok)" stroke-width="9" stroke-linecap="round" transform="rotate(-90 54 54)" stroke-dasharray="' + C.toFixed(2) + '" stroke-dashoffset="' + C.toFixed(2) + '" style="--ring-offset:' + (C * (1 - pct)).toFixed(2) + '"/>' +
+    '<text class="ring-num" id="ringNum" x="54" y="58" text-anchor="middle">0%</text>' +
+    '<text class="ring-cap" x="54" y="74" text-anchor="middle">成功率</text>' +
+    '</svg></div>' +
+    '<div class="ring-legend">' +
+    '<div class="ring-legend-row"><i style="background:var(--ok)"></i>成功 <b id="ringOk">0%</b></div>' +
+    '<div class="ring-legend-row"><i style="background:var(--err)"></i>失败 <b id="ringFail">0%</b></div>' +
+    '<div class="ring-legend-row"><i style="background:var(--warn)"></i>护栏拦截 <b id="ringBlock">0%</b></div>' +
+    '</div></div>';
+  const ringNum = document.getElementById('ringNum');
+  ringNum.dataset.count = '87.6'; ringNum.dataset.format = 'pct';
+  const ringOk = document.getElementById('ringOk');
+  ringOk.dataset.count = '87.6'; ringOk.dataset.format = 'pct';
+  const ringFail = document.getElementById('ringFail');
+  ringFail.dataset.count = '8.4'; ringFail.dataset.format = 'pct';
+  const ringBlock = document.getElementById('ringBlock');
+  ringBlock.dataset.count = '4.0'; ringBlock.dataset.format = 'pct';
+  [ringNum, ringOk, ringFail, ringBlock].forEach(countUpEl);
+}
+function playCharts() {
+  document.querySelectorAll('.chart-wrap').forEach(w => { w.classList.remove('drawn'); void w.offsetWidth; });
+  setTimeout(() => {
+    document.querySelectorAll('.chart-wrap').forEach(w => w.classList.add('drawn'));
+  }, MOTION.staggerSm());   // 进面板 60ms（--stagger-sm）后开始 draw
+}
+function renderAnalytics() {
+  document.querySelectorAll('#statCards .stat-value').forEach(countUpEl);
+  drawTrend(); drawToolBars(); drawToolMs(); drawToolRing();
+  playCharts();
+}
+function setTrendMetric(metric) {
+  if (!TREND_DATA[metric]) return;
+  _trendMetric = metric;
+  document.querySelectorAll('#trendSeg .seg-btn').forEach(b => b.classList.toggle('on', b.dataset.metric === metric));
+  drawTrend();
+  playCharts();
+}
+
+/* ================= 工作区（静态演示，无后端）================= */
+function onFolderEnabled(on) {
+  document.getElementById('wsBody').style.display = on ? '' : 'none';
+  document.getElementById('wsEffTag').textContent = on ? '已启用' : '未启用';
+  document.getElementById('wsEffPath').textContent = on ? document.getElementById('wsSel').value + '（示意）' : '';
+}
+function onWsSelect(v) {
+  if (document.getElementById('wsEnabled').checked) document.getElementById('wsEffPath').textContent = v + '（示意）';
+}
+function onWsInd() {
+  document.getElementById('wsUnbindBtn').style.display = document.getElementById('wsInd').checked ? '' : 'none';
+}
+function onToolMode(v) {
+  const map = { full: '完整', readonly: '只读', off: '纯聊天' };
+  document.getElementById('effTag').textContent = map[v] || '全局';
+  document.getElementById('effPath').textContent = v === 'off' ? '——' : 'D:\\Projects\\glm-chat（示意）';
+}
+function browseWs() { toast('原型演示：文件夹选择需要后端对话框支持', 'info'); }
+function unbindSession() { toast('已恢复跟随全局（原型演示）', 'ok'); }
+function saveGuardSettings() { toast('护栏设置已保存（原型演示）', 'ok'); }
+function resetAllGuardTrust() { toast('已重置全部「不再提示」（原型演示）', 'ok'); }
+function openAuditViewer() {
+  uiInfo('审计日志（示意）',
+    '14:32:01  write_file  /data/out.csv  已拦截（保护名单）\n' +
+    '14:31:47  run_python  benchmark.py  已确认执行\n' +
+    '14:31:12  read_file   src/etl/pipeline.py  已放行\n' +
+    '—— 原型为静态演示，真实日志仅存本地。');
+}
+
+/* ================= 演示控制台 ================= */
+function toggleDemoConsole() {
+  const con = document.getElementById('demoConsole');
+  const collapsed = con.classList.toggle('collapsed');
+  document.getElementById('demoBody').style.display = collapsed ? 'none' : '';
+}
+function demoToasts() {
+  toast('会话已自动保存', 'ok');
+  setTimeout(() => toast('缓存命中率低于 30%，可尝试提高压缩档位', 'warn'), TOAST_DEMO_GAP);
+  setTimeout(() => toast('工具调用失败：Permission denied', 'err', { detail: 'write_file → /data/out.csv\nWinError 5' }), TOAST_DEMO_GAP * 2);
+}
+function demoModal() {
+  uiConfirm({
+    title: '删除会话「CSV 内存优化方案」？',
+    body: '删除后不可恢复，导出功能可在删除前留存记录。',
+    danger: true, okText: '删除', cancelText: '取消',
+    checkboxLabel: '本会话内不再提示'
+  }).then(r => toast(r.ok ? '已删除（原型演示）' : '已取消删除', r.ok ? 'ok' : 'info'));
+}
+function demoCtx(btn) {
+  const rect = btn.getBoundingClientRect();
+  showCtxMenuAt(rect.left, rect.top - 8);
+}
+
+/* ================= 启动 ================= */
+function boot() {
+  initFx();
+  let t = 'light';
+  try { t = localStorage.getItem('glm_theme') || 'light'; } catch (e) {}
+  applyTheme(t);
+  buildSetNav();
+  renderSessionLists();
+  renderChatHistory();          // 首屏批量回放（.batch 抑制，不播逐条入场）
+  renderAnalytics();            // 预构建图表；切到分析面板时会重放 draw
+  setupContextMenu();
+  document.querySelectorAll('select').forEach(initCustomSelect);
+  document.getElementById('userInput').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
+  });
+  // 键盘守卫（审查 S2）：不做宽泛 early return——按「下拉 → 模态 → 右键菜单」优先级
+  // 依次消费 Escape，任一层关闭后即返回；焦点位于任何浮层内时其余开关依旧可用
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      const anyOpen = [...CS.reg.values()].some(st => st.wrap.classList.contains('open'));
+      if (anyOpen) { closeAllCS(); return; }
+      const modal = document.getElementById('modalRoot');
+      if (modal) {
+        const cancel = modal.querySelector('.modal-cancel');
+        if (cancel) cancel.click();          // 走模态自身的取消路径（uiConfirm 正常 resolve）
+        else if (typeof _closeModal === 'function') _closeModal();
+        return;
+      }
+      hideCtxMenu();
+      return;
+    }
+    if ((e.ctrlKey || e.metaKey) && (e.key === 'n' || e.key === 'N')) {
+      e.preventDefault();
+      if (typeof newSession === 'function') newSession();
+    }
+  });
+}
+document.addEventListener('DOMContentLoaded', boot);
+</script>
+</body>
+</html>

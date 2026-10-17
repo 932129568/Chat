@@ -1,0 +1,168 @@
+/* ================= 启动 ================= */
+window.onload = function () {
+  let called = false;
+  const go = () => { if (!called) { called = true; loadAll(); } };
+  if (window.pywebview && window.pywebview.api) go();
+  else {
+    window.addEventListener('pywebviewready', go);
+    setTimeout(() => { if (!called) { called = true; loadAll(); } }, 5000);
+  }
+};
+async function loadAll() {
+  try { window.__memCache = await callApi('get_memory', []); } catch (e) { window.__memCache = '[]'; }
+  setupContextMenu();
+  document.querySelectorAll('select').forEach(initCustomSelect);
+  initFx();   // v3：特效总开关（.fx-off + localStorage['glm_fx'] 持久化）
+  applyTheme((function () { try { return localStorage.getItem('glm_theme') || 'light'; } catch (e) { return 'light'; } })());
+  const tempEl = document.getElementById('temperature');
+  const topPEl = document.getElementById('topP');
+  const updateLabels = () => {
+    document.getElementById('tempVal').textContent = parseFloat(tempEl.value).toFixed(1);
+    document.getElementById('topPVal').textContent = parseFloat(topPEl.value).toFixed(2);
+  };
+  tempEl.addEventListener('input', () => { updateLabels(); queueSaveConfig(); });
+  topPEl.addEventListener('input', () => { updateLabels(); queueSaveConfig(); });
+  document.getElementById('modelSelect').addEventListener('change', () => {
+    queueSaveConfig();
+    updateBrandModel();   // v1.2 R6：品牌位优先显示自定义端点模型
+  });
+  ['toolMode','maxTokens','reasoningEffort','searchEngine'].forEach(id =>
+    document.getElementById(id).addEventListener('change', queueSaveConfig));
+  document.getElementById('toolMode').addEventListener('change', () => {
+    const v = document.getElementById('toolMode').value;
+    addSysTip('工具权限 → ' + (v === 'full' ? '完整' : v === 'readonly' ? '只读' : '纯聊天') + '，下一回合生效');
+  });
+  document.getElementById('systemPrompt').addEventListener('input', queueSaveConfig);
+  document.getElementById('apiKey').addEventListener('input', queueSaveConfig);
+  /* v1.2：服务商/更新源字段改动即保存并即时生效 */
+  ['providerBase','providerModel','providerKey','providerPriceIn','providerPriceOut','providerPriceCache','updateManifestUrl']
+    .forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.addEventListener('change', () => { queueSaveConfig(); applyProviderConfig(); });
+    });
+  document.getElementById('enableSearch').addEventListener('change', function () {
+    document.getElementById('searchEngineWrap').style.display = this.checked ? 'flex' : 'none';
+    queueSaveConfig();
+  });
+  updateLabels();
+  window.addEventListener('dragover', e => { e.preventDefault(); });
+  window.addEventListener('drop', e => {
+    e.preventDefault();
+    const files = e.dataTransfer && e.dataTransfer.files;
+    if (!files || !files.length) return;
+    for (const f of files) {
+      const lower = f.name.toLowerCase();
+      if (/\.(png|jpe?g|gif|webp|bmp)$/i.test(lower)) handleFiles([f], 'image');
+      else if (/\.(mp4|mov|avi|mkv|webm)$/i.test(lower)) handleFiles([f], 'video');
+      else if (/\.(zip)$/i.test(lower)) handleFiles([f], 'zip');
+      else handleFiles([f], 'text');
+    }
+    document.getElementById('userInput').focus();
+  });
+  const ta = document.getElementById('userInput');
+  ta.addEventListener('focus', updateCostEstimate);   // v1.2 R5：输入框聚焦时刷新预估花费
+  ta.addEventListener('input', function () {
+    this.style.height = 'auto';
+    this.style.height = Math.min(this.scrollHeight, 160) + 'px';
+    updateCostEstimate();
+  });
+  ta.addEventListener('keydown', function (e) {
+    if (e.isComposing || e.keyCode === 229) return;
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
+  });
+  ta.addEventListener('paste', function (e) {
+    const items = e.clipboardData && e.clipboardData.items;
+    if (!items) return;
+    for (const item of items) {
+      if (item.kind === 'file') {
+        const file = item.getAsFile();
+        if (file) {
+          const dt = new DataTransfer();
+          dt.items.add(file);
+          if (file.type.startsWith('image/')) handleFiles(dt.files, 'image');
+          else if (file.type.startsWith('video/')) handleFiles(dt.files, 'video');
+          else if (file.name.endsWith('.zip')) handleFiles(dt.files, 'zip');
+          else if (/\.(rar|7z)$/i.test(file.name))
+            toast('仅支持 zip 压包；rar/7z 请先转成 zip，或解压后用「添加文本文件」选取。', 'warn');
+          else handleFiles(dt.files, 'text');
+        }
+      }
+    }
+  });
+  ['imgInput:image','vidInput:video','fileInput:text','zipInput:zip'].forEach(pair => {
+    const [id, tp] = pair.split(':');
+    document.getElementById(id).addEventListener('change', async e => {
+      await handleFiles(e.target.files, tp); e.target.value = '';
+    });
+  });
+  await loadSessions();
+  let cfg = {};
+  try {
+    if (window.pywebview && window.pywebview.api) {
+      const raw = await Promise.race([
+        callApi('get_config', []),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 3000))
+      ]);
+      cfg = JSON.parse(raw || '{}');
+    }
+  } catch (e) {}
+  if (!cfg || Object.keys(cfg).length === 0) {
+    try { cfg = JSON.parse(localStorage.getItem('glm_config') || '{}'); } catch (e) {}
+  }
+  if (cfg.api_key) document.getElementById('apiKey').value = cfg.api_key;
+  else document.getElementById('settingsPanel').classList.add('show');
+  if (cfg.temperature != null) document.getElementById('temperature').value = cfg.temperature;
+  if (cfg.top_p != null) document.getElementById('topP').value = cfg.top_p;
+  if (cfg.model) document.getElementById('modelSelect').value = cfg.model;
+  const bm0 = document.getElementById('brandModel');
+  if (bm0) bm0.textContent = document.getElementById('modelSelect').value;
+  const ht0 = document.getElementById('headerTitle');
+  if (ht0) ht0.textContent = document.getElementById('modelSelect').value;
+  if (cfg.tool_mode) document.getElementById('toolMode').value = cfg.tool_mode;
+  if (cfg.max_tokens != null) document.getElementById('maxTokens').value = cfg.max_tokens;
+  if (cfg.reasoning_effort) document.getElementById('reasoningEffort').value = cfg.reasoning_effort;
+  if (cfg.system_prompt != null) document.getElementById('systemPrompt').value = cfg.system_prompt;
+  if (cfg.enable_search) document.getElementById('enableSearch').checked = true;
+  if (cfg.search_engine) document.getElementById('searchEngine').value = cfg.search_engine;
+  if (cfg.shot_quality) document.getElementById('shotQuality').value = cfg.shot_quality;
+  if (cfg.saver_level) document.getElementById('saverLevel').value = cfg.saver_level;
+  if (cfg.session_budget != null) document.getElementById('sessionBudget').value = cfg.session_budget;
+  /* v1.2：回填更新源 + 服务商 + 安全护栏配置 */
+  if (cfg.update_manifest_url) document.getElementById('updateManifestUrl').value = cfg.update_manifest_url;
+  loadProviderUI(cfg);
+  try { loadLocalUI(cfg); } catch (e) {}   // v1.5 本地模型（预留接口层 UI；local_* 键回填）
+  try { await loadGuardConfig(); } catch (e) {}
+  document.getElementById('searchEngineWrap').style.display = cfg.enable_search ? 'flex' : 'none';
+  updateLabels();
+  CS.syncAll();
+  try {
+    if (window.pywebview && window.pywebview.api) {
+      let info = null;
+      for (let attempt = 0; attempt < 3 && !info; attempt++) {
+        try { info = JSON.parse(await callApi('get_api_info', [])); }
+        catch (e) { if (attempt < 2) await new Promise(r => setTimeout(r, 800)); }
+      }
+      if (info) {
+        const need = ['pick_folder','get_cwd','write_file','run_command','take_screenshot','open_app',
+                      'get_memory','append_memory','get_worklog','append_worklog','save_workspace_file',
+                      'build_tools','build_system_prompt','read_more','get_ws_state','cache_tool_output',
+                      'get_clipboard','set_clipboard','list_processes','kill_process','open_url'];
+        const missing = need.filter(m => !((info.methods || []).includes(m)));
+        backendWarning = missing.length > 0
+          ? '△ 后端缺少方法: ' + missing.join(', ') + '（exe 为旧版，请重新打包）'
+          : null;
+      } else {
+        backendWarning = '△ 后端 get_api_info 调不通，请重新打包';
+      }
+    }
+  } catch (e) {}
+  updateTokenStat();
+  refreshWsCard();
+  renderSessionList();
+  renderAnalytics();   // v3：分析面板首次聚合（数据来自运行时 sessions，空态友好显示）
+  checkForUpdate(false);   // v1.2 R1：启动后台静默检查更新（有新版本时右上角 pill 轻提示）
+  if (sessions.length > 0) {
+    const latest = [...sessions].sort((a, b) => b.updatedAt - a.updatedAt)[0];
+    switchSession(latest.id, true);   // v4：boot 首载静默重建（不走 swapping 淡出，避免开屏闪空容器）
+  }
+}

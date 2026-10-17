@@ -1,0 +1,32 @@
+# 构建产物（源码构建生成）
+build/
+*.pyc
+__pycache__/
+.pytest_cache/
+
+# 运行数据（用户本机 ~/.glm-chat/，绝不入库）
+.glm-chat/
+*.log
+logs/
+audit_log.jsonl
+
+# 测试残留
+.realtest_*
+.realtest_shots/
+
+# IDE / 系统
+.workbuddy/
+.workbuddy-ai/
+.vscode/
+.idea/
+Thumbs.db
+desktop.ini
+
+# 旧版构建产物（legacy 源码保留供契约测试，其 html 产物不入库）
+glm-chat.v1.0.0.html
+
+# 敏感配置（双保险：即使误放也不上传）
+mcp_servers.json
+webdav.json
+config.json
+*.dpapi
