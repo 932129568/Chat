@@ -154,7 +154,11 @@ async function runAgentLoop(s, apiKey) {
         const beSys = await callApi('build_system_prompt', []);
         sysContent = EFFICIENCY_PROMPT + '\n\n' + (beSys ? JSON.parse(beSys) : '') + (sysPrompt ? '\n\n用户附加: ' + sysPrompt : '');
       } catch (e) { /* 系统提示词失败用前端默认 */ }
-      const reqMsgs = [{ role: 'system', content: sysContent }, ...slimMsgs];
+      // 修复 HF-1（v1.6）：system 归一化——历史里可能有末尾追加的【工作日志】system
+      // （100-send.js），直接拼 [system, ...slimMsgs] 会得到 [system, user, system]，
+      // Qwen/Ollama 的 Jinja 模板直接 raise「System message must be at the beginning」→ 500。
+      // 归一化把所有 system 合并成一条置于最前；只有一条 system 时原样返回（零行为变化）。
+      const reqMsgs = normalizeSystemMessages([{ role: 'system', content: sysContent }, ...slimMsgs]);
       if (pendingShots.length && shotState === 'idle') {
         const shotContent = [{ type: 'text', text: pendingShots.length > 1
           ? `[系统附图] 以下是 ${pendingShots.length} 张屏幕截图(按拍摄顺序),请据此操作。`
@@ -359,16 +363,19 @@ async function runAgentLoop(s, apiKey) {
         if (fullContent) {
           mdBody.innerHTML = renderMd(fullContent);
           enhanceCodeBlocks(mdBody);
+          // v4：操作条收进 .msg-actions——悬停对话框时下方弹出（opacity+translateY）
+          const acts = document.createElement('div');
+          acts.className = 'msg-actions';
           const copyBtn = document.createElement('button');
           copyBtn.className = 'copy-btn'; copyBtn.textContent = '⧉ 复制';
           copyBtn.onclick = () => navigator.clipboard.writeText(fullContent).then(() => {
             copyBtn.textContent = '✓ 已复制'; setTimeout(() => copyBtn.textContent = '⧉ 复制', 1500);
           });
-          aiContent.appendChild(copyBtn);
+          acts.appendChild(copyBtn);
           const regenBtn = document.createElement('button');
           regenBtn.className = 'copy-btn'; regenBtn.textContent = '↻ 重新生成';
           regenBtn.onclick = regenerate;
-          aiContent.appendChild(regenBtn);
+          acts.appendChild(regenBtn);
           const favBtn = document.createElement('button');
           favBtn.className = 'copy-btn'; favBtn.textContent = '☆ 收藏';
           favBtn.onclick = async () => {
@@ -378,7 +385,8 @@ async function runAgentLoop(s, apiKey) {
             } catch (e) { favBtn.textContent = '✗ 失败'; }
             setTimeout(() => favBtn.textContent = '☆ 收藏', 1500);
           };
-          aiContent.appendChild(favBtn);
+          acts.appendChild(favBtn);
+          aiContent.appendChild(acts);
         }
         if (finishReason === 'length') {
           // 修复 建议㉔（二轮）：length 且带 tool_calls 时参数可能被截断（正则猜参
@@ -404,7 +412,8 @@ async function runAgentLoop(s, apiKey) {
                 const contBtn = document.createElement('button');
                 contBtn.className = 'copy-btn'; contBtn.textContent = '▸▸ 继续输出';
                 contBtn.onclick = () => continueLastGeneration(s, apiKey);
-                aiContent.appendChild(contBtn);
+                const cActs = document.createElement('div'); cActs.className = 'msg-actions';
+                cActs.appendChild(contBtn); aiContent.appendChild(cActs);
                 return;
               }
               s.autoResume = 0;   // 修复 建议㉗（二轮）：续跑成功后清零（原只在不续跑的 else 分支清零，自动续跑路径终身累积，第 5 次后本会话再无自动续跑）
@@ -416,7 +425,8 @@ async function runAgentLoop(s, apiKey) {
             const contBtn = document.createElement('button');
             contBtn.className = 'copy-btn'; contBtn.textContent = '▸▸ 继续输出';
             contBtn.onclick = () => continueLastGeneration(s, apiKey);
-            aiContent.appendChild(contBtn);
+            const cActs = document.createElement('div'); cActs.className = 'msg-actions';
+            cActs.appendChild(contBtn); aiContent.appendChild(cActs);
           }
         }
         if (!fullContent) mdBody.innerHTML = '';   // 修复 ㉙：空回复不再残留「正在输入」动画

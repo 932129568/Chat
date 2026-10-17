@@ -106,10 +106,16 @@ function fillErrorBubble(el, text) {
     el.textContent = txt;
   }
 }
+/* v4：触屏/无悬停设备——点消息唤出操作条（.acting），点其他消息或空白处收起 */
+document.addEventListener('click', (e) => {
+  const msg = (e.target && e.target.closest) ? e.target.closest('.message') : null;
+  document.querySelectorAll('.message.acting').forEach(m => { if (m !== msg) m.classList.remove('acting'); });
+  if (msg && !(e.target.closest && e.target.closest('.msg-actions'))) msg.classList.add('acting');
+});
 function addMsgActions(contentEl, text, onlyCopy) {
   if (!contentEl || !text) return;
   const bar = document.createElement('div');
-  bar.style.cssText = 'margin-top:8px;display:flex;gap:6px;';
+  bar.className = 'msg-actions';   // v4：悬停弹出条（CSS 控制显隐）
   const mk = (label, fn) => {
     const b = document.createElement('button');
     b.className = 'copy-btn'; b.textContent = label;

@@ -110,6 +110,8 @@ async function refreshWsCard() {
   if (wsEffPath) wsEffPath.textContent = st.ws ? wsShort(st.ws, 3) : '';
   if (wsUnbindBtn) wsUnbindBtn.style.display = st.bound ? '' : 'none';
   refreshEffectiveWs();
+  // v4：同步刷新输入区上方的工作区快捷条（同一数据源，遥控器视图）
+  try { if (typeof wsQuickRefresh === 'function') wsQuickRefresh(); } catch (e) {}
 }
 async function onFolderEnabled(on) {
   await callApi('set_current_sid', [currentSessionId]);

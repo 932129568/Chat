@@ -137,10 +137,20 @@ function exportChat() {
 }
 function toggleSettings() {
   const panel = document.getElementById('settingsPanel');
-  panel.classList.toggle('show');
+  if (panel.classList.contains('show')) {
+    // v4：关=播退场（v4SetOut 140ms in-soft）再撤 .show——不再生硬瞬消
+    if (panel.classList.contains('hiding')) return;   // 防重入
+    panel.classList.add('hiding');
+    const done = () => { try { panel.classList.remove('show', 'hiding'); } catch (e) {} };
+    if (typeof MOTION !== 'undefined' && !MOTION.instant()) {
+      MOTION.onAnimEnd(panel, 'animationend', MOTION.compOut()).then(done);
+    } else { done(); }
+    return;
+  }
+  panel.classList.add('show');
   // 打开设置面板时顺带刷新 MCP 服务器列表（纯本地读取，零网络；失败已在 loadMcpServers 内 toast）
   try { loadMcpServers(); } catch (e) {}
   // 修复 UX-4（v1.4）：设置浮层打开时构建锚点导航（DOM 已就绪；每次打开重建保持幂等）
-  try { if (panel.classList.contains('show')) buildSetNav(); } catch (e) {}
+  try { buildSetNav(); } catch (e) {}
 }
 function toggleSidebar() { document.getElementById('sidebar').classList.toggle('collapsed'); }

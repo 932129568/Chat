@@ -127,6 +127,10 @@ const __doc = {
     if (!el) { const n = __mkEl('#' + id); n.id = id; __byId[id] = n; }   // 桩须带 id（modalRoot 计数依赖）
     return __byId[id]; },
   createElement: function(t){ return __mkEl(t); },
+  // 桩保真（2026-10-18）：真实 document 恒有 addEventListener/removeEventListener；
+  // 原桩缺失，导致「模块顶层挂 document.addEventListener」的合法代码在单模块沙箱里崩。
+  addEventListener: function(){},
+  removeEventListener: function(){},
 };
 function __ctx(extra) {
   const sand = Object.assign({

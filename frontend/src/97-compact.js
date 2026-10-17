@@ -130,8 +130,18 @@ async function compactNow(s, apiKey, opts = {}) {
     const _cmpModel = _glm ? 'glm-5.3-flash' : (providerState.model || 'glm-5.3-flash');
     const _cmpBody = {
       model: _cmpModel, max_tokens: 600,
+      // 修复 HF-1（v1.6）排查记录：压缩请求当前只发一条 user（无 system），
+      // 形态上不可能触发 Qwen 模板的 500；归一化在下方以 typeof 守卫接线（未来防呆）。
       messages: [{ role: 'user', content: '把以下人机协作历史压缩成 ≤200 字工作纪要，必须保留: 任务目标、涉及文件路径、已做改动、未完成事项、关键结论。直接输出: \n\n' + dump }]
     };
+    // 修复 HF-1（v1.6 收口，QA 复验建议）：未来防呆——若压缩提示词哪天改成
+    // [system 摘要规范, user 历史]，本地 Ollama/Qwen 会立刻 500（system 必须在最前且只一条）。
+    // 用 typeof 守卫接线：正常构建（41 模块同一 <script>）时归一化生效；
+    // node vm 单模块沙箱只加载本文件、函数未定义时 typeof 不抛 ReferenceError，自动跳过，
+    // 既有单模块沙箱用例（test_s21 / test_backup_and_restore）不受影响。
+    if (typeof normalizeSystemMessages === 'function') {
+      _cmpBody.messages = normalizeSystemMessages(_cmpBody.messages);
+    }
     if (_glm) _cmpBody.thinking = { type: 'disabled' };
     const resp = await fetch(resolveApiEndpoint(), { method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + apiKey },

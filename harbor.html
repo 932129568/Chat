@@ -336,7 +336,8 @@ body.dark .eff-tag-s{background:var(--ok-bg);color:var(--ok);}
 .cs-opt{padding:7px 10px;border-radius:var(--radius-sm);cursor:pointer;font-size:13px;color:var(--text);
   overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .cs-opt:hover{background:var(--hover);}
-.cs-opt.on{background:var(--primary-soft);color:var(--primary);font-weight:600;}
+.cs-opt.on{background:var(--primary-soft);color:var(--primary);}
+/* v4：去掉 font-weight:600——选中项加粗会改变文本度量，切换选择时选项宽度跳变 */
 /* 会话列表（现位于「会话」面板） */
 .section-label{padding:12px 16px 6px;font-size:11px;font-weight:600;color:var(--text-3);
   letter-spacing:.06em;text-transform:uppercase;display:flex;align-items:center;gap:6px;}
@@ -356,19 +357,22 @@ body.dark .eff-tag-s{background:var(--ok-bg);color:var(--ok);}
 .session-title{font-size:13px;font-weight:500;white-space:nowrap;overflow:hidden;
   text-overflow:ellipsis;padding-right:22px;}
 .session-time{font-size:11px;color:var(--text-3);margin-top:1px;font-family:var(--font-mono);}
-.session-del{position:absolute;top:50%;right:8px;transform:translateY(-50%);width:20px;height:20px;
-  border:none;background:transparent;cursor:pointer;color:var(--text-3);border-radius:var(--radius-xs);
-  font-size:12px;display:none;align-items:center;justify-content:center;}
-.session-item:hover .session-del{display:flex;}
+.session-del{width:20px;height:20px;border:none;background:transparent;cursor:pointer;color:var(--text-3);border-radius:var(--radius-xs);
+  font-size:12px;display:flex;align-items:center;justify-content:center;flex-shrink:0;}
+/* ===== 修复悬停错位浮动：session-acts 由 display:none→flex 弹跳改为常驻+opacity 淡入
+   （display 切换与 position:absolute→static 跳变都会引发布局位移/一帧错位）===== */
+.session-acts{position:absolute;top:50%;right:8px;transform:translateY(-50%);display:inline-flex;gap:2px;
+  opacity:0;pointer-events:none;
+  transition:opacity var(--dur-micro) var(--ease-out-soft);}
+.session-item:hover .session-acts{opacity:1;pointer-events:auto;}
 .session-del:hover{color:var(--err);background:var(--err-bg);}
 /* ===== 修复 F1（v1.4）：会话导出按钮（纯新增）===== */
 .session-acts{position:absolute;top:50%;right:8px;transform:translateY(-50%);display:none;gap:2px;}
 .session-item:hover .session-acts{display:inline-flex;}
 .session-exp{width:20px;height:20px;border:none;background:transparent;cursor:pointer;
   color:var(--text-3);border-radius:var(--radius-xs);font-size:12px;display:flex;
-  align-items:center;justify-content:center;}
+  align-items:center;justify-content:center;flex-shrink:0;}
 .session-exp:hover{color:var(--primary);background:var(--primary-soft);}
-.session-item:hover .session-del{position:static;transform:none;}
 .sidebar-empty{padding:36px 12px;text-align:center;color:var(--text-3);font-size:12px;}
 .token-stat{font-size:11px;color:var(--text-2);padding:9px 14px;border-top:1px solid var(--border);
   font-family:var(--font-mono);font-variant-numeric:tabular-nums;line-height:1.5;
@@ -413,17 +417,26 @@ body.dark .eff-tag-s{background:var(--ok-bg);color:var(--ok);}
 .panel-scroll{flex:1;overflow-y:auto;padding:var(--panel-gap) var(--panel-pad) 24px;
   display:flex;flex-direction:column;gap:var(--panel-gap);}
 /* ===== 设置面板 ===== */
-.settings-panel{background:linear-gradient(var(--glass-bg),var(--glass-bg)),var(--glass-fallback);
+/* v4 重设计：由「文档流内挤压聊天区」改为「覆盖层」——打开不再推挤输入框，
+   聊天原样停在后面；开=下滑淡入，关=上滑淡出（.hiding 走 v4SetOut） */
+.panel{position:relative;}
+.settings-panel{position:absolute;inset:0;z-index:400;
+  background:linear-gradient(var(--glass-bg),var(--glass-bg)),var(--glass-fallback);
   backdrop-filter:blur(var(--glass-blur));-webkit-backdrop-filter:blur(var(--glass-blur));
-  border-bottom:1px solid var(--border);padding:18px 22px;
-  display:none;max-height:56vh;overflow-y:auto;flex-shrink:0;}
+  padding:18px 26px 32px;
+  display:none;overflow-y:auto;}
 .settings-panel.show{display:block;animation:v4SetIn var(--dur-comp) var(--ease-out-soft);}
 @keyframes v4SetIn{from{opacity:0;transform:translateY(calc(-1*var(--shift-comp)))}to{opacity:1;transform:none}}
 .settings-panel.show.hiding{animation:v4SetOut var(--dur-comp-out) var(--ease-in-soft) forwards;}
 @keyframes v4SetOut{from{opacity:1;transform:none}to{opacity:0;transform:translateY(calc(-1*var(--shift-comp)))}}
-.set-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(290px,1fr));gap:16px;
-  max-width:var(--content-w);margin:0 auto;}
-.set-block{background:transparent;border:none;padding:0;}
+/* v4 布局精致化：更宽的内容列（原 290px 窄列拥挤割裂）→ 340px 起步、间距 18 */
+.set-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:18px;
+  max-width:1040px;margin:0 auto;}
+/* v4：set-block 改卡片式（原透明无边界堆叠=割裂感来源） */
+.set-block{background:var(--card-bg);border:1px solid var(--border);border-radius:var(--radius-lg);
+  padding:16px 18px;box-shadow:var(--shadow-sm);}
+/* 连接块是主块：横跨全宽 */
+.cm-block{grid-column:1/-1;}
 /* ===== 修复 UX-4（v1.4）：设置锚点导航（DOM/CSS 纯新增）===== */
 .set-nav{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px;position:sticky;top:0;
   z-index:5;padding:8px 0;background:var(--header-bg);backdrop-filter:blur(10px);
@@ -530,6 +543,45 @@ body.dark .md-body :not(pre)>code{background:var(--chip-bg);color:#f87171;}
   background:var(--surface-2);border:1px solid var(--border-strong);border-radius:var(--radius-sm);
   cursor:pointer;font-family:inherit;}
 .copy-btn:hover{color:var(--primary);border-color:var(--primary);background:var(--primary-soft);}
+/* ===== v4 消息操作条：悬停对话框时下方弹出（opacity+translateY pop，不占布局）===== */
+.msg-actions{margin-top:8px;display:flex;gap:6px;opacity:0;transform:translateY(4px);
+  transition:opacity var(--dur-micro) var(--ease-out-soft),transform var(--dur-micro) var(--ease-out-soft);}
+.message:hover .msg-actions,.message:focus-within .msg-actions{opacity:1;transform:none;}
+/* 触屏/窄屏无悬停：点消息也能唤出（JS 打 .acting 类） */
+.message.acting .msg-actions{opacity:1;transform:none;}
+/* ===== v4 工作区快捷条（对话框旁直管文件夹；从设置面板搬出）===== */
+.ws-quick{position:relative;display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap;}
+.wsq-main{display:inline-flex;align-items:center;gap:7px;max-width:100%;
+  padding:5px 11px;border:1px solid var(--border);border-radius:var(--radius-full);
+  background:var(--surface-2);color:var(--text-2);font-size:12px;font-family:inherit;cursor:pointer;
+  transition:background-color var(--dur-micro) var(--ease-out-soft),color var(--dur-micro) var(--ease-out-soft),border-color var(--dur-micro) var(--ease-out-soft);}
+.wsq-main svg{width:13px;height:13px;flex-shrink:0;}
+.wsq-main:hover{background:var(--hover);color:var(--text);border-color:var(--border-strong);}
+.wsq-name{max-width:230px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.wsq-caret{font-size:9px;color:var(--text-3);}
+.wsq-chip{font-size:11px;padding:2px 9px;border-radius:var(--radius-full);background:var(--chip-bg);color:var(--text-2);white-space:nowrap;}
+.wsq-ind{display:inline-flex;align-items:center;gap:5px;font-size:11px;color:var(--text-2);cursor:pointer;white-space:nowrap;}
+.wsq-ind input{width:13px;height:13px;accent-color:var(--primary);cursor:pointer;}
+.wsq-menu{position:absolute;bottom:calc(100% + 6px);left:0;min-width:300px;max-width:min(430px,92vw);
+  background:linear-gradient(var(--glass-bg-2),var(--glass-bg-2)),var(--glass-fallback);
+  backdrop-filter:blur(var(--glass-blur));-webkit-backdrop-filter:blur(var(--glass-blur));
+  border:1px solid var(--glass-border);border-radius:var(--radius-lg);box-shadow:var(--shadow-lg);
+  padding:10px;z-index:450;display:none;}
+.wsq-menu.show{display:block;transform-origin:bottom left;animation:v4WsqIn var(--dur-comp) var(--ease-out-soft);}
+.wsq-menu.show.hiding{animation:v4WsqOut var(--dur-comp-out) var(--ease-in-soft) forwards;}
+@keyframes v4WsqIn{from{opacity:0;transform:translateY(6px) scale(.98)}to{opacity:1;transform:none}}
+@keyframes v4WsqOut{from{opacity:1;transform:none}to{opacity:0;transform:translateY(6px) scale(.98)}}
+.wsq-menu-head{font-size:11px;font-weight:600;color:var(--text-3);letter-spacing:.04em;padding:2px 4px 6px;}
+.wsq-list{display:flex;flex-direction:column;gap:2px;max-height:220px;overflow-y:auto;}
+.wsq-opt{display:flex;align-items:center;gap:8px;padding:7px 9px;border-radius:var(--radius-sm);cursor:pointer;
+  font-size:12.5px;color:var(--text);
+  transition:background-color var(--dur-micro) var(--ease-out-soft);}
+.wsq-opt:hover{background:var(--hover);}
+.wsq-opt.on{background:var(--primary-soft);color:var(--primary);}
+.wsq-opt .p{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:var(--font-mono);font-size:11.5px;}
+.wsq-opt .tag{font-size:10px;color:var(--text-3);flex-shrink:0;}
+.wsq-menu-row{display:flex;gap:6px;margin-top:8px;padding-top:8px;border-top:1px solid var(--border);flex-wrap:wrap;}
+.wsq-eff{margin-top:8px;}
 .stop-note{font-size:11px;color:var(--text-3);margin-top:6px;}
 .typing-dots{display:inline-flex;gap:4px;align-items:center;padding:4px 0;}
 .typing-dots span{width:6px;height:6px;border-radius:50%;background:var(--text-3);animation:bounce 1.2s infinite;}
@@ -1216,7 +1268,7 @@ body.fx-off .panel,body.fx-off .message,body.fx-off .settings-panel.show{animati
       <div class="chat-container" id="chatContainer">
         <div class="empty-state" id="emptyState">
           <div class="empty-icon">✦</div>
-          <h2>开始和 GLM 聊天</h2>
+          <h2>开始和 Harbor 聊天</h2>
           <p>支持文字、图片、视频、文本文件 · 历史记录自动保存</p>
         </div>
       </div>
@@ -1224,6 +1276,28 @@ body.fx-off .panel,body.fx-off .message,body.fx-off .settings-panel.show{animati
       <div class="input-area">
         <div class="input-inner">
           <div class="attach-preview" id="attachPreview"></div>
+          <!-- v4 工作区快捷条：文件夹设置从设置/工作区面板搬到对话框旁，免每对话进设置修改 -->
+          <div class="ws-quick" id="wsQuick">
+            <button type="button" class="wsq-main" id="wsqMain" onclick="wsQuickToggle()" title="工作区文件夹（点开即切）">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2.5h8a2 2 0 0 1 2 2V17a2 2 0 0 1-2 2H5a2 2 0 0 1-2 2z"/></svg>
+              <span class="wsq-name" id="wsqName">未启用工作区</span>
+              <span class="wsq-caret">▾</span>
+            </button>
+            <span class="wsq-chip" id="wsqToolChip" title="工具权限（改这里只影响下一回合）">完整</span>
+            <label class="wsq-ind" id="wsqIndWrap" style="display:none" title="本会话独立绑定不同目录">
+              <input type="checkbox" id="wsqInd" onchange="wsQuickInd(this.checked)">本会话独立
+            </label>
+            <div class="wsq-menu" id="wsqMenu">
+              <div class="wsq-menu-head">工作区文件夹</div>
+              <div class="wsq-list" id="wsqList"></div>
+              <div class="wsq-menu-row">
+                <button type="button" class="ws-btn" onclick="wsQuickBrowse()">📁 浏览…</button>
+                <button type="button" class="ws-btn" id="wsqUnbind" style="display:none" onclick="wsQuickUnbind()">↩ 跟随全局</button>
+                <button type="button" class="ws-btn" id="wsqEnable" onclick="wsQuickEnable()">启用工作区</button>
+              </div>
+              <div class="eff-row wsq-eff"><span class="eff-tag" id="wsqEffTag">未启用</span><span id="wsqEffPath"></span></div>
+            </div>
+          </div>
           <div class="input-row">
             <button class="tool-btn" title="添加图片" onclick="document.getElementById('imgInput').click()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg></button>
             <button class="tool-btn" title="添加视频" onclick="document.getElementById('vidInput').click()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="14" height="14" rx="2"/><path d="M16 10l6-3v10l-6-3z"/></svg></button>
@@ -1233,7 +1307,7 @@ body.fx-off .panel,body.fx-off .message,body.fx-off .settings-panel.show{animati
             <input type="file" id="vidInput" accept="video/*" hidden>
             <input type="file" id="fileInput" multiple hidden>
             <input type="file" id="zipInput" accept=".zip" multiple hidden>
-            <textarea id="userInput" rows="1" placeholder="给 GLM 发消息…"></textarea>
+            <textarea id="userInput" rows="1" placeholder="给 Harbor 发消息…"></textarea>
             <button class="send-btn" id="sendBtn" onclick="sendMessage()">➤</button>
           </div>
           <div class="hint">
@@ -3016,6 +3090,51 @@ function shrinkHistoryForApi(msgs) {
 }
 
 /**
+ * 系统消息归一化（v1.6 修复：Ollama + Qwen 系 chat template 的
+ * 「Jinja Exception: System message must be at the beginning」HTTP 500）。
+ *
+ * 背景：首轮会话会把【工作日志】以 role='system' **追加到历史末尾**（100-send.js），
+ * 而主请求在前面又塞了一条 system 系统提示词（60-agent-loop.js），
+ * 于是发给本地模型的 messages 形如 [system, user, system]；Qwen 的 Jinja 模板要求
+ * 所有 system 必须在数组最前、且通常只允许一条，直接 raise → 500。
+ *
+ * 规则（普适正确，不区分端点）：
+ * - 收集所有 role==='system' 的消息，按原有相对顺序用 '\n\n' 拼成**一条**放到数组最前；
+ * - 其余消息保持原相对顺序；
+ * - 0/1 条 system：原样返回**入参数组引用**（零行为变化，不影响既有调用方的引用语义）；
+ * - 空白/纯空白的 system 内容跳过，不产生空 system 消息。
+ *
+ * 幂等：对已归一化的数组再次调用结果等价（不会重复拼接）。
+ *
+ * @param {Array<Object>} msgs 待发送消息数组（函数不修改入参）
+ * @return {Array<Object>} 归一化后的消息数组（>1 条 system 时为新数组，否则为入参本身）
+ */
+function normalizeSystemMessages(msgs) {
+  if (!Array.isArray(msgs)) return msgs;
+  const sysParts = [];
+  const rest = [];
+  let sysCount = 0;
+  let firstSys = null;   // 保留首条 system 的非 content 附加字段（如 usage/id），合并后不丢元数据
+  for (let i = 0; i < msgs.length; i++) {
+    const m = msgs[i];
+    if (!m || m.role !== 'system') { rest.push(m); continue; }
+    sysCount++;
+    if (!firstSys) firstSys = m;
+    // content 可能是字符串，也可能是多模态 part 数组（provider 兼容写法）：取文本部分拼接
+    let text = '';
+    if (typeof m.content === 'string') text = m.content;
+    else if (Array.isArray(m.content)) {
+      text = m.content.map(p => (p && typeof p.text === 'string') ? p.text : '').filter(Boolean).join('\n');
+    }
+    if (text && text.trim()) sysParts.push(text);   // 空白 system 直接丢弃（不产生空 system）
+  }
+  if (sysCount <= 1) return msgs;                   // 零行为变化：0/1 条 system 不重排不复制
+  if (sysParts.length === 0) return rest;           // 只有空白 system：整条丢弃，不留空壳
+  const merged = Object.assign({}, firstSys, { role: 'system', content: sysParts.join('\n\n') });
+  return [merged, ...rest];
+}
+
+/**
  * 修复 UX-1（v1.4）：发送副本瘦身透明化——与 shrinkHistoryForApi 同口径计算哪些消息
  * 在发送副本里会被瘦身，在对应消息元素（data-midx）上打弱化标记，
  * hover 显示摘要开头。AI 实际收到的与 UI 展示的差异从此可见（「AI 忘了」困惑的对冲）。
@@ -4667,6 +4786,157 @@ async function webdavRestoreNow() {
   }
 }
 
+/* ===== 38-ws-quick.js ===== */
+/* ================= v4 工作区快捷条（对话框旁直管文件夹） =================
+ * 背景：文件夹设置原埋在「更多设置/工作区面板」，每对话要单独点开修改（用户痛点）。
+ * 本模块把常用控件搬到输入区上方：当前文件夹一键可见、点开即切、本会话独立即改。
+ *
+ * 设计原则：单一事实源——快捷条是「遥控器」，全部委托既有处理函数
+ * （80-utils.js 的 onWsSelect/onFolderEnabled/onIndToggle/browseWs/unbindSession），
+ * 自身不复制工作区逻辑，行为与面板完全一致。
+ *
+ * 接口复用（无新增 js_api，全部既有）：
+ *   get_ws_state(sid)          → {ws, bound, enabled, recent[]}
+ *   get_effective_ws()         → {sid, ws, source, exists}
+ *   list_recent_ws()           → [{path, name, ts}]
+ *   set_ws_dir(path)           → 切全局目录
+ *   set_session_ws(sid,path,enabled) → 切/绑本会话目录
+ *   set_ws_enabled(sid,enabled)→ 工作区总开关
+ *   get_session_ws(sid) / delete_session_ws(sid)
+ *   pick_folder(sid)           → 系统目录选择器
+ */
+let _wsqOpen = false;
+
+function wsQuickMenu() { return document.getElementById('wsqMenu'); }
+
+function wsQuickToggle() {
+  const menu = wsQuickMenu();
+  if (!menu) return;
+  if (_wsqOpen) { wsQuickClose(); return; }
+  wsQuickRefresh();
+  menu.classList.remove('hiding');
+  void menu.offsetWidth;               // 重入场从头播放
+  menu.classList.add('show');
+  _wsqOpen = true;
+}
+async function wsQuickClose() {
+  const menu = wsQuickMenu();
+  _wsqOpen = false;
+  if (!menu || !menu.classList.contains('show')) return;
+  if (menu.classList.contains('hiding')) return;
+  menu.classList.add('hiding');
+  const done = () => { try { menu.classList.remove('show', 'hiding'); } catch (e) {} };
+  if (typeof MOTION !== 'undefined' && !MOTION.instant()) {
+    MOTION.onAnimEnd(menu, 'animationend', MOTION.compOut()).then(done);
+  } else { done(); }
+}
+/* 外部点击/ Esc 关闭（与自定义下拉一致的交互惯例） */
+document.addEventListener('click', (e) => {
+  if (!_wsqOpen) return;
+  if (e.target && e.target.closest && e.target.closest('#wsQuick')) return;
+  wsQuickClose();
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && _wsqOpen) wsQuickClose();
+});
+
+/** 刷新快捷条状态（boot / 任何工作区变化后调用）。 */
+async function wsQuickRefresh() {
+  const nameEl = document.getElementById('wsqName');
+  if (!nameEl) return;
+  let st = { ws: '', bound: false, enabled: true, recent: [] };
+  try { st = Object.assign(st, JSON.parse(await callApi('get_ws_state', [currentSessionId])) || {}); } catch (e) {}
+  const on = !!st.enabled && !!st.ws;
+  nameEl.textContent = on ? wsShort(st.ws, 3) : '未启用工作区';
+  nameEl.title = on ? st.ws : '点此启用并选择工作区文件夹';
+  /* 工具权限 chip（读设置里的 toolMode，单一事实源） */
+  const chip = document.getElementById('wsqToolChip');
+  const tm = document.getElementById('toolMode');
+  if (chip && tm) chip.textContent = tm.value === 'readonly' ? '只读' : tm.value === 'off' ? '纯聊天' : '完整';
+  /* 本会话独立勾选 */
+  const indWrap = document.getElementById('wsqIndWrap');
+  const ind = document.getElementById('wsqInd');
+  if (indWrap) indWrap.style.display = st.enabled ? '' : 'none';
+  if (ind) ind.checked = !!st.bound;
+  /* 跟随全局 / 启用按钮 */
+  const unbind = document.getElementById('wsqUnbind');
+  const enable = document.getElementById('wsqEnable');
+  if (unbind) unbind.style.display = st.bound ? '' : 'none';
+  if (enable) enable.style.display = st.enabled ? 'none' : '';
+  /* 生效信息行 */
+  const effTag = document.getElementById('wsqEffTag');
+  const effPath = document.getElementById('wsqEffPath');
+  if (effTag && effPath) {
+    try {
+      const eff = JSON.parse(await callApi('get_effective_ws', []) || '{}');
+      effTag.textContent = eff.source === 'session' ? '会话' : eff.source === 'global' ? '全局' : '未启用';
+      effPath.textContent = eff.ws || '（未绑定）';
+    } catch (e) {}
+  }
+  /* 文件夹列表：当前 + 最近 */
+  const list = document.getElementById('wsqList');
+  if (list) {
+    list.innerHTML = '';
+    const seen = new Set();
+    const mk = (p, label, tag, isOn) => {
+      const d = document.createElement('div');
+      d.className = 'wsq-opt' + (isOn ? ' on' : '');
+      d.innerHTML = '<span class="p"></span><span class="tag"></span>';
+      d.children[0].textContent = label;
+      d.children[1].textContent = tag || '';
+      d.title = p;
+      d.onclick = () => wsQuickPick(p);
+      list.appendChild(d);
+    };
+    if (st.ws) { mk(st.ws, wsShort(st.ws, 3), '当前', true); seen.add(st.ws); }
+    (st.recent || []).forEach(r => {
+      if (r.path && !seen.has(r.path)) {
+        mk(r.path, r.name || wsShort(r.path, 3), '最近'); seen.add(r.path);
+      }
+    });
+    if (!list.children.length) {
+      const empty = document.createElement('div');
+      empty.className = 'wsq-opt';
+      empty.style.cursor = 'default';
+      empty.textContent = '暂无最近文件夹，点「浏览…」选择';
+      list.appendChild(empty);
+    }
+  }
+}
+
+/** 选文件夹 → 委托 onWsSelect（面板同款逻辑：本会话独立/全局自动分流）。 */
+async function wsQuickPick(p) {
+  if (!p) return;
+  const sel = document.getElementById('wsSel');
+  if (sel) sel.value = p;               // 同步面板下拉（单一事实源）
+  await onWsSelect(p);
+  wsQuickRefresh();
+}
+/** 本会话独立勾选 → 委托 onIndToggle。 */
+async function wsQuickInd(on) {
+  const wsInd = document.getElementById('wsInd');
+  if (wsInd) wsInd.checked = on;        // 同步面板勾选
+  await onIndToggle(on);
+  wsQuickRefresh();
+}
+/** 启用工作区（未启用态显示）→ 委托 onFolderEnabled。 */
+async function wsQuickEnable() {
+  const wsEnabled = document.getElementById('wsEnabled');
+  if (wsEnabled) wsEnabled.checked = true;
+  await onFolderEnabled(true);
+  wsQuickRefresh();
+}
+/** 浏览… → 委托 browseWs（面板同款系统选择器）。 */
+async function wsQuickBrowse() {
+  await browseWs();
+  wsQuickRefresh();
+}
+/** 跟随全局 → 委托 unbindSession。 */
+async function wsQuickUnbind() {
+  await unbindSession();
+  wsQuickRefresh();
+}
+
 /* ===== 40-auto-compact.js ===== */
 /* ================= A6 自动 compact ================= */
 
@@ -4788,6 +5058,13 @@ async function fetchGLMStream(payload, signal) {
   // 修复 B4（v1.5）：local 模式 503「model is loading」按后端口径指数退避
   // [2,4,8]s（上限 120s 总等待），期间 loading 态由 60-agent-loop 的等待计时器呈现；
   // 非 local 保持原重试策略（429/5xx 一次）。
+  // 修复 HF-1（v1.6）：所有流式请求的最后一道闸——messages 里多 system（如末尾追加的
+  // 【工作日志】）会被 Qwen/Ollama Jinja 模板拒绝（500 System message must be at the
+  // beginning），此处统一归一化。幂等：已归一化的数组原样返回，不产生二次拼接。
+  const _body = payload.body || payload;
+  if (_body && Array.isArray(_body.messages)) {
+    _body.messages = normalizeSystemMessages(_body.messages);
+  }
   const _isLocal = (typeof localState !== 'undefined' && localState.mode);
   const _sleepAbortable = (ms) => sleep(ms, signal);
   let attempt = 0;
@@ -4923,10 +5200,16 @@ function fillErrorBubble(el, text) {
     el.textContent = txt;
   }
 }
+/* v4：触屏/无悬停设备——点消息唤出操作条（.acting），点其他消息或空白处收起 */
+document.addEventListener('click', (e) => {
+  const msg = (e.target && e.target.closest) ? e.target.closest('.message') : null;
+  document.querySelectorAll('.message.acting').forEach(m => { if (m !== msg) m.classList.remove('acting'); });
+  if (msg && !(e.target.closest && e.target.closest('.msg-actions'))) msg.classList.add('acting');
+});
 function addMsgActions(contentEl, text, onlyCopy) {
   if (!contentEl || !text) return;
   const bar = document.createElement('div');
-  bar.style.cssText = 'margin-top:8px;display:flex;gap:6px;';
+  bar.className = 'msg-actions';   // v4：悬停弹出条（CSS 控制显隐）
   const mk = (label, fn) => {
     const b = document.createElement('button');
     b.className = 'copy-btn'; b.textContent = label;
@@ -5183,7 +5466,11 @@ async function runAgentLoop(s, apiKey) {
         const beSys = await callApi('build_system_prompt', []);
         sysContent = EFFICIENCY_PROMPT + '\n\n' + (beSys ? JSON.parse(beSys) : '') + (sysPrompt ? '\n\n用户附加: ' + sysPrompt : '');
       } catch (e) { /* 系统提示词失败用前端默认 */ }
-      const reqMsgs = [{ role: 'system', content: sysContent }, ...slimMsgs];
+      // 修复 HF-1（v1.6）：system 归一化——历史里可能有末尾追加的【工作日志】system
+      // （100-send.js），直接拼 [system, ...slimMsgs] 会得到 [system, user, system]，
+      // Qwen/Ollama 的 Jinja 模板直接 raise「System message must be at the beginning」→ 500。
+      // 归一化把所有 system 合并成一条置于最前；只有一条 system 时原样返回（零行为变化）。
+      const reqMsgs = normalizeSystemMessages([{ role: 'system', content: sysContent }, ...slimMsgs]);
       if (pendingShots.length && shotState === 'idle') {
         const shotContent = [{ type: 'text', text: pendingShots.length > 1
           ? `[系统附图] 以下是 ${pendingShots.length} 张屏幕截图(按拍摄顺序),请据此操作。`
@@ -5388,16 +5675,19 @@ async function runAgentLoop(s, apiKey) {
         if (fullContent) {
           mdBody.innerHTML = renderMd(fullContent);
           enhanceCodeBlocks(mdBody);
+          // v4：操作条收进 .msg-actions——悬停对话框时下方弹出（opacity+translateY）
+          const acts = document.createElement('div');
+          acts.className = 'msg-actions';
           const copyBtn = document.createElement('button');
           copyBtn.className = 'copy-btn'; copyBtn.textContent = '⧉ 复制';
           copyBtn.onclick = () => navigator.clipboard.writeText(fullContent).then(() => {
             copyBtn.textContent = '✓ 已复制'; setTimeout(() => copyBtn.textContent = '⧉ 复制', 1500);
           });
-          aiContent.appendChild(copyBtn);
+          acts.appendChild(copyBtn);
           const regenBtn = document.createElement('button');
           regenBtn.className = 'copy-btn'; regenBtn.textContent = '↻ 重新生成';
           regenBtn.onclick = regenerate;
-          aiContent.appendChild(regenBtn);
+          acts.appendChild(regenBtn);
           const favBtn = document.createElement('button');
           favBtn.className = 'copy-btn'; favBtn.textContent = '☆ 收藏';
           favBtn.onclick = async () => {
@@ -5407,7 +5697,8 @@ async function runAgentLoop(s, apiKey) {
             } catch (e) { favBtn.textContent = '✗ 失败'; }
             setTimeout(() => favBtn.textContent = '☆ 收藏', 1500);
           };
-          aiContent.appendChild(favBtn);
+          acts.appendChild(favBtn);
+          aiContent.appendChild(acts);
         }
         if (finishReason === 'length') {
           // 修复 建议㉔（二轮）：length 且带 tool_calls 时参数可能被截断（正则猜参
@@ -5433,7 +5724,8 @@ async function runAgentLoop(s, apiKey) {
                 const contBtn = document.createElement('button');
                 contBtn.className = 'copy-btn'; contBtn.textContent = '▸▸ 继续输出';
                 contBtn.onclick = () => continueLastGeneration(s, apiKey);
-                aiContent.appendChild(contBtn);
+                const cActs = document.createElement('div'); cActs.className = 'msg-actions';
+                cActs.appendChild(contBtn); aiContent.appendChild(cActs);
                 return;
               }
               s.autoResume = 0;   // 修复 建议㉗（二轮）：续跑成功后清零（原只在不续跑的 else 分支清零，自动续跑路径终身累积，第 5 次后本会话再无自动续跑）
@@ -5445,7 +5737,8 @@ async function runAgentLoop(s, apiKey) {
             const contBtn = document.createElement('button');
             contBtn.className = 'copy-btn'; contBtn.textContent = '▸▸ 继续输出';
             contBtn.onclick = () => continueLastGeneration(s, apiKey);
-            aiContent.appendChild(contBtn);
+            const cActs = document.createElement('div'); cActs.className = 'msg-actions';
+            cActs.appendChild(contBtn); aiContent.appendChild(cActs);
           }
         }
         if (!fullContent) mdBody.innerHTML = '';   // 修复 ㉙：空回复不再残留「正在输入」动画
@@ -6694,6 +6987,8 @@ async function refreshWsCard() {
   if (wsEffPath) wsEffPath.textContent = st.ws ? wsShort(st.ws, 3) : '';
   if (wsUnbindBtn) wsUnbindBtn.style.display = st.bound ? '' : 'none';
   refreshEffectiveWs();
+  // v4：同步刷新输入区上方的工作区快捷条（同一数据源，遥控器视图）
+  try { if (typeof wsQuickRefresh === 'function') wsQuickRefresh(); } catch (e) {}
 }
 async function onFolderEnabled(on) {
   await callApi('set_current_sid', [currentSessionId]);
@@ -7370,8 +7665,18 @@ async function compactNow(s, apiKey, opts = {}) {
     const _cmpModel = _glm ? 'glm-5.3-flash' : (providerState.model || 'glm-5.3-flash');
     const _cmpBody = {
       model: _cmpModel, max_tokens: 600,
+      // 修复 HF-1（v1.6）排查记录：压缩请求当前只发一条 user（无 system），
+      // 形态上不可能触发 Qwen 模板的 500；归一化在下方以 typeof 守卫接线（未来防呆）。
       messages: [{ role: 'user', content: '把以下人机协作历史压缩成 ≤200 字工作纪要，必须保留: 任务目标、涉及文件路径、已做改动、未完成事项、关键结论。直接输出: \n\n' + dump }]
     };
+    // 修复 HF-1（v1.6 收口，QA 复验建议）：未来防呆——若压缩提示词哪天改成
+    // [system 摘要规范, user 历史]，本地 Ollama/Qwen 会立刻 500（system 必须在最前且只一条）。
+    // 用 typeof 守卫接线：正常构建（41 模块同一 <script>）时归一化生效；
+    // node vm 单模块沙箱只加载本文件、函数未定义时 typeof 不抛 ReferenceError，自动跳过，
+    // 既有单模块沙箱用例（test_s21 / test_backup_and_restore）不受影响。
+    if (typeof normalizeSystemMessages === 'function') {
+      _cmpBody.messages = normalizeSystemMessages(_cmpBody.messages);
+    }
     if (_glm) _cmpBody.thinking = { type: 'disabled' };
     const resp = await fetch(resolveApiEndpoint(), { method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + apiKey },
@@ -7591,11 +7896,21 @@ function exportChat() {
 }
 function toggleSettings() {
   const panel = document.getElementById('settingsPanel');
-  panel.classList.toggle('show');
+  if (panel.classList.contains('show')) {
+    // v4：关=播退场（v4SetOut 140ms in-soft）再撤 .show——不再生硬瞬消
+    if (panel.classList.contains('hiding')) return;   // 防重入
+    panel.classList.add('hiding');
+    const done = () => { try { panel.classList.remove('show', 'hiding'); } catch (e) {} };
+    if (typeof MOTION !== 'undefined' && !MOTION.instant()) {
+      MOTION.onAnimEnd(panel, 'animationend', MOTION.compOut()).then(done);
+    } else { done(); }
+    return;
+  }
+  panel.classList.add('show');
   // 打开设置面板时顺带刷新 MCP 服务器列表（纯本地读取，零网络；失败已在 loadMcpServers 内 toast）
   try { loadMcpServers(); } catch (e) {}
   // 修复 UX-4（v1.4）：设置浮层打开时构建锚点导航（DOM 已就绪；每次打开重建保持幂等）
-  try { if (panel.classList.contains('show')) buildSetNav(); } catch (e) {}
+  try { buildSetNav(); } catch (e) {}
 }
 function toggleSidebar() { document.getElementById('sidebar').classList.toggle('collapsed'); }
 

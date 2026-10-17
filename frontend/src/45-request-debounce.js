@@ -13,6 +13,13 @@ async function fetchGLMStream(payload, signal) {
   // 修复 B4（v1.5）：local 模式 503「model is loading」按后端口径指数退避
   // [2,4,8]s（上限 120s 总等待），期间 loading 态由 60-agent-loop 的等待计时器呈现；
   // 非 local 保持原重试策略（429/5xx 一次）。
+  // 修复 HF-1（v1.6）：所有流式请求的最后一道闸——messages 里多 system（如末尾追加的
+  // 【工作日志】）会被 Qwen/Ollama Jinja 模板拒绝（500 System message must be at the
+  // beginning），此处统一归一化。幂等：已归一化的数组原样返回，不产生二次拼接。
+  const _body = payload.body || payload;
+  if (_body && Array.isArray(_body.messages)) {
+    _body.messages = normalizeSystemMessages(_body.messages);
+  }
   const _isLocal = (typeof localState !== 'undefined' && localState.mode);
   const _sleepAbortable = (ms) => sleep(ms, signal);
   let attempt = 0;

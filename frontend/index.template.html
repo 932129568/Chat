@@ -336,7 +336,8 @@ body.dark .eff-tag-s{background:var(--ok-bg);color:var(--ok);}
 .cs-opt{padding:7px 10px;border-radius:var(--radius-sm);cursor:pointer;font-size:13px;color:var(--text);
   overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .cs-opt:hover{background:var(--hover);}
-.cs-opt.on{background:var(--primary-soft);color:var(--primary);font-weight:600;}
+.cs-opt.on{background:var(--primary-soft);color:var(--primary);}
+/* v4：去掉 font-weight:600——选中项加粗会改变文本度量，切换选择时选项宽度跳变 */
 /* 会话列表（现位于「会话」面板） */
 .section-label{padding:12px 16px 6px;font-size:11px;font-weight:600;color:var(--text-3);
   letter-spacing:.06em;text-transform:uppercase;display:flex;align-items:center;gap:6px;}
@@ -356,19 +357,22 @@ body.dark .eff-tag-s{background:var(--ok-bg);color:var(--ok);}
 .session-title{font-size:13px;font-weight:500;white-space:nowrap;overflow:hidden;
   text-overflow:ellipsis;padding-right:22px;}
 .session-time{font-size:11px;color:var(--text-3);margin-top:1px;font-family:var(--font-mono);}
-.session-del{position:absolute;top:50%;right:8px;transform:translateY(-50%);width:20px;height:20px;
-  border:none;background:transparent;cursor:pointer;color:var(--text-3);border-radius:var(--radius-xs);
-  font-size:12px;display:none;align-items:center;justify-content:center;}
-.session-item:hover .session-del{display:flex;}
+.session-del{width:20px;height:20px;border:none;background:transparent;cursor:pointer;color:var(--text-3);border-radius:var(--radius-xs);
+  font-size:12px;display:flex;align-items:center;justify-content:center;flex-shrink:0;}
+/* ===== 修复悬停错位浮动：session-acts 由 display:none→flex 弹跳改为常驻+opacity 淡入
+   （display 切换与 position:absolute→static 跳变都会引发布局位移/一帧错位）===== */
+.session-acts{position:absolute;top:50%;right:8px;transform:translateY(-50%);display:inline-flex;gap:2px;
+  opacity:0;pointer-events:none;
+  transition:opacity var(--dur-micro) var(--ease-out-soft);}
+.session-item:hover .session-acts{opacity:1;pointer-events:auto;}
 .session-del:hover{color:var(--err);background:var(--err-bg);}
 /* ===== 修复 F1（v1.4）：会话导出按钮（纯新增）===== */
 .session-acts{position:absolute;top:50%;right:8px;transform:translateY(-50%);display:none;gap:2px;}
 .session-item:hover .session-acts{display:inline-flex;}
 .session-exp{width:20px;height:20px;border:none;background:transparent;cursor:pointer;
   color:var(--text-3);border-radius:var(--radius-xs);font-size:12px;display:flex;
-  align-items:center;justify-content:center;}
+  align-items:center;justify-content:center;flex-shrink:0;}
 .session-exp:hover{color:var(--primary);background:var(--primary-soft);}
-.session-item:hover .session-del{position:static;transform:none;}
 .sidebar-empty{padding:36px 12px;text-align:center;color:var(--text-3);font-size:12px;}
 .token-stat{font-size:11px;color:var(--text-2);padding:9px 14px;border-top:1px solid var(--border);
   font-family:var(--font-mono);font-variant-numeric:tabular-nums;line-height:1.5;
@@ -413,17 +417,26 @@ body.dark .eff-tag-s{background:var(--ok-bg);color:var(--ok);}
 .panel-scroll{flex:1;overflow-y:auto;padding:var(--panel-gap) var(--panel-pad) 24px;
   display:flex;flex-direction:column;gap:var(--panel-gap);}
 /* ===== 设置面板 ===== */
-.settings-panel{background:linear-gradient(var(--glass-bg),var(--glass-bg)),var(--glass-fallback);
+/* v4 重设计：由「文档流内挤压聊天区」改为「覆盖层」——打开不再推挤输入框，
+   聊天原样停在后面；开=下滑淡入，关=上滑淡出（.hiding 走 v4SetOut） */
+.panel{position:relative;}
+.settings-panel{position:absolute;inset:0;z-index:400;
+  background:linear-gradient(var(--glass-bg),var(--glass-bg)),var(--glass-fallback);
   backdrop-filter:blur(var(--glass-blur));-webkit-backdrop-filter:blur(var(--glass-blur));
-  border-bottom:1px solid var(--border);padding:18px 22px;
-  display:none;max-height:56vh;overflow-y:auto;flex-shrink:0;}
+  padding:18px 26px 32px;
+  display:none;overflow-y:auto;}
 .settings-panel.show{display:block;animation:v4SetIn var(--dur-comp) var(--ease-out-soft);}
 @keyframes v4SetIn{from{opacity:0;transform:translateY(calc(-1*var(--shift-comp)))}to{opacity:1;transform:none}}
 .settings-panel.show.hiding{animation:v4SetOut var(--dur-comp-out) var(--ease-in-soft) forwards;}
 @keyframes v4SetOut{from{opacity:1;transform:none}to{opacity:0;transform:translateY(calc(-1*var(--shift-comp)))}}
-.set-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(290px,1fr));gap:16px;
-  max-width:var(--content-w);margin:0 auto;}
-.set-block{background:transparent;border:none;padding:0;}
+/* v4 布局精致化：更宽的内容列（原 290px 窄列拥挤割裂）→ 340px 起步、间距 18 */
+.set-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:18px;
+  max-width:1040px;margin:0 auto;}
+/* v4：set-block 改卡片式（原透明无边界堆叠=割裂感来源） */
+.set-block{background:var(--card-bg);border:1px solid var(--border);border-radius:var(--radius-lg);
+  padding:16px 18px;box-shadow:var(--shadow-sm);}
+/* 连接块是主块：横跨全宽 */
+.cm-block{grid-column:1/-1;}
 /* ===== 修复 UX-4（v1.4）：设置锚点导航（DOM/CSS 纯新增）===== */
 .set-nav{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px;position:sticky;top:0;
   z-index:5;padding:8px 0;background:var(--header-bg);backdrop-filter:blur(10px);
@@ -530,6 +543,45 @@ body.dark .md-body :not(pre)>code{background:var(--chip-bg);color:#f87171;}
   background:var(--surface-2);border:1px solid var(--border-strong);border-radius:var(--radius-sm);
   cursor:pointer;font-family:inherit;}
 .copy-btn:hover{color:var(--primary);border-color:var(--primary);background:var(--primary-soft);}
+/* ===== v4 消息操作条：悬停对话框时下方弹出（opacity+translateY pop，不占布局）===== */
+.msg-actions{margin-top:8px;display:flex;gap:6px;opacity:0;transform:translateY(4px);
+  transition:opacity var(--dur-micro) var(--ease-out-soft),transform var(--dur-micro) var(--ease-out-soft);}
+.message:hover .msg-actions,.message:focus-within .msg-actions{opacity:1;transform:none;}
+/* 触屏/窄屏无悬停：点消息也能唤出（JS 打 .acting 类） */
+.message.acting .msg-actions{opacity:1;transform:none;}
+/* ===== v4 工作区快捷条（对话框旁直管文件夹；从设置面板搬出）===== */
+.ws-quick{position:relative;display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap;}
+.wsq-main{display:inline-flex;align-items:center;gap:7px;max-width:100%;
+  padding:5px 11px;border:1px solid var(--border);border-radius:var(--radius-full);
+  background:var(--surface-2);color:var(--text-2);font-size:12px;font-family:inherit;cursor:pointer;
+  transition:background-color var(--dur-micro) var(--ease-out-soft),color var(--dur-micro) var(--ease-out-soft),border-color var(--dur-micro) var(--ease-out-soft);}
+.wsq-main svg{width:13px;height:13px;flex-shrink:0;}
+.wsq-main:hover{background:var(--hover);color:var(--text);border-color:var(--border-strong);}
+.wsq-name{max-width:230px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.wsq-caret{font-size:9px;color:var(--text-3);}
+.wsq-chip{font-size:11px;padding:2px 9px;border-radius:var(--radius-full);background:var(--chip-bg);color:var(--text-2);white-space:nowrap;}
+.wsq-ind{display:inline-flex;align-items:center;gap:5px;font-size:11px;color:var(--text-2);cursor:pointer;white-space:nowrap;}
+.wsq-ind input{width:13px;height:13px;accent-color:var(--primary);cursor:pointer;}
+.wsq-menu{position:absolute;bottom:calc(100% + 6px);left:0;min-width:300px;max-width:min(430px,92vw);
+  background:linear-gradient(var(--glass-bg-2),var(--glass-bg-2)),var(--glass-fallback);
+  backdrop-filter:blur(var(--glass-blur));-webkit-backdrop-filter:blur(var(--glass-blur));
+  border:1px solid var(--glass-border);border-radius:var(--radius-lg);box-shadow:var(--shadow-lg);
+  padding:10px;z-index:450;display:none;}
+.wsq-menu.show{display:block;transform-origin:bottom left;animation:v4WsqIn var(--dur-comp) var(--ease-out-soft);}
+.wsq-menu.show.hiding{animation:v4WsqOut var(--dur-comp-out) var(--ease-in-soft) forwards;}
+@keyframes v4WsqIn{from{opacity:0;transform:translateY(6px) scale(.98)}to{opacity:1;transform:none}}
+@keyframes v4WsqOut{from{opacity:1;transform:none}to{opacity:0;transform:translateY(6px) scale(.98)}}
+.wsq-menu-head{font-size:11px;font-weight:600;color:var(--text-3);letter-spacing:.04em;padding:2px 4px 6px;}
+.wsq-list{display:flex;flex-direction:column;gap:2px;max-height:220px;overflow-y:auto;}
+.wsq-opt{display:flex;align-items:center;gap:8px;padding:7px 9px;border-radius:var(--radius-sm);cursor:pointer;
+  font-size:12.5px;color:var(--text);
+  transition:background-color var(--dur-micro) var(--ease-out-soft);}
+.wsq-opt:hover{background:var(--hover);}
+.wsq-opt.on{background:var(--primary-soft);color:var(--primary);}
+.wsq-opt .p{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:var(--font-mono);font-size:11.5px;}
+.wsq-opt .tag{font-size:10px;color:var(--text-3);flex-shrink:0;}
+.wsq-menu-row{display:flex;gap:6px;margin-top:8px;padding-top:8px;border-top:1px solid var(--border);flex-wrap:wrap;}
+.wsq-eff{margin-top:8px;}
 .stop-note{font-size:11px;color:var(--text-3);margin-top:6px;}
 .typing-dots{display:inline-flex;gap:4px;align-items:center;padding:4px 0;}
 .typing-dots span{width:6px;height:6px;border-radius:50%;background:var(--text-3);animation:bounce 1.2s infinite;}
@@ -1216,7 +1268,7 @@ body.fx-off .panel,body.fx-off .message,body.fx-off .settings-panel.show{animati
       <div class="chat-container" id="chatContainer">
         <div class="empty-state" id="emptyState">
           <div class="empty-icon">✦</div>
-          <h2>开始和 GLM 聊天</h2>
+          <h2>开始和 Harbor 聊天</h2>
           <p>支持文字、图片、视频、文本文件 · 历史记录自动保存</p>
         </div>
       </div>
@@ -1224,6 +1276,28 @@ body.fx-off .panel,body.fx-off .message,body.fx-off .settings-panel.show{animati
       <div class="input-area">
         <div class="input-inner">
           <div class="attach-preview" id="attachPreview"></div>
+          <!-- v4 工作区快捷条：文件夹设置从设置/工作区面板搬到对话框旁，免每对话进设置修改 -->
+          <div class="ws-quick" id="wsQuick">
+            <button type="button" class="wsq-main" id="wsqMain" onclick="wsQuickToggle()" title="工作区文件夹（点开即切）">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2.5h8a2 2 0 0 1 2 2V17a2 2 0 0 1-2 2H5a2 2 0 0 1-2 2z"/></svg>
+              <span class="wsq-name" id="wsqName">未启用工作区</span>
+              <span class="wsq-caret">▾</span>
+            </button>
+            <span class="wsq-chip" id="wsqToolChip" title="工具权限（改这里只影响下一回合）">完整</span>
+            <label class="wsq-ind" id="wsqIndWrap" style="display:none" title="本会话独立绑定不同目录">
+              <input type="checkbox" id="wsqInd" onchange="wsQuickInd(this.checked)">本会话独立
+            </label>
+            <div class="wsq-menu" id="wsqMenu">
+              <div class="wsq-menu-head">工作区文件夹</div>
+              <div class="wsq-list" id="wsqList"></div>
+              <div class="wsq-menu-row">
+                <button type="button" class="ws-btn" onclick="wsQuickBrowse()">📁 浏览…</button>
+                <button type="button" class="ws-btn" id="wsqUnbind" style="display:none" onclick="wsQuickUnbind()">↩ 跟随全局</button>
+                <button type="button" class="ws-btn" id="wsqEnable" onclick="wsQuickEnable()">启用工作区</button>
+              </div>
+              <div class="eff-row wsq-eff"><span class="eff-tag" id="wsqEffTag">未启用</span><span id="wsqEffPath"></span></div>
+            </div>
+          </div>
           <div class="input-row">
             <button class="tool-btn" title="添加图片" onclick="document.getElementById('imgInput').click()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg></button>
             <button class="tool-btn" title="添加视频" onclick="document.getElementById('vidInput').click()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="14" height="14" rx="2"/><path d="M16 10l6-3v10l-6-3z"/></svg></button>
@@ -1233,7 +1307,7 @@ body.fx-off .panel,body.fx-off .message,body.fx-off .settings-panel.show{animati
             <input type="file" id="vidInput" accept="video/*" hidden>
             <input type="file" id="fileInput" multiple hidden>
             <input type="file" id="zipInput" accept=".zip" multiple hidden>
-            <textarea id="userInput" rows="1" placeholder="给 GLM 发消息…"></textarea>
+            <textarea id="userInput" rows="1" placeholder="给 Harbor 发消息…"></textarea>
             <button class="send-btn" id="sendBtn" onclick="sendMessage()">➤</button>
           </div>
           <div class="hint">

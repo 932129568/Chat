@@ -197,16 +197,19 @@ class TestProbeAndModels:
         assert '未监听' in errs['http://127.0.0.1:1234/v1']
 
     def test_probe_wall_clock_parallel(self, monkeypatch):
-        """A2：四端口并行——单端口 2s 超时下总墙钟 ≤1s 目标（打桩 0.4s 模拟）。"""
+        """A2：四端口并行——用时间跨度重叠证明并行（负载容忍，不押死墙钟）。
+        串行下 4×0.3s 的总跨度 ≈1.2s；并行下 ≈0.3s。"""
+        spans = []
         def router(port):
-            time.sleep(0.4)                       # 每端口 0.4s
+            t0 = time.monotonic()
+            time.sleep(0.3)
+            spans.append((t0, time.monotonic()))
             return _FakeResp(exc=ConnectionRefusedError('refused'))
         _stub_urlopen(monkeypatch, router)
-        t0 = time.monotonic()
         r = lms.probe()
-        elapsed = time.monotonic() - t0
-        assert elapsed < 1.2, '并行探测退化为串行: %.2fs' % elapsed
-        assert r['elapsed_ms'] < 1200
+        assert r['ok'] is True and len(spans) == 4
+        overlap = max(s for _, s in spans) - min(t for t, _ in spans)
+        assert overlap < 0.9, '并行探测退化为串行: 跨度 %.2fs' % overlap
 
     @pytest.mark.parametrize('payload,expected,expect_ok', [
         ({'data': [{'id': 'a'}, {'id': 'b'}]}, ['a', 'b'], True),   # OpenAI 形态
@@ -380,10 +383,13 @@ class TestConcurrencyLimiter:
             ts = [threading.Thread(target=worker) for _ in range(4)]
             for t in ts:
                 t.start()
-            time.sleep(0.15)
+            # 轮询等待排队出现（负载容忍：线程调度延迟不误判）
+            deadline = time.time() + 2
+            while lim.waiting < 1 and time.time() < deadline:
+                time.sleep(0.02)
             assert lim.waiting >= 1          # 有线程在排队（未被拒绝）
             for t in ts:
-                t.join(timeout=3)
+                t.join(timeout=5)
             assert len(results) == 4         # 全部最终通过（排队执行）
 
 

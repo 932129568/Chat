@@ -1014,7 +1014,16 @@ __TOGGLE_SETTINGS__
 
   // 5) 100-send toggleSettings 回归：打开设置刷新 MCP 列表，不破坏既有流程
   let loadCalls = 0;
-  const panel = { classList: { toggle: () => {} } };
+  // 桩保真（2026-10-18）：toggleSettings 已是「开/关」双分支——关闭走 .hiding + MOTION 退场，
+  // 首句就要 classList.contains；原桩只给了空 toggle，真实 DOM 的 classList 恒有
+  // contains/add/remove。这里补成 Set 支撑的忠实实现（不改被测语义，只补桩能力）。
+  const __cls = new Set();
+  const panel = { classList: {
+    contains: (c) => __cls.has(c),
+    add: (...cs) => { cs.forEach(c => __cls.add(c)); },
+    remove: (...cs) => { cs.forEach(c => __cls.delete(c)); },
+    toggle: (c) => { if (__cls.has(c)) { __cls.delete(c); return false; } __cls.add(c); return true; },
+  } };
   const __origDoc = document;
   document = { getElementById: (id) => id === 'settingsPanel' ? panel : __origDoc.getElementById(id) };
   loadMcpServers = async () => { loadCalls++; };

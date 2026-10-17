@@ -33,6 +33,51 @@ function shrinkHistoryForApi(msgs) {
 }
 
 /**
+ * 系统消息归一化（v1.6 修复：Ollama + Qwen 系 chat template 的
+ * 「Jinja Exception: System message must be at the beginning」HTTP 500）。
+ *
+ * 背景：首轮会话会把【工作日志】以 role='system' **追加到历史末尾**（100-send.js），
+ * 而主请求在前面又塞了一条 system 系统提示词（60-agent-loop.js），
+ * 于是发给本地模型的 messages 形如 [system, user, system]；Qwen 的 Jinja 模板要求
+ * 所有 system 必须在数组最前、且通常只允许一条，直接 raise → 500。
+ *
+ * 规则（普适正确，不区分端点）：
+ * - 收集所有 role==='system' 的消息，按原有相对顺序用 '\n\n' 拼成**一条**放到数组最前；
+ * - 其余消息保持原相对顺序；
+ * - 0/1 条 system：原样返回**入参数组引用**（零行为变化，不影响既有调用方的引用语义）；
+ * - 空白/纯空白的 system 内容跳过，不产生空 system 消息。
+ *
+ * 幂等：对已归一化的数组再次调用结果等价（不会重复拼接）。
+ *
+ * @param {Array<Object>} msgs 待发送消息数组（函数不修改入参）
+ * @return {Array<Object>} 归一化后的消息数组（>1 条 system 时为新数组，否则为入参本身）
+ */
+function normalizeSystemMessages(msgs) {
+  if (!Array.isArray(msgs)) return msgs;
+  const sysParts = [];
+  const rest = [];
+  let sysCount = 0;
+  let firstSys = null;   // 保留首条 system 的非 content 附加字段（如 usage/id），合并后不丢元数据
+  for (let i = 0; i < msgs.length; i++) {
+    const m = msgs[i];
+    if (!m || m.role !== 'system') { rest.push(m); continue; }
+    sysCount++;
+    if (!firstSys) firstSys = m;
+    // content 可能是字符串，也可能是多模态 part 数组（provider 兼容写法）：取文本部分拼接
+    let text = '';
+    if (typeof m.content === 'string') text = m.content;
+    else if (Array.isArray(m.content)) {
+      text = m.content.map(p => (p && typeof p.text === 'string') ? p.text : '').filter(Boolean).join('\n');
+    }
+    if (text && text.trim()) sysParts.push(text);   // 空白 system 直接丢弃（不产生空 system）
+  }
+  if (sysCount <= 1) return msgs;                   // 零行为变化：0/1 条 system 不重排不复制
+  if (sysParts.length === 0) return rest;           // 只有空白 system：整条丢弃，不留空壳
+  const merged = Object.assign({}, firstSys, { role: 'system', content: sysParts.join('\n\n') });
+  return [merged, ...rest];
+}
+
+/**
  * 修复 UX-1（v1.4）：发送副本瘦身透明化——与 shrinkHistoryForApi 同口径计算哪些消息
  * 在发送副本里会被瘦身，在对应消息元素（data-midx）上打弱化标记，
  * hover 显示摘要开头。AI 实际收到的与 UI 展示的差异从此可见（「AI 忘了」困惑的对冲）。
