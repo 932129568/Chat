@@ -15,7 +15,14 @@ function buildSetNav() {
   blocks.forEach((blk, i) => {
     const titleEl = blk.querySelector('.set-title');
     const label = titleEl ? titleEl.textContent.trim() : ('分区 ' + (i + 1));
-    if (!blk.id) blk.id = 'setSec' + i;   // 幂等：重复构建不换 id
+    // 修复 56（三轮）：自动编号避开已有 id——原直接 'setSec' + i，若模板/其他脚本
+    // 手写了同名 id（setSec0 等）则文档出现两个同 id 元素，scrollIntoView 与
+    // getElementById 恒命中第一个，导航跳错/高亮错。递增探测至未占用序号。
+    if (!blk.id) {
+      let n = i;
+      while (document.getElementById('setSec' + n)) n++;
+      blk.id = 'setSec' + n;
+    }
     const btn = document.createElement('button');
     btn.className = 'set-nav-btn';
     btn.type = 'button';

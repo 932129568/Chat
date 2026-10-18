@@ -2,8 +2,9 @@
 const CS = { reg: new Map() };
 function initCustomSelect(sel) {
   if (!sel || CS.reg.has(sel)) return;
+  let wrap = null;
   try {
-    const wrap = document.createElement('div'); wrap.className = 'cs';
+    wrap = document.createElement('div'); wrap.className = 'cs';
     const trigger = document.createElement('div'); trigger.className = 'cs-trigger';
     trigger.innerHTML = '<span class="cs-label"></span><span class="cs-arrow">▼</span>';
     const menu = document.createElement('div'); menu.className = 'cs-menu';
@@ -28,7 +29,12 @@ function initCustomSelect(sel) {
     });
     CS.sync(sel);
   } catch (e) {
-    sel.classList.remove('cs-src');   // 兜底:直接用原生 select
+    // 修复 ㊳（三轮）：初始化半态清理——原仅摘 cs-src class，若异常发生在
+    // insertBefore/CS.sync 阶段，已插入的 .cs 包裹层残留 → 原生 select 与
+    // 自定义 UI 双态并存（两个下拉）。兜底摘除包裹层 + 清登记，回退原生 select 单态。
+    try { if (wrap && wrap.parentNode) wrap.parentNode.removeChild(wrap); } catch (e2) {}
+    try { sel.classList.remove('cs-src'); } catch (e2) {}
+    CS.reg.delete(sel);
   }
 }
 CS.sync = function (sel) {

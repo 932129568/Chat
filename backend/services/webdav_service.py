@@ -469,6 +469,12 @@ def restore_backup(payload_json, config_dir, record=None):
             downloaded[rel] = data
         verdict = classify_conflicts(local_sha, remote_sha, baseline_sha)
         plan_out = []
+        # 修复 ⑳（三轮）：恢复计划补 only_local 上行口径——原 plan 只含 only_remote/
+        # conflicts，only_local（本地较基线有改、远端未动）在恢复流程中不会上行，
+        # 计划不可见 → 用户误以为「恢复=全量同步」。显式列入并标注 keep_local
+        # （保留本地、不上传），落盘循环对未知 action 原样不动即双保留语义一致。
+        for p in verdict['only_local']:
+            plan_out.append({'path': p, 'action': 'keep_local'})
         for p in verdict['only_remote']:
             plan_out.append({'path': p, 'action': 'download'})
         for c in verdict['conflicts']:
@@ -502,7 +508,10 @@ def restore_backup(payload_json, config_dir, record=None):
                             'applied': applied}
                 kept.append(target)
             # upload（local_wins）→ 不动本地
+        # 修复 ⑳（三轮）：成功返回同带 plan（含 keep_local 项）——UI 可透明展示
+        # 「哪些保留本地未上行」，恢复≠全量同步的口径对用户可见
         return {'ok': True, 'applied': applied, 'kept_both': kept,
+                'plan': plan_out,
                 'verdict': verdict,
                 'summary': '恢复完成：覆盖 %d，另存 %d，冲突 %d（策略 %s）'
                            % (len(applied), len(kept), len(verdict['conflicts']), policy)}

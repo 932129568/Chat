@@ -85,7 +85,16 @@ function archiveOldTasks(s) {
   const _after = (typeof historyTokens === 'function') ? historyTokens(s.messages) : 0;
   const _bk = saveCompactBackup(s, 'archive', replaced);
   s.messages[0].__archiveCard = { before: _before, after: _after, gen: _bk.gen, truncated: _bk.truncated, count: replaced.length };
-  _liveCompactCard(s, s.messages[0]);   // 修复 UX-1（v1.4）：当前会话显示中则即时挂归档卡片
+  // 修复 ㊵（三轮）：原地 splice 使既有消息元素的 data-midx 全部错位（后续
+  // applyShrinkMarkers 打错弱化标记、会话搜索跳错消息）——当前会话显示中时
+  // 整段重渲染（renderChatHistory 会按 __archiveCard 挂卡片，midx 与新数组对齐）；
+  // 非当前会话（后台）保持原轻量挂卡路径。typeof 守卫保 vm 单模块沙箱可测。
+  if (typeof currentSessionId !== 'undefined' && currentSessionId === s.id
+      && typeof renderChatHistory === 'function') {
+    renderChatHistory(s);
+  } else {
+    _liveCompactCard(s, s.messages[0]);   // 修复 UX-1（v1.4）：当前会话显示中则即时挂归档卡片
+  }
   return true;
 }
 function recallMemory(query, k = 3) {
@@ -164,8 +173,18 @@ async function compactNow(s, apiKey, opts = {}) {
     // 修复 UX-1（v1.4）：单份可恢复备份 + 纪要消息挂卡片数据（renderChatHistory 渲染「恢复原文」）
     const _bk = saveCompactBackup(s, 'compact', _replaced);
     s.messages[0].__compactCard = { before: _before, after: (typeof historyTokens === 'function') ? historyTokens(s.messages) : _before, gen: _bk.gen, truncated: _bk.truncated, count: _replaced.length };
+    // 修复 ㊵（三轮）：s.messages 整组替换后旧 DOM 的 data-midx 全部错位（原仅
+    // _liveCompactCard 在容器尾部追加卡片——位置错且旧气泡/midx 残留）。当前会话
+    // 显示中时整段重渲染（renderChatHistory 按 __compactCard 挂卡片，midx 对齐）；
+    // 后台会话保持轻量挂卡。typeof 守卫保 vm 单模块沙箱可测。
+    if (typeof currentSessionId !== 'undefined' && currentSessionId === s.id
+        && typeof renderChatHistory === 'function') {
+      renderChatHistory(s);
+    } else {
+      _liveCompactCard(s, s.messages[0]);   // 修复 UX-1（v1.4）：当前会话显示中则即时挂压缩卡片
+    }
+    // 重渲染后再追加提示（quietAdd 只进 DOM 不落库，若先 add 会被整段重建抹掉）
     quietAdd(`已压缩 ${dumpSrc.length} 条历史 → 1 份纪要，下轮请求输入将大幅下降。`);
-    _liveCompactCard(s, s.messages[0]);   // 修复 UX-1（v1.4）：当前会话显示中则即时挂压缩卡片
     try { callApi('clear_caches', []).catch(() => {}); } catch (e) {}   // 修复 建议㉕（二轮）：补 rejection 处理（85 已修此处漏）
   } catch (e) {
     if (opts.quiet) { console.warn('自动压缩失败(静默跳过)', e);

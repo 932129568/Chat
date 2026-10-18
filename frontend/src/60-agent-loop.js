@@ -601,10 +601,15 @@ async function runAgentLoop(s, apiKey) {
           }
         } else if (['run_command','run_powershell','run_admin_command','open_app'].includes(tc.name)) {
           // 修复 W9（三轮）：open_app 纳入前端去重（反复弹窗面的前端闸；后端 api.open_app 同步接入）
+          // 修复 ②（三轮）：去重键与 25-tool-exec 的 pickCmd 统一判空口径——空串/空白
+          // cmd 回退 command（原 `args.cmd || args.command || ''` 对空白串 truthy 穿透，
+          // 键与 pickCmd 实际执行值分叉）；两者皆空 → 不登记去重键（空命令由执行层
+          // 拒绝返回人话 error，不占去重窗口误拦后续合法命令）
+          const _dedupCmd = (args.cmd != null) ? String(args.cmd) : '';
           const cmdKey = tc.name === 'open_app'
             ? 'open_app ' + String(args.path || args.file_path || args.filename || args.file || args.target || '')
-            : (args.cmd || args.command || '');
-          const dupTip = cmdDeduper.check(cmdKey);
+            : (_dedupCmd.trim() ? _dedupCmd : String(args.command || ''));
+          const dupTip = cmdKey.trim() ? cmdDeduper.check(cmdKey) : null;
           if (dupTip) {
             result = JSON.stringify({ info: dupTip, skipped: true });
           } else {

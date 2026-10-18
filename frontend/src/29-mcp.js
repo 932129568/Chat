@@ -469,7 +469,8 @@ function mcpOpenImport() {
         return;
       }
       out.style.color = '';
-      out.textContent = '导入 ' + r.total + ' 条：成功 ' + (r.imported || []).length +
+      // 修复 ㊿（三轮）：r.total 无兜底（后端缺字段时原样拼出「导入 undefined 条」）
+      out.textContent = '导入 ' + (r.total || 0) + ' 条：成功 ' + (r.imported || []).length +
         ' 个' + ((r.skipped || []).length
           ? '；跳过 ' + r.skipped.map(s => s.name + '（' + s.reason + '）').join('；')
           : '');

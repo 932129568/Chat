@@ -699,8 +699,11 @@ body.fx-off .input-row:focus-within{box-shadow:0 0 0 3px var(--primary-soft);}
   justify-content:center;}
 .send-btn:hover{background:var(--primary-hover);box-shadow:var(--glow);}
 .send-btn:disabled{opacity:.45;cursor:not-allowed;}
+/* 修复 ㊼（三轮）：.hint 容器本体补防御性声明——min-width:0 已有，此处补
+   overflow/text-overflow/white-space（直接文本子项异常变长时容器自兜底，
+   不依赖子 span 规则一定在场） */
 .hint{font-size:11px;color:var(--text-3);margin-top:8px;display:flex;align-items:center;
-  gap:12px;font-family:var(--font-mono);min-width:0;}
+  gap:12px;font-family:var(--font-mono);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 /* 修复 Bug B（2026-10-18）：hint 行文本子项收缩+省略，不再换行撑高输入区 */
 .hint>span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 #continueNewBtn{margin-left:auto;font-size:11px;color:var(--text-2);background:var(--chip-bg);
