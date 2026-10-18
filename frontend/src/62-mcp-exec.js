@@ -100,7 +100,9 @@ async function mcpGuardCheck(name, args) {
     const t = JSON.parse(await callApi('guard_confirm_token', ['mcp_call', JSON.stringify({ server: p.server, tool: p.tool })]));
     if (t && t.token) token = t.token;
   } catch (e) { /* 旧 exe 无此方法：留空按 legacy 直调（新后端会强制拦截并返回人话错误） */ }
-  if (r.checked) mcpTrusted.add(trustKey);
+  // 修复 S11（三轮）：写侧与读侧对称——local 模式勾选"不再提示"不写入 session 信任
+  // （原无条件写入：读侧排除 local 但持久化后切云端预设会读到，免确认跨端点泄漏）
+  if (r.checked && !_localMode) mcpTrusted.add(trustKey);
   return { blocked: null, decision: r.checked ? 'session-trust' : 'allow', token };
 }
 

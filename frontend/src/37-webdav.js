@@ -94,6 +94,18 @@ async function webdavExportNow() {
 }
 async function webdavRestoreNow() {
   const btn = document.getElementById('webdavRestoreBtn');
+  // 修复 S13（三轮）：数据覆盖级操作补二次确认（config+sessions+audit 全覆盖，
+  // 与项目其他破坏性操作的确认惯例对齐；误点不可逆）
+  const confirmed = await uiConfirm({
+    title: '从备份恢复',
+    body: '将用云端备份覆盖本地配置、会话与审计日志（共 3 项数据），此操作不可撤销。\n确定继续？',
+    danger: true,
+    okText: '确定恢复'
+  });
+  if (!confirmed || !confirmed.ok) {
+    if (btn) { btn.disabled = false; btn.textContent = '从备份恢复'; }
+    return;
+  }
   if (btn) { btn.disabled = true; btn.textContent = '恢复中…'; }
   webdavSetStatus('', true);
   try {

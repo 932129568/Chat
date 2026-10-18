@@ -450,9 +450,9 @@ class McpService:
                         entry['client'] = None
                         self._warm.unregister(srv_name)
                         self._log.info('MCP 服务器空闲超 %ss，已回收子进程', IDLE_TIMEOUT)
-            # 修复 S2：warm 过期条目清理（理论上已被 unregister/关闭覆盖，双保险防泄漏）
-            for server in self._warm.reap():
-                stale = self._warm.pop(server)
+            # 修复 S2：warm 过期条目清理（reap 返回 (server, client) 对，直接 close——原
+            # 「reap 摘除 + 调用方 pop」双保险实际反向：pop 恒 None，永不关闭）
+            for server, stale in self._warm.reap():
                 if stale is not None:
                     try:
                         stale.close()

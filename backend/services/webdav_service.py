@@ -58,6 +58,18 @@ BACKUP_MANIFEST_VERSION = 1
 BACKUP_SCOPE = ('config.json', 'sessions.json', 'audit_log.jsonl')
 
 
+def _webdav_hostname(url):
+    """修复 S7（三轮）：取 URL hostname 小写（无端口）——供 localhost 豁免精确比较。
+    整串子串 'localhost' in url 可被 http://localhost.evil.com 绕过（凭证明文出网）。"""
+    import urllib.parse as _up
+    try:
+        s = str(url or '')
+        u = _up.urlsplit(s if '://' in s else 'http://' + s)
+        return (u.hostname or '').lower()
+    except Exception:
+        return ''
+
+
 def validate_config(cfg):
     """WebDAV 配置校验（只验证不落盘）。返回 (record, error)。"""
     if not isinstance(cfg, dict):
@@ -68,8 +80,9 @@ def validate_config(cfg):
         return None, '缺少 WebDAV 地址'
     if not url.lower().startswith(('http://', 'https://')):
         return None, 'WebDAV 地址需要 http:// 或 https:// 开头'
-    if url.lower().startswith('http://') and 'localhost' not in url \
-            and '127.0.0.1' not in url:
+    # 修复 S7（三轮）：原整串子串 'localhost' in url 可被 http://localhost.evil.com 绕过
+    # （凭证明文出网，4/4 实证）→ hostname 精确比较
+    if url.lower().startswith('http://') and _webdav_hostname(url) not in ('localhost', '127.0.0.1', '::1'):
         return None, 'WebDAV 必须使用 https://（凭证明文出网风险；localhost 除外）'
     if '@' in url:
         return None, '地址内不允许内嵌凭证（user:pass@host），请分开填写账号密码'

@@ -529,7 +529,8 @@ body.dark .md-body :not(pre)>code{background:var(--chip-bg);color:#f87171;}
 .md-body li{margin:3px 0;}
 .md-body blockquote{border-left:2px solid var(--primary);padding:4px 12px;color:var(--text-2);
   margin:8px 0;background:var(--surface-2);border-radius:0 var(--radius-sm) var(--radius-sm) 0;}
-.md-body table{border-collapse:collapse;margin:10px 0;width:100%;font-size:13px;}
+/* 修复 Bug B（2026-10-18）：宽表格横向滚动包裹，不再撑出聊天区 */
+.md-body table{border-collapse:collapse;margin:10px 0;width:100%;font-size:13px;max-width:100%;display:block;overflow-x:auto;}
 .md-body th,.md-body td{border:1px solid var(--border);padding:7px 10px;text-align:left;}
 .md-body th{background:var(--surface-2);font-weight:600;}
 .md-body tr:hover td{background:var(--hover);}
@@ -599,12 +600,14 @@ body.dark .md-body :not(pre)>code{background:var(--chip-bg);color:#f87171;}
 .tool-call-item{background:var(--surface-2);border:1px solid var(--border);border-left:2px solid var(--primary);
   border-radius:var(--radius-sm);margin-top:6px;color:var(--text-2);font-size:12px;font-family:var(--font-mono);
   display:flex;align-items:center;gap:8px;padding:8px 10px;line-height:1.45;
-  position:relative;overflow:hidden;
+  position:relative;overflow:hidden;min-width:0;
   transition:border-color var(--dur-comp) var(--ease-out-soft),
              background-color var(--dur-comp) var(--ease-out-soft),
              color var(--dur-comp) var(--ease-out-soft);
   animation:v4ToolBreathe var(--dur-breathe) ease-in-out infinite;}
 @keyframes v4ToolBreathe{0%,100%{opacity:.88}50%{opacity:1}}
+/* 修复 Bug B（2026-10-18）：flex 子项标签补 min-width:0+ellipsis，长命令/长路径不再被 overflow:hidden 无声裁切 */
+.tool-call-item>span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .tool-call-item .tc-dot{width:7px;height:7px;border-radius:50%;background:var(--primary);flex-shrink:0;
   transition:background-color var(--dur-comp) var(--ease-out-soft);}
 .tool-call-item.done .tc-dot{background:var(--ok);}
@@ -630,6 +633,7 @@ body:not(.fx-off) .tool-call-item:not(.done):not(.fail)::after{content:"";positi
 /* v4 系统提示条：enter v4TipIn 200ms；退场 .out 类驱动（80-utils.js 配合，删内联 opacity .3s） */
 .sys-tip{position:fixed;top:14px;right:14px;z-index:9999;background:var(--text);color:var(--bg);
   padding:9px 15px;border-radius:var(--radius-md);font-size:12.5px;box-shadow:var(--shadow-lg);
+  max-width:calc(100vw - 28px);word-break:break-all;
   animation:v4TipIn var(--dur-comp) var(--ease-out-soft);}
 @keyframes v4TipIn{from{opacity:0;transform:translateY(calc(-1*var(--shift-comp)))}to{opacity:1;transform:none}}
 .sys-tip.out{animation:none;opacity:0;transform:translateY(calc(-1*var(--shift-comp)));
@@ -686,15 +690,19 @@ body.fx-off .input-row:focus-within{box-shadow:0 0 0 3px var(--primary-soft);}
 .icon-btn svg,.pill-btn svg,.tool-btn svg,.ws-btn svg,.ghost-btn svg,.rail-btn svg{
   width:16px;height:16px;flex-shrink:0;display:block;}
 .rail-btn svg{width:20px;height:20px;}
+/* 修复 Bug B（2026-10-18）：输入框显式 overflow/软换行声明，消除对 UA 默认值的隐式依赖 */
 .input-row textarea{flex:1;border:none;background:transparent;font-size:14px;font-family:inherit;
-  padding:8px 6px;resize:none;outline:none;max-height:160px;line-height:1.5;color:var(--text);}
+  padding:8px 6px;resize:none;outline:none;max-height:160px;line-height:1.5;color:var(--text);
+  overflow-y:auto;overflow-wrap:anywhere;}
 .send-btn{width:36px;height:36px;border-radius:var(--radius-md);border:none;background:var(--primary);
   color:#fff;cursor:pointer;font-size:15px;flex-shrink:0;display:flex;align-items:center;
   justify-content:center;}
 .send-btn:hover{background:var(--primary-hover);box-shadow:var(--glow);}
 .send-btn:disabled{opacity:.45;cursor:not-allowed;}
 .hint{font-size:11px;color:var(--text-3);margin-top:8px;display:flex;align-items:center;
-  gap:12px;font-family:var(--font-mono);}
+  gap:12px;font-family:var(--font-mono);min-width:0;}
+/* 修复 Bug B（2026-10-18）：hint 行文本子项收缩+省略，不再换行撑高输入区 */
+.hint>span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 #continueNewBtn{margin-left:auto;font-size:11px;color:var(--text-2);background:var(--chip-bg);
   border:none;padding:4px 10px;border-radius:var(--radius-full);cursor:pointer;
   font-family:inherit;white-space:nowrap;}
@@ -803,20 +811,22 @@ body.fx-off .panel,body.fx-off .message,body.fx-off .settings-panel.show{animati
 /* ============================================================
    v1.2「信任版」新增样式（纯新增：toast / 模态 / 暂停面板 / 更新 pill / 护栏设置）
    ============================================================ */
-#toastBox{position:fixed;right:14px;bottom:14px;z-index:10000;display:flex;flex-direction:column;gap:8px;max-width:min(420px,90vw);}
+/* 修复 Bug B（2026-10-18）：toast 栈封顶 40vh + 纵向滚动，长明细 toast 不再长出视口不可达 */
+#toastBox{position:fixed;right:14px;bottom:14px;z-index:10000;display:flex;flex-direction:column;gap:8px;max-width:min(420px,90vw);max-height:40vh;overflow-y:auto;}
 /* v4 toast：入场 200ms out-soft translateX(8px)；退场 .out 140ms in-soft 镜像 */
 .toast{display:flex;align-items:flex-start;gap:8px;padding:10px 12px;border-radius:var(--radius-md);
   background:var(--card-bg);border:1px solid var(--border);box-shadow:var(--shadow-lg);
-  font-size:12.5px;color:var(--text);animation:v4ToastIn var(--dur-comp) var(--ease-out-soft);word-break:break-all;}
+  font-size:12.5px;color:var(--text);animation:v4ToastIn var(--dur-comp) var(--ease-out-soft);word-break:break-all;
+  max-height:40vh;overflow-y:auto;flex-shrink:0;}
 @keyframes v4ToastIn{from{opacity:0;transform:translateX(var(--shift-toast))}to{opacity:1;transform:none}}
 .toast.out{animation:none;opacity:0;transform:translateX(var(--shift-toast));
   transition:opacity var(--dur-comp-out) var(--ease-in-soft),transform var(--dur-comp-out) var(--ease-in-soft);}
 .toast-ico{flex-shrink:0;width:18px;height:18px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:#fff;}
 .toast-ok .toast-ico{background:var(--ok);} .toast-warn .toast-ico{background:var(--warn);} .toast-err .toast-ico{background:var(--err);} .toast-info .toast-ico{background:var(--primary);}
-.toast-msg{flex:1;line-height:1.5;white-space:pre-wrap;}
+.toast-msg{flex:1;min-width:0;line-height:1.5;white-space:pre-wrap;overflow-wrap:anywhere;}
 .toast-more{flex-shrink:0;border:none;background:transparent;color:var(--primary);font-size:11.5px;cursor:pointer;padding:0;}
 .toast-close{flex-shrink:0;border:none;background:transparent;color:var(--text-3);cursor:pointer;font-size:11px;padding:0 2px;}
-.toast-detail{width:100%;margin-top:6px;padding:8px;background:var(--surface-2);border-radius:var(--radius-sm);font-size:11.5px;color:var(--text-2);white-space:pre-wrap;}
+.toast-detail{width:100%;margin-top:6px;padding:8px;background:var(--surface-2);border-radius:var(--radius-sm);font-size:11.5px;color:var(--text-2);white-space:pre-wrap;max-height:30vh;overflow-y:auto;}
 #modalRoot{position:fixed;inset:0;z-index:10001;}
 .modal-mask{position:absolute;inset:0;background:rgba(16,18,28,.45);backdrop-filter:blur(2px);
   animation:v4MaskIn var(--dur-comp) var(--ease-out-soft);}

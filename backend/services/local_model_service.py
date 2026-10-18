@@ -162,6 +162,17 @@ DEFAULT_COMPACT_LEVEL = 'std'
 GLM_STD_THRESHOLD_REF = 90000
 
 
+def _local_hostname(url):
+    """修复 S7（三轮）：取 URL hostname 小写（无端口）——供 localhost 豁免精确比较。
+    子串匹配 'localhost' in base 可被 http://localhost.evil.com 绕过。"""
+    try:
+        s = str(url or '')
+        u = urllib.parse.urlsplit(s if '://' in s else 'http://' + s)
+        return (u.hostname or '').lower()
+    except Exception:
+        return ''
+
+
 def normalize_base_url(url):
     """归一化 Base URL：去首尾空白与斜杠；空返回 ''。与 provider 服务同口径。"""
     return str(url or '').strip().rstrip('/')
@@ -526,9 +537,10 @@ def validate_local_prefs(cfg):
         base = normalize_base_url(cfg.get('local_base_url'))
         if not base.lower().startswith(('http://', 'https://')):
             return None, 'local_base_url 需要 http:// 或 https:// 开头'
-        # 安全口径：远端 local 端点禁明文（localhost 回环除外，与 S15 一致）
-        if base.lower().startswith('http://') and 'localhost' not in base \
-                and '127.0.0.1' not in base:
+        # 安全口径：远端 local 端点禁明文（仅回环主机名豁免）
+        # 修复 S7（三轮）：原用整串子串 'localhost' in base，可被 http://localhost.evil.com/v1
+        # 之类绕过（4/4 实证）→ 改 hostname 精确比较（子串匹配让 Key 明文出网）
+        if base.lower().startswith('http://') and _local_hostname(base) not in ('localhost', '127.0.0.1', '::1'):
             return None, '非本地的 local 端点必须使用 https://（防 Key 明文出网）'
         record['local_base_url'] = base
     if cfg.get('local_model') is not None and str(cfg.get('local_model')).strip():

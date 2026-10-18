@@ -1,5 +1,18 @@
 /* ================= Agent 主循环 ================= */
 
+/* 修复 S3（三轮）：暂停/中止后把悬挂 tool_calls 配平——assistant.tool_calls 与 tool
+ * 消息必须一一对应，否则会话被毒化、后续每轮 HTTP 400。暂停 break（工具批未跑完）
+ * 与 AbortError 两条路径共用本函数（原只在 AbortError 分支内联处理）。 */
+function fillMissingToolResults(s) {
+  const last = s.messages[s.messages.length - 1];
+  if (last && last.role === 'assistant' && last.tool_calls) {
+    const done = new Set(s.messages.filter(m => m.role === 'tool').map(m => m.tool_call_id));
+    last.tool_calls.forEach(t => {
+      if (!done.has(t.id)) s.messages.push({ role: 'tool', tool_call_id: t.id, content: '（用户已停止，未执行）' });
+    });
+  }
+}
+
 async function runAgentLoop(s, apiKey) {
   isStreaming = true;   // 修复 S20：同步置位移到最前（原在两个 await 之后，快速双发可起双循环）
   // 修复（2026-10-18）：暂停标志。原 abortController.abort() 只中止 fetch 流，
@@ -11,6 +24,7 @@ async function runAgentLoop(s, apiKey) {
   let _localWaitTimer = null;   // 修复 B3（v1.5）：本地首字节等待态计时器（函数级声明，异常路径也要清理）
   try {   // 修复 ㉗：原前 27 行在 try 外，任一 throw 变 unhandled rejection 且 isStreaming 卡死
     try { await callApi('set_current_sid', [currentSessionId]); } catch (e) {}
+    try { await callApi('begin_task', []); } catch (e) {}   // 修复 W2（三轮）：任务开始重置后端命令去重器（前端 deduper 为 per-task，两层生命周期对齐；旧 exe 无此方法静默跳过）
     try { await maybeAutoCompact(s); } catch (e) { console.warn(e); }  // 修复 ㊸：传会话对象（原传合成 {messages}）；压缩失败不中断主流程
     abortController = new AbortController();
     resetCostDefense();   // v1.2 R4：每次任务重置循环/无进展计数
@@ -108,16 +122,62 @@ async function runAgentLoop(s, apiKey) {
     const readFileSet = new Set(s._readKeys || []);   // 会话级持久化已读记录
     const listDirsSet = new Set();
     const cmdDeduper = (() => {
-      const WRITE = ['>', '>>', 'del', 'rmdir', 'rd', 'remove-item', 'mkdir', 'new-item', 'move', 'copy', 'reg', 'setx', 'format', 'taskkill', 'stop-process', 'start-process', 'iex'];
+      // 修复 W4（三轮）：WRITE 动词表与后端 RunDeduper.WRITE_VERBS 全量对齐
+      // （原缺 erase/ri/ni/md/mv 系/cp/regedit/regsvr32/rm 系等 11 个动词，口径分叉）
+      const WRITE_VERBS = new Set(['del', 'erase', 'rmdir', 'rd', 'remove-item', 'ri', 'mkdir', 'md',
+        'new-item', 'ni', 'move', 'move-item', 'copy', 'copy-item', 'cp',
+        'reg', 'regedit', 'regsvr32', 'setx', 'format', 'taskkill',
+        'stop-process', 'start-process', 'iex', 'invoke-expression', 'rm', 'rm-item']);
       let last = null; const recent = new Map(); const MAX = 64;
+      // 修复 W3（三轮）：写命令判定改 token 级匹配（原子串 `includes` 把
+      // `type third.txt`（含 rd）、`chcp 65001`（含 cp）、`findstr guard`（含 rd）误报为写命令）
+      const isWrite = (norm) => {
+        const tokens = norm.replace(/[|&;]/g, ' ').split(' ')
+          .map(t => t.replace(/^["']+|["']+$/g, '').replace(/\^/g, ''))
+          .filter(t => t.length > 0);
+        if (tokens.some(t => WRITE_VERBS.has(t))) return true;
+        // 未闭合引号外的重定向（与后端 _unquoted_redirect 同口径）
+        let q = null;
+        for (const ch of norm) {
+          if (q) { if (ch === q) q = null; }
+          else if (ch === '"' || ch === "'") q = ch;
+          else if (ch === '>') return true;
+        }
+        return false;
+      };
+      // 修复 S2（三轮）：键归一——剥 chcp/rem 前缀 + token 级剥引号与 ./ .\ 前缀，
+      // `del x.txt` / `del ./x.txt` / `del "x.txt"` 归一同键；与后端 dedup_key 逐字同口径
+      const normKey = (cmd) => {
+        let k = String(cmd || '').trim().replace(/\s+/g, ' ').toLowerCase();
+        k = k.replace(/chcp\s+65001\s*>?\s*nul\s*&?\s*/g, '').trim();
+        k = k.replace(/^(?:(?:rem|rem\.*|::)\s+)+/, '').trim();
+        return k;
+      };
+      const dedupKey = (cmd) => normKey(cmd).split(' ').map(t => {
+        t = t.replace(/^["']+|["']+$/g, '');
+        while (t.startsWith('./') || t.startsWith('.\\')) t = t.slice(2);
+        return t;
+      }).join(' ');
       return {
         check(cmd) {
-          const key = String(cmd || '').trim().replace(/\s+/g, ' ').toLowerCase();
+          const key = dedupKey(cmd);
           if (key === last) return '与上一条完全相同的命令已拒绝重复执行;如需观察最新状态,请换角度(加参数)或先说明目的。';
-          if (WRITE.some(h => key.includes(h)) && recent.has(key)) return '该写操作本次会话已执行过,已拦截以防误操作;确需重跑请修改参数或说明原因。';
+          // 修复 S1（三轮）：全窗比对——原 recent 只对写命令生效，非紧邻的读命令重复
+          // 全部放行（Bug A 直接根因：echo 1 → echo 2 → echo 1 第三条被放行再执行）
+          if (recent.has(key)) {
+            if (isWrite(normKey(cmd))) return '该写操作本次会话已执行过,已拦截以防误操作;确需重跑请修改参数或说明原因。';
+            return '该命令最近已执行过,已拒绝重复执行;如需观察最新状态,请换角度(加参数)或先说明目的。';
+          }
           last = key; recent.set(key, true);
           if (recent.size > MAX) recent.delete(recent.keys().next().value);
           return null;
+        },
+        // 修复 W1（三轮）：执行失败/被护栏拒绝的命令回滚登记（合法重试不被误拦）；
+        // 与后端 RunDeduper.unmark 同口径
+        unmark(cmd) {
+          const key = dedupKey(cmd);
+          recent.delete(key);
+          if (last === key) last = null;
         }
       };
     })();
@@ -268,6 +328,7 @@ async function runAgentLoop(s, apiKey) {
       let fullContent = '';
       let fullReasoning = '';
       const toolCallMap = {};
+      let _lastTcBucket = '0';   // 修复 S4（三轮）：无 index 端点（Ollama 等）按 name 分桶的"当前桶"追踪
       let usage = null;
       let pending = '';
       const reasonHtml = (rr) => rr ? `<div style="color:var(--text-2);font-style:italic;font-size:13px;margin-bottom:10px;padding:8px;background:var(--hover);border-radius:6px;border-left:3px solid var(--border);">思考中: ${escapeHtml(rr)}</div>` : '';
@@ -295,8 +356,15 @@ async function runAgentLoop(s, apiKey) {
           }
           if (delta?.tool_calls) {
             for (const tc of delta.tool_calls) {
-              const idx = (tc.index != null) ? tc.index : 0;   // 修复 ㉚：缺 index 的兼容端点退单块聚合（原 undefined 键造成错乱）
-              if (!toolCallMap[idx]) toolCallMap[idx] = { id: 'call_r' + round + '_' + idx, name: '', argsStr: '' };
+              /* 修复 S4（三轮）：无 index 端点（本地/Ollama 常见）兜底 idx=0 会让多个工具
+               * 调用的 name 互相覆盖、argsStr 拼接，第二个命令静默丢失。
+               * 分桶优先级：index > function.name > id > 最近 name 桶（纯参数 delta）。 */
+              let idx;
+              if (tc.index != null) idx = tc.index;
+              else if (tc.function && tc.function.name) { idx = tc.function.name; _lastTcBucket = idx; }
+              else if (tc.id) idx = tc.id;
+              else idx = _lastTcBucket;   // 修复 ㉚：缺 index 的兼容端点退单块聚合（原 undefined 键造成错乱）
+              if (!toolCallMap[idx]) toolCallMap[idx] = { id: 'call_r' + round + '_' + String(idx).replace(/[^\w-]/g, ''), name: '', argsStr: '' };
               if (tc.id) toolCallMap[idx].id = tc.id;
               if (tc.function?.name) toolCallMap[idx].name = tc.function.name;
               if (tc.function?.arguments) toolCallMap[idx].argsStr += tc.function.arguments;
@@ -525,12 +593,18 @@ async function runAgentLoop(s, apiKey) {
             listDirsSet.add(dirKey);
             result = await executeTool(tc.name, args);
           }
-        } else if (['run_command','run_powershell','run_admin_command'].includes(tc.name)) {
-          const dupTip = cmdDeduper.check(args.cmd || args.command || '');
+        } else if (['run_command','run_powershell','run_admin_command','open_app'].includes(tc.name)) {
+          // 修复 W9（三轮）：open_app 纳入前端去重（反复弹窗面的前端闸；后端 api.open_app 同步接入）
+          const cmdKey = tc.name === 'open_app'
+            ? 'open_app ' + String(args.path || args.file_path || args.filename || args.file || args.target || '')
+            : (args.cmd || args.command || '');
+          const dupTip = cmdDeduper.check(cmdKey);
           if (dupTip) {
             result = JSON.stringify({ info: dupTip, skipped: true });
           } else {
             result = await executeTool(tc.name, args);
+            // 修复 W1（三轮）：执行失败/被护栏拒绝（error/skipped）回滚登记，合法重试不被误拦
+            try { const d0 = JSON.parse(result); if (d0 && (d0.error || d0.skipped)) cmdDeduper.unmark(cmdKey); } catch (e) {}
             try { const d = JSON.parse(result); if (d.output) { d.output = compressCliOutput(d.output); result = JSON.stringify(d); } } catch (e) {}
           }
         } else {
@@ -621,6 +695,7 @@ async function runAgentLoop(s, apiKey) {
         batchPending = batchPending.slice(batch.length);
       }
       toolResults.forEach(r => s.messages.push({ role: 'tool', tool_call_id: r.id, content: r.content, __tool: r.name }));
+      if (userStopped) fillMissingToolResults(s);   // 修复 S3（三轮）：暂停 break 后未执行的 tool_calls 补占位 tool 消息（配平防 400）
       toolCalls.forEach(tc => taskUsed.add(tc.name));  // 回填已用工具，后续轮次保留
       s._readKeys = [...readFileSet];   // 跨任务持久化已读记录
 
@@ -674,6 +749,7 @@ async function runAgentLoop(s, apiKey) {
   } catch (err) {
     // 修复 S6（二轮）：请求失败/abort 后截图不能永久失陷——复位 shotState 让下轮可重发
     if (shotState === 'sending') shotState = 'idle';
+    if (_localWaitTimer) { clearInterval(_localWaitTimer); _localWaitTimer = null; }   // 修复 S15（三轮）：AbortError 路径也清本地等待定时器（原只清 else 分支，1s 定时器永久存活劫持状态行）
     if (err.name === 'AbortError') {
       // 修复 W21（二轮）：abort 时固化部分正文入历史（原流中气泡有字但 messages 无此消息，
       // 重开即丢）+ 清理「正在输入」动画残留
@@ -685,13 +761,7 @@ async function runAgentLoop(s, apiKey) {
         const dots = aiContent.querySelector && aiContent.querySelector('.typing-dots');
         if (dots) dots.remove();
       }
-      const last = s.messages[s.messages.length - 1];
-      if (last && last.role === 'assistant' && last.tool_calls) {
-        const done = new Set(s.messages.filter(m => m.role === 'tool').map(m => m.tool_call_id));
-        last.tool_calls.forEach(t => {
-          if (!done.has(t.id)) s.messages.push({ role: 'tool', tool_call_id: t.id, content: '（用户已停止，未执行）' });
-        });
-      }
+      fillMissingToolResults(s);   // 修复 S3（三轮）：AbortError 路径复用同一配平实现
       saveSessions();
     } else {
       if (_localWaitTimer) { clearInterval(_localWaitTimer); _localWaitTimer = null; }   // 修复 B3：异常路径清理等待态计时器

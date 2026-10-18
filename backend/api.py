@@ -56,6 +56,8 @@ _V12_EXTRA = frozenset({
     'local_probe', 'local_models',
     # v1.6 WebDAV 预留接口（数据主权；IO 为 reserved 占位）
     'webdav_get_config', 'webdav_save_config', 'webdav_test', 'webdav_export', 'webdav_restore',
+    # 修复 W2（三轮）：任务开始钩子（重置后端命令去重器，与前端 per-task 生命周期对齐）
+    'begin_task',
 })
 
 
@@ -95,6 +97,14 @@ class Api:
 
     def clear_caches(self):
         self._files.file_fp.clear()
+        # 修复 W6（三轮）：不再重置 cmd_deduper——压缩/切会话时调用本方法会把跨轮
+        # 写命令去重洗白（重复 del 放行）；去重器生命周期改由 begin_task 对齐前端 per-task
+        return 'ok'
+
+    def begin_task(self):
+        """修复 W2（三轮）：任务开始重置后端命令去重器——原进程级存活（仅 clear_caches
+        清），跨任务「上一条」假拒绝；前端 deduper 是 per-task 预记账，两层生命周期
+        经此钩子对齐。前端 runAgentLoop 起始调用（_V12_EXTRA 隐身，契约零漂移）。"""
         self._cmds.cmd_deduper.reset()
         return 'ok'
 
@@ -209,12 +219,15 @@ class Api:
             return err(reason)
         return self._cmds.run_powershell(self._runtime.get_current_sid(), cmd, timeout)
 
-    def run_admin_command(self, cmd, token=None):
+    def run_admin_command(self, cmd, token=None, timeout=None):
+        # 修复 S5/W8（三轮）：timeout 尾参接线——原签名丢 timeout（W13 二轮的「可调」
+        # 是死参数），前端 150s 固定桥接超时与后端人审/轮询口径脱节（二次提权根因之一）。
+        # 尾参追加保持旧调用形态 run_admin_command(cmd[, token]) 兼容。
         reason = self._guard.enforce_exec('run_admin_command', {'cmd': str(cmd or '')[:200]}, token)
         if reason:
             self._guard.audit('run_admin_command', {'cmd': str(cmd or '')[:200]}, 'block', 'backend-enforced')
             return err(reason)
-        return self._cmds.run_admin_command(self._runtime.get_current_sid(), cmd)
+        return self._cmds.run_admin_command(self._runtime.get_current_sid(), cmd, timeout)
 
     # ============ 剪贴板 ============
     def get_clipboard(self, token=None):
@@ -334,9 +347,19 @@ class Api:
         webbrowser.open('https://bigmodel.cn/usercenter/billing')
         return '{"ok":true}'
 
-    def open_app(self, path):
+    def open_app(self, path, token=None):
+        # 修复 W9（三轮）：open_app 纳入护栏（默认 off 档 → 行为不变，可在 guard.json
+        # 提档加固）与命令去重（原不在护栏矩阵、无去重，模型连调 open_app('x.bat')
+        # 即连开窗口——用户实测「反复打开 cmd 窗口」的弹窗面根因）
         try:
             path = str(path or '').strip()
+            reason = self._guard.enforce_exec('open_app', {'path': path[:200]}, token)
+            if reason:
+                self._guard.audit('open_app', {'path': path[:200]}, 'block', 'backend-enforced')
+                return err(reason)
+            tip = self._cmds.cmd_deduper.check('open_app ' + path)
+            if tip:
+                return ok({'info': tip, 'skipped': True})
             import re as _re
             if _re.match(r'^https?://', path):
                 import webbrowser
@@ -352,6 +375,11 @@ class Api:
             os.startfile(path)
             return ok({'ok': True, 'path': path})
         except Exception as e:
+            # 修复 W1（三轮）：打开失败回滚登记（合法重试不被去重误拦）
+            try:
+                self._cmds.cmd_deduper.unmark('open_app ' + path)
+            except Exception:
+                pass
             return err(e)
 
     def open_url(self, url):

@@ -52,7 +52,20 @@ async function executeToolRaw(name, args) {
     if (name === 'get_file_info')     return await callApi('get_file_info', [pickPath(args)]);
     if (name === 'run_command')       return await callApi('run_command', withToken([pickCmd(args), pickTimeout(args)], guardToken), 660000);
     if (name === 'run_powershell')    return await callApi('run_powershell', withToken([pickCmd(args), pickTimeout(args)], guardToken), 660000);
-    if (name === 'run_admin_command') return await callApi('run_admin_command', withToken([pickCmd(args)], guardToken), 150000);
+    if (name === 'run_admin_command') {
+      /* 修复 S5/W8（三轮）：① timeout 参数接线（原只传 cmd，后端 timeout 是死参数）；
+       * ② 前端 150s 超时与后端人审口径对齐——人审是 MessageBox 无限期阻塞，前端超时后
+       *    模型若重试会排队等第二个确认框（二次提权执行）。超时返回不可重试语义。 */
+      try {
+        return await callApi('run_admin_command', withToken([pickCmd(args), pickTimeout(args)], guardToken), 150000);
+      } catch (e) {
+        const msg = String((e && e.message) || e);
+        if (/timeout|超时|Timeout/i.test(msg)) {
+          return JSON.stringify({ error: '管理员命令的人审确认未在 150 秒内完成，命令未执行。请勿原样重试——重复调用会再次弹出确认框；请等待用户确认或改用普通命令。', non_retryable: true });
+        }
+        throw e;
+      }
+    }
     if (name === 'read_more')         return await callApi('read_more', [args.cache_id, args.offset || 0, args.limit || 2000]);
     if (name === 'open_app')          return await callApi('open_app', [pickPath(args)]);
     if (name === 'open_url')          return await callApi('open_url', [args.url]);

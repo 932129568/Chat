@@ -333,14 +333,19 @@ class WarmRegistry:
             return entry['client']
 
     def reap(self):
-        """回收超时空闲条目，返回被回收的 server 列表。"""
+        """回收超时空闲条目，返回 [(server, client)]——由调用方负责 close。
+
+        修复 S8（三轮）：原 reap() 内 pop 摘除后返回 server 名，调用方再 pop() 恒为
+        None → stale.close() 永不执行（「双保险防泄漏」实际反向，温启连接永不关闭）。
+        现 reap 直接返回 (server, client) 对，调用方拿到的就是待关闭的 client。"""
         now = time.monotonic()
         reaped = []
         with self._lock:
             for server in list(self._entries):
                 if now - self._entries[server]['since'] > self._idle_ttl:
-                    self._entries.pop(server, None)
-                    reaped.append(server)
+                    entry = self._entries.pop(server, None)
+                    if entry is not None:
+                        reaped.append((server, entry.get('client')))
         return reaped
 
     def stats(self):

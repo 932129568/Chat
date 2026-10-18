@@ -57,9 +57,15 @@ function switchSession(id, silent) {
     renderChatHistory(target);
   } else {
     box.classList.add('swapping');
+    // 修复 S14（三轮）：原 .swapping 移除与渲染同回调无 finally——渲染抛错
+    // （持久化数据含畸形消息）即 opacity:0 永久锁死聊天区，只能重启
     MOTION.onAnimEnd(box, 'transitionend', MOTION.compOut()).then(() => {
-      renderChatHistory(target); void box.offsetWidth; box.classList.remove('swapping');
-    });
+      try {
+        renderChatHistory(target);
+      } finally {
+        void box.offsetWidth; box.classList.remove('swapping');
+      }
+    }).catch(() => { box.classList.remove('swapping'); });
   }
   renderSessionList();
   updateLiveTokenStat();
