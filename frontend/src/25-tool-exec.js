@@ -34,7 +34,12 @@ async function executeToolRaw(name, args) {
   // 修复 ㊱：pickPath 缺省 ''（原 undefined 会以位置参数形式把 undefined 传给后端）
   const pickPath = (a) => a.path || a.file_path || a.filename || a.file || a.target || a.src || '';
   // 修复 ㊱：命令取值与护栏 detail 同口径（args.cmd 优先，缺失时回退 args.command）
-  const pickCmd = (a) => a.cmd != null ? String(a.cmd) : String(a.command || '');
+  // 修复 ②（三轮）：原 `a.cmd != null ? String(a.cmd) : ...` 对空串 falsy 穿透
+  // （cmd='' 时取到空命令，后端/护栏拿到空串）——空值也回退 command
+  const pickCmd = (a) => {
+    const c = (a.cmd != null) ? String(a.cmd) : '';
+    return c.trim() ? c : String(a.command || '');
+  };
   // 修复 ㊱：timeout 显式判断（原 `args.timeout || 60` 吞 0 值）
   // 修复 ⑧（三轮）：兼容数字字符串（模型常传 "120"）——原 typeof number 检查被吞成默认 60
   const pickTimeout = (a) => {

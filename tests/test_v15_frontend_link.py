@@ -274,9 +274,12 @@ async function __main() {
   await ctx.webdavExportNow();
   const expSt = __doc.getElementById('webdavStatus');
   const expBtn = __doc.getElementById('webdavExportBtn');
+  // 修复 W35（三轮）：boot 回填（webdav_get_config）与导出前自动保存（webdav_save_config）
+  // 会插入调用序列——按「用户交互调用」过滤后再取契约位次
+  const seq = calls.filter(c => c.api === 'webdav_test' || c.api === 'webdav_export');
   return {
-    testCall: calls[0], exportCall: calls[1],
-    testCfg: JSON.parse(calls[0].args[0]),
+    testCall: seq[0], exportCall: seq[1],
+    testCfg: JSON.parse(seq[0].args[0]),
     testStatus: testStatusTxt, testBtnOk: testBtn.disabled === false && testBtn.textContent === '测试连接',
     exportStatus: expSt.textContent, exportBtnOk: expBtn.disabled === false && expBtn.textContent === '导出备份',
     toasts: __toasts.map(t => t.msg),

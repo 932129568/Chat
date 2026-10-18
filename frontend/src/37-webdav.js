@@ -24,6 +24,41 @@ function webdavSetStatus(text, ok) {
   const st = document.getElementById('webdavStatus');
   if (st) { st.textContent = text; st.style.color = ok ? 'var(--ok)' : 'var(--text-2)'; }
 }
+/* 修复 W35（三轮）：表单脏检查——记录上次加载/保存时的配置快照，与当前表单值
+   比对。导出/恢复前发现未保存改动则自动带上（原直接用后端旧配置，用户改了
+   地址/账号没点保存时静默失效）。 */
+let _webdavSnapshot = null;
+function webdavFormDirty() {
+  try {
+    const cur = webdavCollectConfig();
+    if (!_webdavSnapshot) return false;   // 未加载过配置（无快照）不判定脏
+    const keys = ['url', 'username', 'password', 'remote_path', 'conflict_policy'];
+    return keys.some(k => String(cur[k] || '') !== String(_webdavSnapshot[k] || ''));
+  } catch (e) { return false; }
+}
+/** 加载配置回填表单后调用：刷新快照（脏检查基线）。 */
+function webdavMarkSnapshot() {
+  try { _webdavSnapshot = webdavCollectConfig(); } catch (e) {}
+}
+/* 修复 W35+回填缺失（三轮）：前端从不调 webdav_get_config 回填——保存后重开软件
+   表单全空，用户误以为配置丢失（后端 webdav.json 其实有）。boot 时回填 + 刷新快照。
+   密码不回填（后端 get_config 不回显密码，只影响「测试连接」需重输——安全取舍）。 */
+async function loadWebdavConfigNow() {
+  try {
+    const r = JSON.parse(await callApi('webdav_get_config', [])) || {};
+    const set = (id, v) => { const el = document.getElementById(id); if (el && v != null) el.value = v; };
+    set('webdavUrl', r.url);
+    set('webdavUser', r.username);
+    set('webdavPath', r.remote_path || '/glm-chat-backup');
+    set('webdavConflict', r.conflict_policy || 'ask');
+    webdavMarkSnapshot();
+  } catch (e) { /* 后端不可用（旧 exe）：留空表单 */ }
+}
+if (typeof document !== 'undefined' && document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', loadWebdavConfigNow);
+} else if (typeof document !== 'undefined') {
+  loadWebdavConfigNow();
+}
 /** 保存配置（webdav.json，DPAPI 加密 password；导出/恢复前必须先保存）。 */
 async function saveWebdavConfigNow() {
   const btn = document.getElementById('webdavSaveBtn');
@@ -32,6 +67,8 @@ async function saveWebdavConfigNow() {
   try {
     const r = JSON.parse(await callApi('webdav_save_config', [JSON.stringify(webdavCollectConfig())]));
     if (r.ok) {
+      webdavMarkSnapshot();   // 修复 W35（三轮）：保存成功即刷新脏检查基线
+      if (r.warning) toast(r.warning, 'warn', { stay: true });   // W17：DPAPI 兜底明文告警
       webdavSetStatus('✓ 配置已保存到本机 webdav.json（密码已加密）', true);
       toast('WebDAV 配置已保存', 'ok');
     } else {
@@ -67,6 +104,13 @@ async function webdavTestNow() {
 }
 async function webdavExportNow() {
   const btn = document.getElementById('webdavExportBtn');
+  // 修复 W35（三轮）：导出/恢复原直接用后端已存配置——UI 表单改了地址/账号但
+  // 没点保存时静默用旧配置（用户以为改了其实没生效）。导出前自动带上未保存改动
+  try {
+    if (typeof webdavFormDirty === 'function' && webdavFormDirty()) {
+      await saveWebdavConfigNow();
+    }
+  } catch (e) {}
   if (btn) { btn.disabled = true; btn.textContent = '上传中…'; }
   webdavSetStatus('', true);
   try {
@@ -94,6 +138,12 @@ async function webdavExportNow() {
 }
 async function webdavRestoreNow() {
   const btn = document.getElementById('webdavRestoreBtn');
+  // 修复 W35（三轮）：同导出——恢复前自动保存未保存的表单改动（地址/账号）
+  try {
+    if (typeof webdavFormDirty === 'function' && webdavFormDirty()) {
+      await saveWebdavConfigNow();
+    }
+  } catch (e) {}
   // 修复 S13（三轮）：数据覆盖级操作补二次确认（config+sessions+audit 全覆盖，
   // 与项目其他破坏性操作的确认惯例对齐；误点不可逆）
   const confirmed = await uiConfirm({

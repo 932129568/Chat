@@ -1461,6 +1461,19 @@ body.fx-off .panel,body.fx-off .message,body.fx-off .settings-panel.show{animati
             <div><label>截屏</label><select id="guard_take_screenshot" onchange="saveGuardSettings()">
               <option value="session" selected>会话内首次确认</option><option value="always">每次确认</option><option value="list">仅保护名单</option><option value="off">不拦截</option>
             </select></div>
+            <!-- 修复 W32（三轮）：命令三档原缺失——guard_service 的 GUARD_OPS 一直含
+                 run_command/run_powershell/run_admin_command，但 UI 无入口，命令护栏
+                 对终端用户不可达（只能手改 guard.json）。补三个下拉（renderGuardSettings/
+                 saveGuardSettings 已遍历 8 op，无需改 JS） -->
+            <div><label>执行命令（CMD）</label><select id="guard_run_command" onchange="saveGuardSettings()">
+              <option value="always" selected>每次确认</option><option value="list">仅保护名单</option><option value="session">会话内首次确认</option><option value="off">不拦截</option>
+            </select></div>
+            <div><label>PowerShell</label><select id="guard_run_powershell" onchange="saveGuardSettings()">
+              <option value="always" selected>每次确认</option><option value="list">仅保护名单</option><option value="session">会话内首次确认</option><option value="off">不拦截</option>
+            </select></div>
+            <div><label>管理员命令（UAC）</label><select id="guard_run_admin_command" onchange="saveGuardSettings()">
+              <option value="always" selected>每次确认</option><option value="list">仅保护名单</option><option value="session">会话内首次确认</option><option value="off">不拦截</option>
+            </select></div>
           </div>
           <label style="margin-top:12px;font-weight:400;color:var(--text-2);">保护名单 · 路径（每行一条，支持通配，如 C:\Users\*\Documents\**）</label>
           <textarea class="guard-txt" id="guardProtectPaths" rows="2" placeholder="C:\Users\*\Documents\**" onchange="saveGuardSettings()"></textarea>
@@ -2084,7 +2097,12 @@ async function executeToolRaw(name, args) {
   // 修复 ㊱：pickPath 缺省 ''（原 undefined 会以位置参数形式把 undefined 传给后端）
   const pickPath = (a) => a.path || a.file_path || a.filename || a.file || a.target || a.src || '';
   // 修复 ㊱：命令取值与护栏 detail 同口径（args.cmd 优先，缺失时回退 args.command）
-  const pickCmd = (a) => a.cmd != null ? String(a.cmd) : String(a.command || '');
+  // 修复 ②（三轮）：原 `a.cmd != null ? String(a.cmd) : ...` 对空串 falsy 穿透
+  // （cmd='' 时取到空命令，后端/护栏拿到空串）——空值也回退 command
+  const pickCmd = (a) => {
+    const c = (a.cmd != null) ? String(a.cmd) : '';
+    return c.trim() ? c : String(a.command || '');
+  };
   // 修复 ㊱：timeout 显式判断（原 `args.timeout || 60` 吞 0 值）
   // 修复 ⑧（三轮）：兼容数字字符串（模型常传 "120"）——原 typeof number 检查被吞成默认 60
   const pickTimeout = (a) => {
@@ -2462,6 +2480,10 @@ async function showUpdateDialog() {
 
 async function startUpdateFlow() {
   if (!_updateInfo) return;
+  // 修复 W36（三轮）：下载可重入——并发双轮询 + 双 pinned 进度 toast（一个下载
+  // 两个进度条互相覆盖）。加 in-flight 守卫，重复触发直接提示
+  if (startUpdateFlow._busy) { toast('更新正在下载中，请稍候…', 'info'); return; }
+  startUpdateFlow._busy = true;
   // 修复 ㊵：进度 toast 改 pinned（永不自动消失）——原 stay 上限 60s，慢网络下载中途进度不可见
   const t = toast('正在下载 v' + _updateInfo.latest + '… 0%', 'info', { stay: true, pinned: true });
   const setMsg = (txt) => { const m = t && t.querySelector ? t.querySelector('.toast-msg') : null; if (m) m.textContent = txt; };
@@ -2494,6 +2516,8 @@ async function startUpdateFlow() {
   } catch (e) {
     dismiss();   // 修复 ㊵：失败时先收掉 pinned 进度条，再弹可关闭的错误明细
     toast('更新失败：' + e.message + '（当前版本不受影响，可重试）', 'err', { stay: true, detail: e.message });
+  } finally {
+    startUpdateFlow._busy = false;   // 修复 W36（三轮）：流程结束（成功/失败/暂缓）解除重入守卫
   }
 }
 
@@ -4265,8 +4289,16 @@ function connectOnModelChange() {
 /** 高级折叠三条条件显隐（设计书 §5 矩阵）。 */
 function connectUpdateAdvanced() {
   const meta = connectPresetMeta(connectCurrentPreset());
-  const showReasoning = !!meta.glm_capable;
-  const showBilling = !meta.glm_capable && !meta.local;
+  // 修复 W34（三轮）：GLM 判据双轨制——发送层 isGlmEndpoint() 认「name==='glm'
+  // 或 base_url 含 bigmodel.cn」，UI 显隐原只认 meta.glm_capable（仅 glm 预设）。
+  // 用户填官方域名的自定义预设：发送层走 GLM 语义（thinking/智能档/内置价表），
+  // UI 却按非 GLM 显隐 → 用户填的三价实际不生效。显隐加同口径判据
+  // （isGlmBaseUrl 在 71-provider 定义，同脚本作用域；typeof 守卫保模块沙箱可测）
+  const _pid = connectCurrentPreset();
+  const _glmUi = !!meta.glm_capable
+    || (_pid === 'custom' && typeof isGlmBaseUrl === 'function' && isGlmBaseUrl(connectBaseUrl()));
+  const showReasoning = _glmUi;
+  const showBilling = !_glmUi && !meta.local;
   const showLocal = !!meta.local;
   const show = (id, on) => {
     const el = document.getElementById(id);
@@ -4551,8 +4583,11 @@ function connectLoadFromConfig(cfg) {
        无 local_model 时才回落到原 provider_model/model。 */
     model = String(cfg.local_model || '').trim() || model;
     needSeed = true;
-  } else if (!base && (legacyKey || legacyModel || !presetId)) {
-    /* v1.2/更早：只有 api_key（或完全没有端点信息）→ 一次性 seed 为 GLM 预设 */
+  } else if (!base && !presetId && (legacyKey || legacyModel)) {
+    /* v1.2/更早：只有 api_key（完全没有端点信息）→ 一次性 seed 为 GLM 预设。
+       修复 W37（三轮）：原条件 `(legacyKey || legacyModel || !presetId)` 把
+       「provider_name 有效但 base 为空」的配置也强并为 GLM 并落盘——用户选过
+       预设的配置被静默改写。现只有无预设名才 seed GLM；有预设名走下方预设默认 base。 */
     presetId = 'glm';
     base = PRESETS.glm.base_url;
     key = key || legacyKey;
@@ -4771,6 +4806,41 @@ function webdavSetStatus(text, ok) {
   const st = document.getElementById('webdavStatus');
   if (st) { st.textContent = text; st.style.color = ok ? 'var(--ok)' : 'var(--text-2)'; }
 }
+/* 修复 W35（三轮）：表单脏检查——记录上次加载/保存时的配置快照，与当前表单值
+   比对。导出/恢复前发现未保存改动则自动带上（原直接用后端旧配置，用户改了
+   地址/账号没点保存时静默失效）。 */
+let _webdavSnapshot = null;
+function webdavFormDirty() {
+  try {
+    const cur = webdavCollectConfig();
+    if (!_webdavSnapshot) return false;   // 未加载过配置（无快照）不判定脏
+    const keys = ['url', 'username', 'password', 'remote_path', 'conflict_policy'];
+    return keys.some(k => String(cur[k] || '') !== String(_webdavSnapshot[k] || ''));
+  } catch (e) { return false; }
+}
+/** 加载配置回填表单后调用：刷新快照（脏检查基线）。 */
+function webdavMarkSnapshot() {
+  try { _webdavSnapshot = webdavCollectConfig(); } catch (e) {}
+}
+/* 修复 W35+回填缺失（三轮）：前端从不调 webdav_get_config 回填——保存后重开软件
+   表单全空，用户误以为配置丢失（后端 webdav.json 其实有）。boot 时回填 + 刷新快照。
+   密码不回填（后端 get_config 不回显密码，只影响「测试连接」需重输——安全取舍）。 */
+async function loadWebdavConfigNow() {
+  try {
+    const r = JSON.parse(await callApi('webdav_get_config', [])) || {};
+    const set = (id, v) => { const el = document.getElementById(id); if (el && v != null) el.value = v; };
+    set('webdavUrl', r.url);
+    set('webdavUser', r.username);
+    set('webdavPath', r.remote_path || '/glm-chat-backup');
+    set('webdavConflict', r.conflict_policy || 'ask');
+    webdavMarkSnapshot();
+  } catch (e) { /* 后端不可用（旧 exe）：留空表单 */ }
+}
+if (typeof document !== 'undefined' && document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', loadWebdavConfigNow);
+} else if (typeof document !== 'undefined') {
+  loadWebdavConfigNow();
+}
 /** 保存配置（webdav.json，DPAPI 加密 password；导出/恢复前必须先保存）。 */
 async function saveWebdavConfigNow() {
   const btn = document.getElementById('webdavSaveBtn');
@@ -4779,6 +4849,8 @@ async function saveWebdavConfigNow() {
   try {
     const r = JSON.parse(await callApi('webdav_save_config', [JSON.stringify(webdavCollectConfig())]));
     if (r.ok) {
+      webdavMarkSnapshot();   // 修复 W35（三轮）：保存成功即刷新脏检查基线
+      if (r.warning) toast(r.warning, 'warn', { stay: true });   // W17：DPAPI 兜底明文告警
       webdavSetStatus('✓ 配置已保存到本机 webdav.json（密码已加密）', true);
       toast('WebDAV 配置已保存', 'ok');
     } else {
@@ -4814,6 +4886,13 @@ async function webdavTestNow() {
 }
 async function webdavExportNow() {
   const btn = document.getElementById('webdavExportBtn');
+  // 修复 W35（三轮）：导出/恢复原直接用后端已存配置——UI 表单改了地址/账号但
+  // 没点保存时静默用旧配置（用户以为改了其实没生效）。导出前自动带上未保存改动
+  try {
+    if (typeof webdavFormDirty === 'function' && webdavFormDirty()) {
+      await saveWebdavConfigNow();
+    }
+  } catch (e) {}
   if (btn) { btn.disabled = true; btn.textContent = '上传中…'; }
   webdavSetStatus('', true);
   try {
@@ -4841,6 +4920,12 @@ async function webdavExportNow() {
 }
 async function webdavRestoreNow() {
   const btn = document.getElementById('webdavRestoreBtn');
+  // 修复 W35（三轮）：同导出——恢复前自动保存未保存的表单改动（地址/账号）
+  try {
+    if (typeof webdavFormDirty === 'function' && webdavFormDirty()) {
+      await saveWebdavConfigNow();
+    }
+  } catch (e) {}
   // 修复 S13（三轮）：数据覆盖级操作补二次确认（config+sessions+audit 全覆盖，
   // 与项目其他破坏性操作的确认惯例对齐；误点不可逆）
   const confirmed = await uiConfirm({

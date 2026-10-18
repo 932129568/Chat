@@ -458,8 +458,16 @@ function connectOnModelChange() {
 /** 高级折叠三条条件显隐（设计书 §5 矩阵）。 */
 function connectUpdateAdvanced() {
   const meta = connectPresetMeta(connectCurrentPreset());
-  const showReasoning = !!meta.glm_capable;
-  const showBilling = !meta.glm_capable && !meta.local;
+  // 修复 W34（三轮）：GLM 判据双轨制——发送层 isGlmEndpoint() 认「name==='glm'
+  // 或 base_url 含 bigmodel.cn」，UI 显隐原只认 meta.glm_capable（仅 glm 预设）。
+  // 用户填官方域名的自定义预设：发送层走 GLM 语义（thinking/智能档/内置价表），
+  // UI 却按非 GLM 显隐 → 用户填的三价实际不生效。显隐加同口径判据
+  // （isGlmBaseUrl 在 71-provider 定义，同脚本作用域；typeof 守卫保模块沙箱可测）
+  const _pid = connectCurrentPreset();
+  const _glmUi = !!meta.glm_capable
+    || (_pid === 'custom' && typeof isGlmBaseUrl === 'function' && isGlmBaseUrl(connectBaseUrl()));
+  const showReasoning = _glmUi;
+  const showBilling = !_glmUi && !meta.local;
   const showLocal = !!meta.local;
   const show = (id, on) => {
     const el = document.getElementById(id);
@@ -744,8 +752,11 @@ function connectLoadFromConfig(cfg) {
        无 local_model 时才回落到原 provider_model/model。 */
     model = String(cfg.local_model || '').trim() || model;
     needSeed = true;
-  } else if (!base && (legacyKey || legacyModel || !presetId)) {
-    /* v1.2/更早：只有 api_key（或完全没有端点信息）→ 一次性 seed 为 GLM 预设 */
+  } else if (!base && !presetId && (legacyKey || legacyModel)) {
+    /* v1.2/更早：只有 api_key（完全没有端点信息）→ 一次性 seed 为 GLM 预设。
+       修复 W37（三轮）：原条件 `(legacyKey || legacyModel || !presetId)` 把
+       「provider_name 有效但 base 为空」的配置也强并为 GLM 并落盘——用户选过
+       预设的配置被静默改写。现只有无预设名才 seed GLM；有预设名走下方预设默认 base。 */
     presetId = 'glm';
     base = PRESETS.glm.base_url;
     key = key || legacyKey;
