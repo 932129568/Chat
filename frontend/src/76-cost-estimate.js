@@ -58,7 +58,15 @@ function estimateNextCost(s) {
   return { inputTokens, low: costIn * 0.3 + costOut, high: costIn + costOut };
 }
 
+// 修复 ㉚（三轮）：每按键全量估算改防抖——原每次 input 事件都全量遍历消息序列
+// （含 JSON.stringify(tool_calls)）重算费用。200ms 合并窗口内多次调用只算一次，
+// 末态必达（纯展示标签，无落盘依赖）。
+let _costEstTimer = 0;
 function updateCostEstimate() {
+  clearTimeout(_costEstTimer);
+  _costEstTimer = setTimeout(_updateCostEstimateNow, 200);
+}
+function _updateCostEstimateNow() {
   const el = document.getElementById('costEstimate');
   if (!el) return;
   const s = getCurrentSession();

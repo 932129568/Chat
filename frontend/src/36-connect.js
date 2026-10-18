@@ -149,7 +149,8 @@ const CONNECT_GROUP_VALUE = '__group__';
 let connectPreset = 'glm';        // 当前预设 id（= provider_name）
 let connectIdentifySeq = 0;       // last-wins 竞态序号（每次触发递增，旧请求失效）
 let connectIdentifyTimer = null;  // 防抖定时器
-let connectManualPrefill = '';    // 切手动输入态时的预填值
+// 修复 53（三轮）：删除死变量 connectManualPrefill（原声明后从未被赋值，
+// 仅 connectEnterManual 读一次常量 ''，等价于直接取 prefill）
 /* 预设 id → 用户最后一次手改并「切走」时确认的 Base URL。
  * 用途（QA 修正 2）：切走再切回同一预设不丢手填值（custom 默认 '' 时尤其重要，
  * 否则「自定义」来回切一次 URL 就被清空 = 用户数据丢失）。
@@ -245,7 +246,10 @@ function connectHotModels(url) {
 function connectCtxBadge(meta) {
   const ctx = parseInt((meta || {}).ctx_window, 10) || 0;
   if (ctx <= 0) return '';
-  return ctx >= 1024 ? Math.round(ctx / 1024) + 'k' : String(ctx);
+  // 修复 ㊾（三轮）：改走统一 formatCtx()（80-utils 定义；typeof 守卫保 vm 单模块
+  // 沙箱只加载本文件时可测，兜底与 formatCtx 同口径）
+  return (typeof formatCtx === 'function') ? formatCtx(ctx)
+    : (ctx >= 1024 ? Math.round(ctx / 1024) + 'k' : String(ctx));
 }
 
 /* ================= DOM 取值 ================= */
@@ -420,7 +424,7 @@ function connectEnterManual(prefill) {
   if (sel) sel.value = CONNECT_MANUAL_VALUE;
   connectSetPickManual(true);
   const inp = document.getElementById('cmManualInput');
-  const val = String(prefill || connectManualPrefill || '').trim();
+  const val = String(prefill || '').trim();   // 修复 53（三轮）：随死变量 connectManualPrefill 一并简化
   if (inp) {
     if (val) inp.value = val;
     try { inp.focus(); } catch (e) { /* 无焦点能力的环境忽略 */ }
@@ -820,7 +824,9 @@ function connectInit() {
   on('providerBase', 'input', () => { connectScheduleIdentify(); });
   on('providerBase', 'change', () => { connectScheduleIdentify(); connectSyncState(); if (typeof queueSaveConfig === 'function') queueSaveConfig(); });
   on('apiKey', 'input', () => { connectScheduleIdentify(); });
-  on('modelSelect', 'change', () => { connectOnModelChange(); });
+  /* 修复 53（三轮）：删除此处 modelSelect change 重复绑定——110-boot.js:25 已绑
+   * 同一处理器（connectOnModelChange + queueSaveConfig + updateBrandModel），
+   * 双绑定导致一次下拉切换触发两轮识别/同步 */
   on('cmManualInput', 'input', () => { connectSyncState(); if (typeof updateBrandModel === 'function') updateBrandModel(); });
   on('cmManualInput', 'change', () => { if (typeof queueSaveConfig === 'function') queueSaveConfig(); });
   on('cmManualBack', 'click', () => { connectExitManual(); if (typeof queueSaveConfig === 'function') queueSaveConfig(); });

@@ -362,7 +362,9 @@ class McpService:
             return {'error': error}
         t0 = time.monotonic()
         # 修复 F2（v1.4）：每服务器 callTimeout 覆盖默认阈值（mcp_servers.json，10-300s）
-        cfg_ro = self._cfg.get_server(server) or {}
+        # 修复 ⑭（三轮）：cfg_ro 复用入口处已持有的解密视图 cfg——原此处再次
+        # get_server（又一次 deepcopy + DPAPI 解密，热路径每调一次）
+        cfg_ro = cfg or {}
         try:
             _ct = int(cfg_ro.get('callTimeout'))
         except (TypeError, ValueError):

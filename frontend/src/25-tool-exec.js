@@ -50,6 +50,11 @@ async function executeToolRaw(name, args) {
   };
   // 修复 S4①：token 作为最后一个位置参数追加（仅非空时——旧 exe 没有该形参，多传会 TypeError）
   const withToken = (arr, token) => token ? arr.concat([token]) : arr;
+  // 修复 ②（三轮）：空命令不送执行——cmd/command 皆空或纯空白时返回人话 error
+  // （原会把空串发去后端跑 `chcp 65001 >nul & ` 空转，且空串占去重键窗口）
+  const rejectEmptyCmd = () => JSON.stringify({
+    error: '命令为空：请在 cmd（或 command）字段提供要执行的具体命令。空命令已被拒绝，不会执行。'
+  });
   try {
     if (name === 'write_file')        return await callApi('write_file', [pickPath(args), args.content]);
     if (name === 'append_file')       return await callApi('append_file', [pickPath(args), args.content]);
@@ -61,14 +66,24 @@ async function executeToolRaw(name, args) {
     if (name === 'move_path')         return await callApi('move_path', [pickPath(args), args.new_path || args.dst]);
     if (name === 'copy_path')         return await callApi('copy_path', [pickPath(args), args.new_path || args.dst]);
     if (name === 'get_file_info')     return await callApi('get_file_info', [pickPath(args)]);
-    if (name === 'run_command')       return await callApi('run_command', withToken([pickCmd(args), pickTimeout(args)], guardToken), 660000);
-    if (name === 'run_powershell')    return await callApi('run_powershell', withToken([pickCmd(args), pickTimeout(args)], guardToken), 660000);
+    if (name === 'run_command') {
+      const _c = pickCmd(args);
+      if (!_c.trim()) return rejectEmptyCmd();   // 修复 ②（三轮）：空命令不送执行
+      return await callApi('run_command', withToken([_c, pickTimeout(args)], guardToken), 660000);
+    }
+    if (name === 'run_powershell') {
+      const _c = pickCmd(args);
+      if (!_c.trim()) return rejectEmptyCmd();   // 修复 ②（三轮）：空命令不送执行
+      return await callApi('run_powershell', withToken([_c, pickTimeout(args)], guardToken), 660000);
+    }
     if (name === 'run_admin_command') {
       /* 修复 S5/W8（三轮）：① timeout 参数接线（原只传 cmd，后端 timeout 是死参数）；
        * ② 前端 150s 超时与后端人审口径对齐——人审是 MessageBox 无限期阻塞，前端超时后
        *    模型若重试会排队等第二个确认框（二次提权执行）。超时返回不可重试语义。 */
       try {
-        return await callApi('run_admin_command', withToken([pickCmd(args), pickTimeout(args)], guardToken), 150000);
+        const _c = pickCmd(args);
+        if (!_c.trim()) return rejectEmptyCmd();   // 修复 ②（三轮）：空命令不送执行
+        return await callApi('run_admin_command', withToken([_c, pickTimeout(args)], guardToken), 150000);
       } catch (e) {
         const msg = String((e && e.message) || e);
         if (/timeout|超时|Timeout/i.test(msg)) {

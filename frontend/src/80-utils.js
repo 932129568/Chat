@@ -37,13 +37,36 @@ function smartCmd(cmd, max = 72) {
   // 超过 4000 字符直接走截断，不进引号正则
   if (cmd.length > 4000) return cmd.slice(0, max - 1) + '…';
   if (cmd.length <= max) return cmd;
-  cmd = cmd.replace(/["']([^"']*[\\/])?([^"'/\\]+)["']/g, (m0, _dir, name) => {
-    const s = '"…\\' + name + '"';
-    return s.length < m0.length ? s : m0;
-  });
+  // 修复 ㊱（三轮）：原引号压缩正则 `["']([^"']*[\\/])?([^"'/\\]+)["']` 在长串/多引号
+  // 未闭合输入上存在回溯 O(n²)——改单遍扫描（遇引号段取末级路径压缩，无正则回溯）；
+  // 4000 字符上限 + 单遍 = 最坏 O(n)，UI 不再可能被拖卡
+  let out = '';
+  let i = 0;
+  while (i < cmd.length) {
+    const ch = cmd[i];
+    if (ch === '"' || ch === "'") {
+      const close = cmd.indexOf(ch, i + 1);
+      if (close < 0) { out += cmd.slice(i); break; }   // 无闭合引号：原样输出剩余
+      const inner = cmd.slice(i + 1, close);
+      const seg = /([^\\/]+)$/.exec(inner);
+      const name = seg ? seg[1] : inner;
+      const short = ch + '…\\' + name + ch;
+      out += short.length < (close - i + 1) ? short : cmd.slice(i, close + 1);
+      i = close + 1;
+    } else { out += ch; i++; }
+  }
+  cmd = out;
   if (cmd.length <= max) return cmd;
   const tail = Math.floor(max * 0.4);
   return cmd.slice(0, max - tail - 1) + '…' + cmd.slice(-tail);
+}
+/* 修复 ㊾（三轮）：ctx 徽标文本统一入口——原 34-local-model 与 36-connect 各写一套
+ * （一套直接拼小数 19.53k、一套 Math.round 20k），同窗口两处显示不一致。现一处取整；
+ * 调用方均为运行时调用，typeof 守卫保 node vm 单模块沙箱（只加载单文件）可测。 */
+function formatCtx(w) {
+  const n = parseInt(w, 10) || 0;
+  if (n <= 0) return '';
+  return n >= 1024 ? Math.round(n / 1024) + 'k' : String(n);
 }
 function wsShort(p, n) {
   if (!p) return '未选择';

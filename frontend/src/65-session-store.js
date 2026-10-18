@@ -67,6 +67,17 @@ async function loadSessions() {
 }
 // 修复 建议㉜（三轮）：saveSessions 串行化——原并发调用可让旧快照后落盘覆盖新快照
 let _saveChain = Promise.resolve();
+// 修复 ㉚（三轮）：全量序列化节流——流式/连续保存（每消息、每工具调用）原每次都对
+// 全量 sessions 做 JSON 双序列化 + 双端写（localStorage + 后端）。现 300ms 合并窗口：
+// 首次立即执行，窗口内后续调用合并为一次 trailing 落盘；await 语义不变（返回的
+// promise 仍在其实际写入完成后 resolve），末态必达，丢的只是中间快照。
+const SAVE_THROTTLE_MS = 300;
+let _saveLastRun = 0;
+let _saveTrailer = null;
+function _enqueueSave(run) {
+  _saveChain = _saveChain.then(run).catch(() => {});
+  return _saveChain;
+}
 async function saveSessions() {
   const run = async () => {
   if (sessions.length > 60) {
@@ -88,8 +99,22 @@ async function saveSessions() {
     if (window.pywebview && window.pywebview.api) await callApi('save_sessions', [data]);
   } catch (e) { toast('会话历史保存失败：' + e.message, 'warn'); }   // v1.2 R3：静默吞错 → 可见
   };
-  _saveChain = _saveChain.then(run).catch(() => {});
-  return _saveChain;
+  const now = Date.now();
+  if (now - _saveLastRun >= SAVE_THROTTLE_MS) {
+    _saveLastRun = now;
+    return _enqueueSave(run);
+  }
+  // 窗口内：合并为一次 trailing 执行（run 在执行时才读全局 sessions，落的是最新末态）
+  if (!_saveTrailer) {
+    _saveTrailer = new Promise((resolve) => {
+      setTimeout(() => {
+        _saveTrailer = null;
+        _saveLastRun = Date.now();
+        resolve(_enqueueSave(run));
+      }, SAVE_THROTTLE_MS - (now - _saveLastRun));
+    });
+  }
+  return _saveTrailer;
 }
 function getCurrentSession() { return sessions.find(s => s.id === currentSessionId); }
 

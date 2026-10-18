@@ -170,7 +170,16 @@ async function webdavRestoreNow() {
       // ask 策略检出冲突 → 引导用户改策略或逐个确认（后端按策略执行）
       const list = (r.conflicts || []).map(c => '· ' + c.path).join('\n');
       webdavSetStatus('△ 检测到 ' + (r.conflicts || []).length + ' 个冲突文件', false);
+      // 修复 ⑳（三轮）：only_local 口径透明化——恢复计划中 action=keep_local 的
+      // 文件（本地较基线有改、远端未动）不会上行，原 UI 只列 conflicts，用户误以为
+      // 恢复=全量同步。显式告知保留本地的条目数。
+      const keepLocal = (r.plan || []).filter(i => i.action === 'keep_local');
+      if (keepLocal.length) {
+        webdavSetStatus('△ 检测到 ' + (r.conflicts || []).length + ' 个冲突文件；另有 ' +
+              keepLocal.length + ' 个仅本地改动将保留（不上传）', false);
+      }
       toast('本地与云端都有改动的文件：\n' + list +
+            (keepLocal.length ? '\n（另有 ' + keepLocal.length + ' 个仅本地改动将保留，不上传）' : '') +
             '\n请选择合并策略（本地优先/云端优先/双保留）后重试。', 'warn', { stay: true, detail: list });
     } else {
       webdavSetStatus('✗ ' + (r.error || '失败'), false);

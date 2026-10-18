@@ -130,18 +130,30 @@ function applyLocalMetaBadge() {
       : localState.tool_capable === 'on' ? '工具开'
       : (meta.tool_capable ? '工具可用' : '工具存疑');
     // 修复 ㊾（三轮）：ctx 徽标取整——原 20000/1024=19.53k 直接拼小数，与
-    // 36-connect 侧 Math.round 口径不一（两套舍入）。统一四舍五入
-    badge.textContent = '窗口 ' + (w >= 1024 ? Math.round(w / 1024) + 'k' : w) + (meta.estimated ? '（估）' : '') + ' · ' + toolTxt;
+    // 36-connect 侧 Math.round 口径不一（两套舍入）。统一走 formatCtx() 一处
+    // （80-utils 定义；typeof 守卫保 vm 单模块沙箱只加载本文件时可测）
+    const _ctxTxt = (typeof formatCtx === 'function') ? formatCtx(w)
+      : (w >= 1024 ? Math.round(w / 1024) + 'k' : String(w));
+    badge.textContent = '窗口 ' + _ctxTxt + (meta.estimated ? '（估）' : '') + ' · ' + toolTxt;
     badge.className = 'local-badge ' + (meta.tool_capable ? 'on' : 'warn');
   } else {
-    badge.textContent = ctx > 0 ? ('窗口 ' + (ctx >= 1024 ? Math.round(ctx / 1024) + 'k' : ctx) + '（手设）') : '元数据待获取';
+    const _ctxTxt2 = (typeof formatCtx === 'function') ? formatCtx(ctx)
+      : (ctx >= 1024 ? Math.round(ctx / 1024) + 'k' : String(ctx));   // 修复 ㊾（三轮）：同上统一入口
+    badge.textContent = ctx > 0 ? ('窗口 ' + _ctxTxt2 + '（手设）') : '元数据待获取';
     badge.className = 'local-badge';
   }
 }
 let localMetaCache = {};    // model -> {ctx_window, tool_capable, estimated}
 
 /* ---- A2：并行探测（4 端口并行，各 2s 超时，总墙钟 ≤1s 目标） ---- */
+// 修复 54（三轮）：busy 守卫——防抖自动识别（connectScheduleIdentify 800ms）可能在
+// 手动探测在途时触发第二轮 localProbeNow（并发探测 → 重复 toast + 按钮标签竞态
+// 「探测本机」vs「拉取模型清单」+ 双重 localLoadModels）
+let _localProbeBusy = false;
 async function localProbeNow() {
+  if (_localProbeBusy) { toast('本地探测正在进行中，请稍候…', 'warn'); return; }
+  _localProbeBusy = true;
+  try {
   const btn = localEl('localProbeBtn', 'cmIdentifyBtn');
   const box = localEl('localProbeResult', 'localProbeResult');
   if (btn) { btn.disabled = true; btn.textContent = '探测中…'; }
@@ -150,7 +162,10 @@ async function localProbeNow() {
     if (box) box.innerHTML = '';
     if (!r.ok) { toast('探测失败：' + (r.error || ''), 'err'); return; }
     localMetaCache = {};    // 新探测结果 → 元数据缓存失效
-    (r.reachable || []).forEach(it => {
+    // 修复 54（三轮）：reachable 改 for...of + await——原 forEach 内 localLoadModels
+    // 火跑不 await（无 .catch 兜底虽不会 unhandled rejection——其内部全捕获，但结果
+    // 顺序/按钮标签恢复时序与探测竞态；await 后串行确定）
+    for (const it of (r.reachable || [])) {
       const row = document.createElement('div');
       row.className = 'local-probe-item ok';
       row.innerHTML = '<span class="dot"></span><span></span><span class="models"></span>';
@@ -165,11 +180,11 @@ async function localProbeNow() {
         if (typeof connectApplyPreset === 'function' && typeof PRESETS === 'object'
             && PRESETS[it.kind] && PRESETS[it.kind].local
             && typeof connectCurrentPreset === 'function' && connectCurrentPreset() !== it.kind) {
-          connectApplyPreset(it.kind, { animate: false, base: it.base_url, quiet: true });
+          await connectApplyPreset(it.kind, { animate: false, base: it.base_url, quiet: true });
         }
-        localLoadModels(it.base_url);
+        await localLoadModels(it.base_url);
       }
-    });
+    }
     (r.unreachable || []).forEach(it => {
       const row = document.createElement('div');
       row.className = 'local-probe-item';
@@ -185,6 +200,9 @@ async function localProbeNow() {
     toast('探测失败：' + e.message, 'err');
   } finally {
     localRestoreIdentifyBtn(btn, '探测本机');
+  }
+  } finally {
+    _localProbeBusy = false;
   }
 }
 

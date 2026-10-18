@@ -25,6 +25,9 @@
 import json
 import time
 import urllib.error
+import urllib.parse   # 修复 ⑬（三轮）：显式导入——原仅 import urllib.request 隐式带入
+# urllib.parse（靠 urllib.request 的内部依赖传递），_fetch_tags_meta 的
+# urllib.parse.urlsplit 属于隐式依赖，模块裁剪/重构时即 NameError
 import urllib.request
 
 from ..logging_setup import get_logger

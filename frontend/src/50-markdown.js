@@ -133,7 +133,9 @@ function addMsgActions(contentEl, text, onlyCopy) {
     bar.appendChild(b); return b;
   };
   mk('⧉ 复制', (b) => {
-    navigator.clipboard.writeText(text).then(() => { b.textContent = '✓ 已复制'; setTimeout(() => b.textContent = '⧉ 复制', 1500); });
+    // 修复 ㉔（三轮）：补 .catch——剪贴板不可用（非安全上下文/权限拒绝）时不再
+    // unhandled rejection（50:45 同型已修，此处为消息操作条路径）
+    navigator.clipboard.writeText(text).then(() => { b.textContent = '✓ 已复制'; setTimeout(() => b.textContent = '⧉ 复制', 1500); }).catch(() => { b.textContent = '复制失败'; });
   });
   if (!onlyCopy) {
     mk('↩ 追问', () => { document.getElementById('userInput').focus(); });

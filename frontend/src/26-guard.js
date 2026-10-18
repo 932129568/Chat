@@ -83,6 +83,15 @@ async function guardCheckTool(name, args) {
   args = args || {};
   // 会话内已信任：直接放行（后端持有同一会话信任态；名单仍会在 delete/kill 上兜底强制）
   if (guardTrusted.has(op)) return { blocked: null, token: null };
+  // 修复 ③（三轮）：off 档本地短路——boot 已加载 guardConfig（110-boot loadGuardConfig），
+  // 该 op 档位为 off 且无保护名单语义时不再发 guard_check RPC（原每个受护栏命令一次往返，
+  // guard 全 off 时纯属浪费）。delete_path/kill_process 的保护名单 block 在后端优先于
+  // 档位（guard_service.check 名单先行），仍走 RPC 保底；guardConfig 未加载（null）时
+  // 保守走 RPC 由后端定档，行为不回退。
+  if (guardConfig && guardConfig.tiers && guardConfig.tiers[op] === 'off'
+      && op !== 'delete_path' && op !== 'kill_process') {
+    return { blocked: null, token: null };
+  }
   const detail = await _guardDetailOf(op, args);
   let verdict = { action: 'confirm' };
   try {
