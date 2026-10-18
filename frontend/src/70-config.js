@@ -60,7 +60,9 @@ async function saveConfig() {
     delete c.api_key;
     delete c.provider_key;
     localCfg = JSON.stringify(c);
-  } catch (e) { /* 序列化异常时保持原样写入（不含密钥的概率极低，仍以上述剔除为准） */ }
+    // 修复 ㊸（三轮）：序列化异常时原样写回 cfg（含密钥明文进 localStorage）——
+    // 异常路径改为写空对象，绝不回退含密钥版本
+  } catch (e) { localCfg = '{}'; }
   try { localStorage.setItem('glm_config', localCfg); } catch (e) {}
   try {
     if (window.pywebview && window.pywebview.api) await callApi('save_config', [cfg]);

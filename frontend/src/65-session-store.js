@@ -65,7 +65,10 @@ async function loadSessions() {
   put(local); put(backend);   // 同 id 时取 updatedAt 较新的一侧
   sessions = [...byId.values()].sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 60);
 }
+// 修复 建议㉜（三轮）：saveSessions 串行化——原并发调用可让旧快照后落盘覆盖新快照
+let _saveChain = Promise.resolve();
 async function saveSessions() {
+  const run = async () => {
   if (sessions.length > 60) {
     sessions.sort((a, b) => b.updatedAt - a.updatedAt);
     sessions = sessions.slice(0, 60);
@@ -84,6 +87,9 @@ async function saveSessions() {
   try {
     if (window.pywebview && window.pywebview.api) await callApi('save_sessions', [data]);
   } catch (e) { toast('会话历史保存失败：' + e.message, 'warn'); }   // v1.2 R3：静默吞错 → 可见
+  };
+  _saveChain = _saveChain.then(run).catch(() => {});
+  return _saveChain;
 }
 function getCurrentSession() { return sessions.find(s => s.id === currentSessionId); }
 

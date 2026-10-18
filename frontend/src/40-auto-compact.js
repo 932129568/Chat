@@ -88,7 +88,8 @@ async function maybeAutoCompact(s) {   // 修复 ㊸：传会话对象（原传�
     return false;
   }
   if (Date.now() - __lastAutoCompact < 60000) return false;  // 60秒冷却，防每轮重弹
-  addSysTip('历史接近上限,自动压缩中…');
+  // 修复 ㊶（三轮）：与上方 skip-tip 的守卫保持一致（模块未加载时不再 ReferenceError）
+  if (typeof addSysTip === 'function') addSysTip('历史接近上限,自动压缩中…');
   callApi('append_worklog', ['历史接近上限 自动压缩']).catch(() => {});
   if (typeof compactHistory === 'function') {
     try {

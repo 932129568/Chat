@@ -138,6 +138,10 @@ class ConfigService:
             with self._lock:
                 items = json.loads(self.get_memory())
                 e = json.loads(entry_json) if isinstance(entry_json, str) else entry_json
+                # 修复 ⑤（三轮）：非对象入参（字符串/数字/null）原直接 e['ts'] 抛
+                # TypeError 回裸异常串——归一为 {text: ...} 对象
+                if not isinstance(e, dict):
+                    e = {'text': '' if e is None else str(e)}
                 e['ts'] = datetime.datetime.now().strftime('%m-%d %H:%M')
                 items.append(e)
                 atomic_write_json(paths.MEMORY_PATH, items[-200:])   # 修复 S8：原子写

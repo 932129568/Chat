@@ -181,7 +181,7 @@ async function runAgentLoop(s, apiKey) {
         }
       };
     })();
-    let lastToolSig = null;
+    // 修复 建议㉛（三轮）：lastToolSig 死变量（只写不读）已删除声明与赋值
     const recentSigs = [];
     const taskEffort = _route.effort;
     const taskCapOut = 16384;  // 统一输出上限，不再区分纯聊天/工具模式
@@ -286,7 +286,9 @@ async function runAgentLoop(s, apiKey) {
           delete reqBody.thinking;
           delete reqBody.reasoning_effort;   // 修复 建议㉖（二轮）：降级重试同步剥离 reasoning_effort（GLM 400 对同族字段一并拒）
           resp = await fetchGLMStream({ apiKey, body: reqBody }, abortController.signal);
-        } else if (reqBody.tools && /tool|function/i.test(errText)) {
+        } else if (reqBody.tools && /does not support tools|tools?\s*(are|is)?\s*not\s*(supported|enabled|available)|tool_choice|tool_calls?.*(unsupported|invalid)/i.test(errText)) {
+          // 修复 建议㉘（三轮）：原 /tool|function/i 过宽——错误体任意含 function 字样即误判为
+          // 「不支持工具」并去 tools 重发，真实错误（如参数格式错）被掩盖。收紧为显式特征。
           delete reqBody.tools;
           toast('当前模型不支持工具调用，已切换为纯对话模式', 'warn');
           resp = await fetchGLMStream({ apiKey, body: reqBody }, abortController.signal);
@@ -448,9 +450,13 @@ async function runAgentLoop(s, apiKey) {
           acts.className = 'msg-actions';
           const copyBtn = document.createElement('button');
           copyBtn.className = 'copy-btn'; copyBtn.textContent = '⧉ 复制';
-          copyBtn.onclick = () => navigator.clipboard.writeText(fullContent).then(() => {
-            copyBtn.textContent = '✓ 已复制'; setTimeout(() => copyBtn.textContent = '⧉ 复制', 1500);
-          });
+          copyBtn.onclick = () =>           navigator.clipboard.writeText(fullContent)
+            .then(() => {
+              copyBtn.textContent = '✓ 已复制'; setTimeout(() => copyBtn.textContent = '⧉ 复制', 1500);
+            })
+            // 修复 ㉔（三轮）：原无 .catch——剪贴板不可用（非安全上下文/权限）时
+            // unhandled rejection，按钮停在「复制」态无任何反馈
+            .catch(() => { copyBtn.textContent = '✗ 失败'; setTimeout(() => copyBtn.textContent = '⧉ 复制', 1500); });
           acts.appendChild(copyBtn);
           const regenBtn = document.createElement('button');
           regenBtn.className = 'copy-btn'; regenBtn.textContent = '↻ 重新生成';
@@ -703,7 +709,7 @@ async function runAgentLoop(s, apiKey) {
       const n = recentSigs.length;
       const alternating = n >= 3 && sig === recentSigs[n-2] && recentSigs[n-1] === recentSigs[n-3];
       recentSigs.push(sig); if (recentSigs.length > 6) recentSigs.shift();
-      lastToolSig = sig;
+      // 修复 建议㉛（三轮）：lastToolSig 为死变量（只写不读），删除
       // v1.2 R4：循环熔断——同工具同参数 ×3（或交替模式）→ 暂停并询问，不再静默自动停止
       const loopHit = registerToolSig(sig);
       if (loopHit || alternating) {
@@ -751,6 +757,9 @@ async function runAgentLoop(s, apiKey) {
     if (shotState === 'sending') shotState = 'idle';
     if (_localWaitTimer) { clearInterval(_localWaitTimer); _localWaitTimer = null; }   // 修复 S15（三轮）：AbortError 路径也清本地等待定时器（原只清 else 分支，1s 定时器永久存活劫持状态行）
     if (err.name === 'AbortError') {
+      // 修复 建议㉕（三轮）：abort/停止时清 pendingShots——原只复位 shotState，
+      // 待发截图残留致下一轮重发 + 重复 note 消息
+      if (pendingShots.length) pendingShots = [];
       // 修复 W21（二轮）：abort 时固化部分正文入历史（原流中气泡有字但 messages 无此消息，
       // 重开即丢）+ 清理「正在输入」动画残留
       if (partialContent) {

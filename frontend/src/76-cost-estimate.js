@@ -7,7 +7,7 @@
 const ERROR_HUMANIZE = [
   [/1113|余额不足.*coding|coding plan/i,
     'GLM Coding Plan 仅限官方指定工具使用，API 直连会报 1113。\n可行操作：① 在 bigmodel.cn 充值按量付费并使用平台 API Key；② 或切换到自定义 OpenAI 兼容端点（设置 → 模型服务商）。'],
-  [/\b401\b|invalid.*key| unauthorized/i, 'API Key 无效或未授权：请检查设置中的 Key 是否正确、是否属于所选服务商。'],
+  [/\b401\b|invalid.*key|unauthorized/i, 'API Key 无效或未授权：请检查设置中的 Key 是否正确、是否属于所选服务商。'],
   [/\b403\b/i, '无权访问该端点（Key 权限不足或 IP 受限）。'],
   [/\b404\b/i, '端点地址不存在：请检查 Base URL（OpenAI 兼容端点通常需要 /v1 后缀）。'],
   [/\b429\b|rate.?limit/i, '请求过于频繁或额度耗尽：稍等片刻重试，或检查账户余额。'],

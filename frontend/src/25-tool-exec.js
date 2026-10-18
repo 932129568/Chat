@@ -36,7 +36,13 @@ async function executeToolRaw(name, args) {
   // 修复 ㊱：命令取值与护栏 detail 同口径（args.cmd 优先，缺失时回退 args.command）
   const pickCmd = (a) => a.cmd != null ? String(a.cmd) : String(a.command || '');
   // 修复 ㊱：timeout 显式判断（原 `args.timeout || 60` 吞 0 值）
-  const pickTimeout = (a) => (typeof a.timeout === 'number' && a.timeout > 0) ? a.timeout : 60;
+  // 修复 ⑧（三轮）：兼容数字字符串（模型常传 "120"）——原 typeof number 检查被吞成默认 60
+  const pickTimeout = (a) => {
+    const t = a.timeout;
+    if (typeof t === 'number' && t > 0) return t;
+    if (typeof t === 'string' && /^\d+(\.\d+)?$/.test(t.trim()) && parseFloat(t) > 0) return parseFloat(t);
+    return 60;
+  };
   // 修复 S4①：token 作为最后一个位置参数追加（仅非空时——旧 exe 没有该形参，多传会 TypeError）
   const withToken = (arr, token) => token ? arr.concat([token]) : arr;
   try {

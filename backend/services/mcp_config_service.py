@@ -81,7 +81,13 @@ class McpConfigService:
                 data = json.load(f)
             if isinstance(data, dict) and isinstance(data.get('mcpServers'), dict):
                 return data
-            self._log.warning('mcp_servers.json 结构异常，按空配置处理')
+            # 修复 ⑫（三轮）：结构异常同样留 .bad 备份（原只有解析异常分支留，
+            # 结构异常直接按空配置处理会覆盖丢失——半损坏配置无迹可寻）
+            self._log.warning('mcp_servers.json 结构异常，按空配置处理（已留 .bad 备份）')
+            try:
+                os.replace(self._path, self._path + '.bad')
+            except Exception:
+                pass
         except FileNotFoundError:
             pass
         except Exception as e:
@@ -164,8 +170,15 @@ class McpConfigService:
             if not isinstance(headers, dict):
                 return None, None, 'headers 必须是对象（键值对）'
             record['url'] = url
-            record['headers'] = {str(k): str(v) for k, v in headers.items()
-                                 if str(v or '').strip() != ''}
+            # 修复 W12（三轮）：原 `str(v)` 把 DPAPI 字段级加密结构（dict 形态
+            # {'enc': ...}）静默损坏为 repr 字符串——加密值原样保留，标量才转字符串
+            _hdrs = {}
+            for k, v in headers.items():
+                if isinstance(v, dict):
+                    _hdrs[str(k)] = v
+                elif str(v or '').strip() != '':
+                    _hdrs[str(k)] = str(v)
+            record['headers'] = _hdrs
             transport = 'http'
         elif command:
             args = cfg.get('args')

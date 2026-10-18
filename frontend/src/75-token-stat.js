@@ -110,7 +110,8 @@ function updateLiveTokenStat() {
   const breakdown = `（标准 ¥${costStdIn.toFixed(3)} · 缓存 ¥${costCache.toFixed(3)} · 输出 ¥${costOut.toFixed(3)}）`;
   el.textContent = `本会话约花费 ¥${cost.toFixed(4)}${breakdown} | ${total.toLocaleString()} tokens | 缓存命中 ${cached.toLocaleString()}（${window.__hitRate || 0}%）${turn}${warn}`;
 }
-setInterval(updateLiveTokenStat, 10000);
+// 修复 建议㉙+㊴（三轮）：回调包 try/catch（单点异常不再杀死 10s 轮询）+ 流式态不抢写状态行
+setInterval(() => { try { if (typeof isStreaming === 'undefined' || !isStreaming) updateLiveTokenStat(); } catch (e) {} }, 10000);
 async function openBilling() {
   try {
     if (window.pywebview && window.pywebview.api) await callApi('open_billing', []);

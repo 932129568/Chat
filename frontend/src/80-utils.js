@@ -66,7 +66,10 @@ function addSysTip(msg) {
       MOTION.onAnimEnd(d, 'transitionend', MOTION.compOut()).then(fin);
     } else { fin(); }
   };
-  setTimeout(dismiss, 2200);
+  // 修复 ㉖（三轮）：2200ms 硬编码违反 MOTION 令牌纪律——展示时长 = 2×comp
+  // （令牌缺失时兜底 2200，fx-off/reduced-motion 下 MOTION.instant() 已同步退场）
+  const _tipMs = (typeof MOTION !== 'undefined' && MOTION.comp) ? MOTION.comp() * 2 : 2200;
+  setTimeout(dismiss, _tipMs);
 }
 async function refreshEffectiveWs() {
   try {

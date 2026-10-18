@@ -548,6 +548,7 @@ async function connectApplyPreset(id, opts) {
   opts = opts || {};
   const presetId = PRESETS[id] ? id : 'custom';
   clearTimeout(connectIdentifyTimer);
+  if (typeof connectIdentifySeq === 'number') connectIdentifySeq++;   // 修复 S9（三轮）：切预设使在途识别请求失效（旧端点清单不污染新预设下拉）
   if (opts.animate && typeof MOTION !== 'undefined' && !MOTION.instant()) {
     const flow = document.getElementById('cmFlow');
     if (flow && flow.classList) flow.classList.add('swapping');

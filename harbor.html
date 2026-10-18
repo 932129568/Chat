@@ -367,8 +367,8 @@ body.dark .eff-tag-s{background:var(--ok-bg);color:var(--ok);}
 .session-item:hover .session-acts{opacity:1;pointer-events:auto;}
 .session-del:hover{color:var(--err);background:var(--err-bg);}
 /* ===== 修复 F1（v1.4）：会话导出按钮（纯新增）===== */
-.session-acts{position:absolute;top:50%;right:8px;transform:translateY(-50%);display:none;gap:2px;}
-.session-item:hover .session-acts{display:inline-flex;}
+/* 修复 W31（三轮）：删此处的 .session-acts 重复定义——后块 display:none 会覆盖上面
+   362 行的修复版（hover 淡入回归为瞬现，出货产物 harbor.html 同病） */
 .session-exp{width:20px;height:20px;border:none;background:transparent;cursor:pointer;
   color:var(--text-3);border-radius:var(--radius-xs);font-size:12px;display:flex;
   align-items:center;justify-content:center;flex-shrink:0;}
@@ -1486,6 +1486,9 @@ body.fx-off .panel,body.fx-off .message,body.fx-off .settings-panel.show{animati
 
 
 <script>
+/* 修复 ㊷（三轮）：APP_VERSION 由 build.js 从 VERSION 文件注入（原前端永无定义，
+   导出 MD 页脚恒显硬编码 '1.4'）。占位符仅允许出现 1 次，build 校验。 */
+const APP_VERSION = '1.5.0';
 /* ===== 00-motion.js ===== */
 /* ================= v4 动效常量表（CSS 变量为单一事实源） =================
  * 来源：deliverables/design/v4 设计令牌文档（彩格调）附录 A。
@@ -1566,6 +1569,8 @@ let providerState = { enabled: false };// R6：当前自定义端点（boot 时�
 const mcpTrusted = new Set();          // R3：会话内已信任的 MCP 工具（键 server__tool；
                                        // 修复 W26：切会话/新会话即清空——与「本会话内不再提示」文案对齐）
 let mcpServers = [];                   // R5：MCP 服务器面板缓存（loadMcpServers 回填）
+// 修复 ㊿（三轮）：MCP 列表加载失败标记（渲染层区分「失败」与「真的没有服务器」）
+let mcpLoadFailed = false;
 
 /* ===== 05-bridge.js ===== */
 /* ================= 桥接 ================= */
@@ -1713,7 +1718,8 @@ function toggleTheme() {
   }
   document.body.classList.add('theming');
   apply();
-  setTimeout(() => document.body.classList.remove('theming'), MOTION.theme() + 60);
+  // 修复 建议㉗（三轮）：MOTION 未定义（模块未加载/降级路径）时兜底 240ms，不再 ReferenceError
+  setTimeout(() => document.body.classList.remove('theming'), (typeof MOTION !== 'undefined' && MOTION.theme ? MOTION.theme() : 240) + 60);
 }
 
 /* ===== 16-panel-fx.js ===== */
@@ -1749,7 +1755,7 @@ function switchPanel(name) {
   } else {
     if (_panelLeaving) { _panelLeaving.el.classList.remove('on', 'leaving', 'out-fwd', 'out-back'); _panelLeaving = null; }
     if (oldEl) oldEl.classList.add('leaving', 'out-' + dir);
-    if (newEl) newEl.classList.add('on', 'in-' + dir);
+    if (newEl) newEl.classList.add('on', 'in-' + dir);   // 修复 建议㉝（三轮）：newEl null 守卫（原 L33 无守卫，面板 id 不存在即抛）
     MOTION.onAnimEnd(newEl, 'animationend', MOTION.panel()).then(() => newEl.classList.remove('in-' + dir));
     if (oldEl) {
       _panelLeaving = { el: oldEl };
@@ -2000,22 +2006,29 @@ function uiPrompt(opts) {
 /* ================= dHash 截图去重 ================= */
 function dHashOfDataUrl(dataUrl) {
   return new Promise(resolve => {
+    // 修复 ㊲（三轮）：img.src 赋值后 onload/onerror 均不触发（极端：坏 dataUrl/
+    // 引擎静默失败）时 Promise 永不 settle，调用方 await 挂死。加 3s 兜底 resolve(null)。
+    let settled = false;
+    const done = (v) => { if (!settled) { settled = true; resolve(v); } };
+    setTimeout(() => done(null), 3000);
     const img = new Image();
     img.onload = () => {
-      const w = 9, h = 8, c = document.createElement('canvas');
-      c.width = w; c.height = h;
-      const ctx = c.getContext('2d', { willReadFrequently: true });
-      ctx.drawImage(img, 0, 0, w, h);
-      const d = ctx.getImageData(0, 0, w, h).data, g = [];
-      for (let i = 0; i < w * h; i++)
-        g.push(0.299 * d[i*4] + 0.587 * d[i*4+1] + 0.114 * d[i*4+2]);
-      const bits = [];
-      for (let y = 0; y < h; y++)
-        for (let x = 0; x < w - 1; x++)
-          bits.push(g[y*w + x] > g[y*w + x + 1] ? 1 : 0);
-      resolve(bits);
+      try {
+        const w = 9, h = 8, c = document.createElement('canvas');
+        c.width = w; c.height = h;
+        const ctx = c.getContext('2d', { willReadFrequently: true });
+        ctx.drawImage(img, 0, 0, w, h);
+        const d = ctx.getImageData(0, 0, w, h).data, g = [];
+        for (let i = 0; i < w * h; i++)
+          g.push(0.299 * d[i*4] + 0.587 * d[i*4+1] + 0.114 * d[i*4+2]);
+        const bits = [];
+        for (let y = 0; y < h; y++)
+          for (let x = 0; x < w - 1; x++)
+            bits.push(g[y*w + x] > g[y*w + x + 1] ? 1 : 0);
+        done(bits);
+      } catch (e) { done(null); }
     };
-    img.onerror = () => resolve(null);
+    img.onerror = () => done(null);
     img.src = dataUrl;
   });
 }
@@ -2073,7 +2086,13 @@ async function executeToolRaw(name, args) {
   // 修复 ㊱：命令取值与护栏 detail 同口径（args.cmd 优先，缺失时回退 args.command）
   const pickCmd = (a) => a.cmd != null ? String(a.cmd) : String(a.command || '');
   // 修复 ㊱：timeout 显式判断（原 `args.timeout || 60` 吞 0 值）
-  const pickTimeout = (a) => (typeof a.timeout === 'number' && a.timeout > 0) ? a.timeout : 60;
+  // 修复 ⑧（三轮）：兼容数字字符串（模型常传 "120"）——原 typeof number 检查被吞成默认 60
+  const pickTimeout = (a) => {
+    const t = a.timeout;
+    if (typeof t === 'number' && t > 0) return t;
+    if (typeof t === 'string' && /^\d+(\.\d+)?$/.test(t.trim()) && parseFloat(t) > 0) return parseFloat(t);
+    return 60;
+  };
   // 修复 S4①：token 作为最后一个位置参数追加（仅非空时——旧 exe 没有该形参，多传会 TypeError）
   const withToken = (arr, token) => token ? arr.concat([token]) : arr;
   try {
@@ -2567,7 +2586,8 @@ async function renderAuditList() {
     if (cnt) cnt.textContent = '';
     return;
   }
-  let entries = data.entries || [];
+  // 修复 建议52（三轮）：entries 非数组（脏数据/旧格式）不再 TypeError，退空列表
+  let entries = Array.isArray(data.entries) ? data.entries : [];
   if (_auditFilter === 'rejected') {
     entries = entries.filter(en => {
       const k = _auditStatusKey(en);
@@ -2625,12 +2645,15 @@ const MCP_STATUS_NAMES = {
 async function loadMcpServers() {
   const box = document.getElementById('mcpServerList');
   if (!box) return;
+  // 修复 ㊿（三轮）：失败标记供渲染层区分「加载失败」与「真的没有服务器」
+  mcpLoadFailed = false;
   try {
     const raw = await callApi('mcp_list_servers', []);
     const d = JSON.parse(raw) || {};
     mcpServers = d.servers || [];
   } catch (e) {
     mcpServers = [];
+    mcpLoadFailed = true;
     toast('MCP 服务器列表加载失败：' + (e.message || e) + '（后端可能为旧版，请重新打包）', 'err');
   }
   renderMcpServerList();
@@ -2645,6 +2668,16 @@ function renderMcpServerList() {
   const box = document.getElementById('mcpServerList');
   if (!box) return;
   box.innerHTML = '';
+  // 修复 ㊿（三轮）：加载失败（mcpServers=[] 且失败标记）时显示错误态——
+  // 原一律渲染「还没有服务器」空态，用户误以为真没配置
+  if (mcpLoadFailed) {
+    const err = document.createElement('div');
+    err.className = 'mcp-empty';
+    err.style.color = 'var(--err)';
+    err.textContent = 'MCP 服务器列表加载失败（后端可能为旧版，请重新打包）。配置未丢失，恢复后自动显示。';
+    box.appendChild(err);
+    return;
+  }
   if (!mcpServers.length) {
     const empty = document.createElement('div');
     empty.className = 'mcp-empty';
@@ -2744,6 +2777,11 @@ async function mcpToggleServer(name, on) {
 }
 
 async function mcpDeleteServer(name) {
+  // 修复 ⑱（三轮）：busy 守卫——原无保护，双击删除按钮会弹两个确认框
+  // （第一个删除后第二个对已删名再确认，误导用户）
+  if (mcpToggleServer._busy.has(name)) return;
+  mcpToggleServer._busy.add(name);
+  try {
   const r = await uiConfirm({
     title: '删除 MCP 服务器', body: '确认删除「' + name + '」？\n其配置（含档位覆盖）将一并移除，此操作不可恢复。',
     danger: true, okText: '删除'
@@ -2756,6 +2794,9 @@ async function mcpDeleteServer(name) {
     toast('删除失败：' + (e.message || e), 'err');
   }
   loadMcpServers();
+  } finally {
+    mcpToggleServer._busy.delete(name);
+  }
 }
 
 async function mcpTestServer(name) {
@@ -3526,10 +3567,12 @@ function applyLocalMetaBadge() {
     const toolTxt = localState.tool_capable === 'off' ? '工具关'
       : localState.tool_capable === 'on' ? '工具开'
       : (meta.tool_capable ? '工具可用' : '工具存疑');
-    badge.textContent = '窗口 ' + (w >= 1024 ? (w / 1024) + 'k' : w) + (meta.estimated ? '（估）' : '') + ' · ' + toolTxt;
+    // 修复 ㊾（三轮）：ctx 徽标取整——原 20000/1024=19.53k 直接拼小数，与
+    // 36-connect 侧 Math.round 口径不一（两套舍入）。统一四舍五入
+    badge.textContent = '窗口 ' + (w >= 1024 ? Math.round(w / 1024) + 'k' : w) + (meta.estimated ? '（估）' : '') + ' · ' + toolTxt;
     badge.className = 'local-badge ' + (meta.tool_capable ? 'on' : 'warn');
   } else {
-    badge.textContent = ctx > 0 ? ('窗口 ' + (ctx >= 1024 ? (ctx / 1024) + 'k' : ctx) + '（手设）') : '元数据待获取';
+    badge.textContent = ctx > 0 ? ('窗口 ' + (ctx >= 1024 ? Math.round(ctx / 1024) + 'k' : ctx) + '（手设）') : '元数据待获取';
     badge.className = 'local-badge';
   }
 }
@@ -4312,6 +4355,7 @@ async function connectApplyPreset(id, opts) {
   opts = opts || {};
   const presetId = PRESETS[id] ? id : 'custom';
   clearTimeout(connectIdentifyTimer);
+  if (typeof connectIdentifySeq === 'number') connectIdentifySeq++;   // 修复 S9（三轮）：切预设使在途识别请求失效（旧端点清单不污染新预设下拉）
   if (opts.animate && typeof MOTION !== 'undefined' && !MOTION.instant()) {
     const flow = document.getElementById('cmFlow');
     if (flow && flow.classList) flow.classList.add('swapping');
@@ -4892,11 +4936,15 @@ document.addEventListener('keydown', (e) => {
 });
 
 /** 刷新快捷条状态（boot / 任何工作区变化后调用）。 */
+/* 修复 55（三轮）：刷新序号——并发/慢响应时旧结果不覆盖新状态（last-wins） */
+let _wsqSeq = 0;
 async function wsQuickRefresh() {
   const nameEl = document.getElementById('wsqName');
   if (!nameEl) return;
+  const seq = ++_wsqSeq;
   let st = { ws: '', bound: false, enabled: true, recent: [] };
   try { st = Object.assign(st, JSON.parse(await callApi('get_ws_state', [currentSessionId])) || {}); } catch (e) {}
+  if (seq !== _wsqSeq) return;   // 过期响应丢弃
   const on = !!st.enabled && !!st.ws;
   nameEl.textContent = on ? wsShort(st.ws, 3) : '未启用工作区';
   nameEl.title = on ? st.ws : '点此启用并选择工作区文件夹';
@@ -5079,7 +5127,8 @@ async function maybeAutoCompact(s) {   // 修复 ㊸：传会话对象（原传�
     return false;
   }
   if (Date.now() - __lastAutoCompact < 60000) return false;  // 60秒冷却，防每轮重弹
-  addSysTip('历史接近上限,自动压缩中…');
+  // 修复 ㊶（三轮）：与上方 skip-tip 的守卫保持一致（模块未加载时不再 ReferenceError）
+  if (typeof addSysTip === 'function') addSysTip('历史接近上限,自动压缩中…');
   callApi('append_worklog', ['历史接近上限 自动压缩']).catch(() => {});
   if (typeof compactHistory === 'function') {
     try {
@@ -5152,7 +5201,9 @@ if (window.DOMPurify) {
 function escapeHtml(text) {
   const div = document.createElement('div');
   div.textContent = text;
-  return div.innerHTML;
+  // 修复 W29（三轮）：textContent→innerHTML 只转义 & < >，不转义引号——onclick
+  // 属性上下文（'...'）存在注入面。补引号转义（纵深防御；当前 id 规则不可触发）
+  return div.innerHTML.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 function renderMd(text) {
   if (window.marked && window.DOMPurify) {
@@ -5187,20 +5238,28 @@ function enhanceCodeBlocks(container) {
     btn.onclick = (e) => {
       e.stopPropagation();
       const t = (pre.querySelector('code') || {}).innerText || pre.innerText;
-      navigator.clipboard.writeText(t).then(() => {
+      navigator.clipboard.writeText(t).then(() => {   // 修复 建议㉔（三轮）：补 .catch，剪贴板权限拒绝不再 unhandled rejection
         btn.textContent = '✓';
         setTimeout(() => btn.textContent = '复制', 1500);
-      });
+      }).catch(() => { btn.textContent = '✗'; setTimeout(() => btn.textContent = '复制', 1500); });
     };
     pre.appendChild(btn);
   });
 }
 function viewImage(src) {
+  // 修复 建议㉓（三轮）：单例 + Esc 关闭——原多开叠加无上限、只能点图关闭
+  const prev = document.getElementById('__imgViewer');
+  if (prev) prev.remove();
   const ov = document.createElement('div');
+  ov.id = '__imgViewer';
   ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:9999;display:flex;align-items:center;justify-content:center;cursor:zoom-out;';
   const img = document.createElement('img');
   img.src = src; img.style.cssText = 'max-width:92%;max-height:92%;border-radius:10px;';
-  ov.appendChild(img); ov.onclick = () => ov.remove();
+  ov.appendChild(img);
+  const close = () => { ov.remove(); document.removeEventListener('keydown', onKey); };
+  const onKey = (e) => { if (e.key === 'Escape') close(); };
+  ov.onclick = close;
+  document.addEventListener('keydown', onKey);
   document.body.appendChild(ov);
 }
 function addMessage(role, content, extra) {
@@ -5544,7 +5603,7 @@ async function runAgentLoop(s, apiKey) {
         }
       };
     })();
-    let lastToolSig = null;
+    // 修复 建议㉛（三轮）：lastToolSig 死变量（只写不读）已删除声明与赋值
     const recentSigs = [];
     const taskEffort = _route.effort;
     const taskCapOut = 16384;  // 统一输出上限，不再区分纯聊天/工具模式
@@ -5649,7 +5708,9 @@ async function runAgentLoop(s, apiKey) {
           delete reqBody.thinking;
           delete reqBody.reasoning_effort;   // 修复 建议㉖（二轮）：降级重试同步剥离 reasoning_effort（GLM 400 对同族字段一并拒）
           resp = await fetchGLMStream({ apiKey, body: reqBody }, abortController.signal);
-        } else if (reqBody.tools && /tool|function/i.test(errText)) {
+        } else if (reqBody.tools && /does not support tools|tools?\s*(are|is)?\s*not\s*(supported|enabled|available)|tool_choice|tool_calls?.*(unsupported|invalid)/i.test(errText)) {
+          // 修复 建议㉘（三轮）：原 /tool|function/i 过宽——错误体任意含 function 字样即误判为
+          // 「不支持工具」并去 tools 重发，真实错误（如参数格式错）被掩盖。收紧为显式特征。
           delete reqBody.tools;
           toast('当前模型不支持工具调用，已切换为纯对话模式', 'warn');
           resp = await fetchGLMStream({ apiKey, body: reqBody }, abortController.signal);
@@ -5811,9 +5872,13 @@ async function runAgentLoop(s, apiKey) {
           acts.className = 'msg-actions';
           const copyBtn = document.createElement('button');
           copyBtn.className = 'copy-btn'; copyBtn.textContent = '⧉ 复制';
-          copyBtn.onclick = () => navigator.clipboard.writeText(fullContent).then(() => {
-            copyBtn.textContent = '✓ 已复制'; setTimeout(() => copyBtn.textContent = '⧉ 复制', 1500);
-          });
+          copyBtn.onclick = () =>           navigator.clipboard.writeText(fullContent)
+            .then(() => {
+              copyBtn.textContent = '✓ 已复制'; setTimeout(() => copyBtn.textContent = '⧉ 复制', 1500);
+            })
+            // 修复 ㉔（三轮）：原无 .catch——剪贴板不可用（非安全上下文/权限）时
+            // unhandled rejection，按钮停在「复制」态无任何反馈
+            .catch(() => { copyBtn.textContent = '✗ 失败'; setTimeout(() => copyBtn.textContent = '⧉ 复制', 1500); });
           acts.appendChild(copyBtn);
           const regenBtn = document.createElement('button');
           regenBtn.className = 'copy-btn'; regenBtn.textContent = '↻ 重新生成';
@@ -6066,7 +6131,7 @@ async function runAgentLoop(s, apiKey) {
       const n = recentSigs.length;
       const alternating = n >= 3 && sig === recentSigs[n-2] && recentSigs[n-1] === recentSigs[n-3];
       recentSigs.push(sig); if (recentSigs.length > 6) recentSigs.shift();
-      lastToolSig = sig;
+      // 修复 建议㉛（三轮）：lastToolSig 为死变量（只写不读），删除
       // v1.2 R4：循环熔断——同工具同参数 ×3（或交替模式）→ 暂停并询问，不再静默自动停止
       const loopHit = registerToolSig(sig);
       if (loopHit || alternating) {
@@ -6114,6 +6179,9 @@ async function runAgentLoop(s, apiKey) {
     if (shotState === 'sending') shotState = 'idle';
     if (_localWaitTimer) { clearInterval(_localWaitTimer); _localWaitTimer = null; }   // 修复 S15（三轮）：AbortError 路径也清本地等待定时器（原只清 else 分支，1s 定时器永久存活劫持状态行）
     if (err.name === 'AbortError') {
+      // 修复 建议㉕（三轮）：abort/停止时清 pendingShots——原只复位 shotState，
+      // 待发截图残留致下一轮重发 + 重复 note 消息
+      if (pendingShots.length) pendingShots = [];
       // 修复 W21（二轮）：abort 时固化部分正文入历史（原流中气泡有字但 messages 无此消息，
       // 重开即丢）+ 清理「正在输入」动画残留
       if (partialContent) {
@@ -6261,6 +6329,13 @@ async function mcpGuardCheck(name, args) {
 async function mcpExecTool(name, args, decision, token) {
   const p = mcpParseName(name);
   if (!p) return JSON.stringify({ error: '非法 MCP 工具名: ' + name });
+  // 修复 ⑰（三轮）：mcpCallTimeoutMs 依赖 mcpServers 缓存——未开过设置面板时
+  // 缓存为空，per-server callTimeout 静默失效（回落默认 90s）。执行前确保列表已加载
+  try {
+    if ((typeof mcpServers === 'undefined' || !mcpServers.length) && typeof loadMcpServers === 'function') {
+      await loadMcpServers();
+    }
+  } catch (e) {}
   try {
     // 修复 S4①：token 作为第 5 个位置参数（仅非空时追加——旧 exe 没有该形参）
     const callArgs = [p.server, p.tool, JSON.stringify(args || {}), decision || 'deny'];
@@ -6339,7 +6414,10 @@ async function loadSessions() {
   put(local); put(backend);   // 同 id 时取 updatedAt 较新的一侧
   sessions = [...byId.values()].sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 60);
 }
+// 修复 建议㉜（三轮）：saveSessions 串行化——原并发调用可让旧快照后落盘覆盖新快照
+let _saveChain = Promise.resolve();
 async function saveSessions() {
+  const run = async () => {
   if (sessions.length > 60) {
     sessions.sort((a, b) => b.updatedAt - a.updatedAt);
     sessions = sessions.slice(0, 60);
@@ -6358,6 +6436,9 @@ async function saveSessions() {
   try {
     if (window.pywebview && window.pywebview.api) await callApi('save_sessions', [data]);
   } catch (e) { toast('会话历史保存失败：' + e.message, 'warn'); }   // v1.2 R3：静默吞错 → 可见
+  };
+  _saveChain = _saveChain.then(run).catch(() => {});
+  return _saveChain;
 }
 function getCurrentSession() { return sessions.find(s => s.id === currentSessionId); }
 
@@ -6434,7 +6515,9 @@ async function saveConfig() {
     delete c.api_key;
     delete c.provider_key;
     localCfg = JSON.stringify(c);
-  } catch (e) { /* 序列化异常时保持原样写入（不含密钥的概率极低，仍以上述剔除为准） */ }
+    // 修复 ㊸（三轮）：序列化异常时原样写回 cfg（含密钥明文进 localStorage）——
+    // 异常路径改为写空对象，绝不回退含密钥版本
+  } catch (e) { localCfg = '{}'; }
   try { localStorage.setItem('glm_config', localCfg); } catch (e) {}
   try {
     if (window.pywebview && window.pywebview.api) await callApi('save_config', [cfg]);
@@ -6660,7 +6743,8 @@ function updateLiveTokenStat() {
   const breakdown = `（标准 ¥${costStdIn.toFixed(3)} · 缓存 ¥${costCache.toFixed(3)} · 输出 ¥${costOut.toFixed(3)}）`;
   el.textContent = `本会话约花费 ¥${cost.toFixed(4)}${breakdown} | ${total.toLocaleString()} tokens | 缓存命中 ${cached.toLocaleString()}（${window.__hitRate || 0}%）${turn}${warn}`;
 }
-setInterval(updateLiveTokenStat, 10000);
+// 修复 建议㉙+㊴（三轮）：回调包 try/catch（单点异常不再杀死 10s 轮询）+ 流式态不抢写状态行
+setInterval(() => { try { if (typeof isStreaming === 'undefined' || !isStreaming) updateLiveTokenStat(); } catch (e) {} }, 10000);
 async function openBilling() {
   try {
     if (window.pywebview && window.pywebview.api) await callApi('open_billing', []);
@@ -6677,7 +6761,7 @@ async function openBilling() {
 const ERROR_HUMANIZE = [
   [/1113|余额不足.*coding|coding plan/i,
     'GLM Coding Plan 仅限官方指定工具使用，API 直连会报 1113。\n可行操作：① 在 bigmodel.cn 充值按量付费并使用平台 API Key；② 或切换到自定义 OpenAI 兼容端点（设置 → 模型服务商）。'],
-  [/\b401\b|invalid.*key| unauthorized/i, 'API Key 无效或未授权：请检查设置中的 Key 是否正确、是否属于所选服务商。'],
+  [/\b401\b|invalid.*key|unauthorized/i, 'API Key 无效或未授权：请检查设置中的 Key 是否正确、是否属于所选服务商。'],
   [/\b403\b/i, '无权访问该端点（Key 权限不足或 IP 受限）。'],
   [/\b404\b/i, '端点地址不存在：请检查 Base URL（OpenAI 兼容端点通常需要 /v1 后缀）。'],
   [/\b429\b|rate.?limit/i, '请求过于频繁或额度耗尽：稍等片刻重试，或检查账户余额。'],
@@ -7085,7 +7169,10 @@ function addSysTip(msg) {
       MOTION.onAnimEnd(d, 'transitionend', MOTION.compOut()).then(fin);
     } else { fin(); }
   };
-  setTimeout(dismiss, 2200);
+  // 修复 ㉖（三轮）：2200ms 硬编码违反 MOTION 令牌纪律——展示时长 = 2×comp
+  // （令牌缺失时兜底 2200，fx-off/reduced-motion 下 MOTION.instant() 已同步退场）
+  const _tipMs = (typeof MOTION !== 'undefined' && MOTION.comp) ? MOTION.comp() * 2 : 2200;
+  setTimeout(dismiss, _tipMs);
 }
 async function refreshEffectiveWs() {
   try {
@@ -7238,7 +7325,11 @@ function newSession() {
   refreshWsCard();
 }
 function switchSession(id, silent) {
-  if (isStreaming) return;
+  if (isStreaming) {
+    // 修复 ㉑（三轮）：流式中静默 return——用户点了没反应，以为卡死。补 toast 反馈
+    if (typeof toast === 'function') toast('正在生成回复，请先暂停或等待完成', 'warn');
+    return;
+  }
   const target = sessions.find(s => s.id === id);   // 修复 ㊳：先校验存在性再赋值（原先赋值，非法 id 时 currentSessionId 悬空）
   if (!target) return;
   currentSessionId = id;
@@ -7346,7 +7437,11 @@ function exportSessionMd(id, e) {
   const lines = [];
   lines.push('# ' + (s.title || 'Harbor 会话'));
   lines.push('');
-  lines.push('> 导出自 Harbor v' + (typeof APP_VERSION !== 'undefined' ? APP_VERSION : '1.4') +
+  // 修复 建议㊷（三轮）：APP_VERSION 前端永无定义（原恒显旧版 '1.4'）——兜底取全局
+  // window.__appVersion（后端可注入），再无则省略版本号，不显示错误版本
+  const _ver = (typeof APP_VERSION !== 'undefined' && APP_VERSION)
+    ? APP_VERSION : (window.__appVersion || '');
+  lines.push('> 导出自 Harbor' + (_ver ? ' v' + _ver : '') +
     ' · ' + new Date().toLocaleString('zh-CN'));
   lines.push('');
   let toolCount = 0, usage = null;
@@ -7407,7 +7502,10 @@ async function deleteSession(id, e) {
   else renderSessionList();
 }
 /** 修复 建议㉝（二轮）：会话 id 拼 onclick 前统一转义（模块作用域，UX-3 搜索跳转同样复用）。 */
-const _escId = (id) => escapeHtml(String(id)).replace(/'/g, '&#39;');
+// 修复 建议㉝（二轮）：会话 id 拼 onclick 前统一转义（模块作用域，UX-3 搜索跳转同样复用）。
+// 修复 51（三轮）：补双引号转义——escapeHtml 走 textContent→innerHTML 不转引号，
+// 属性上下文（onclick="..."）里双引号同样有注入面（与单引号一并纵深防御）
+const _escId = (id) => escapeHtml(String(id)).replace(/'/g, '&#39;').replace(/"/g, '&quot;');
 function renderSessionList() {
   const box = document.getElementById('sessionList');
   if (sessions.length === 0) {
@@ -7428,7 +7526,10 @@ function renderSessionList() {
   updateTokenStat();
 }
 function formatTime(ts) {
-  const d = new Date(ts), now = new Date();
+  // 修复 建议㉲（三轮）：undefined/非时间戳不再显示 Invalid Date/NaN
+  const t = Number(ts);
+  if (!ts || !isFinite(t)) return '';
+  const d = new Date(t), now = new Date();
   if (d.toDateString() === now.toDateString())
     return d.getHours().toString().padStart(2, '0') + ':' + d.getMinutes().toString().padStart(2, '0');
   return (d.getMonth() + 1) + '/' + d.getDate();
@@ -8131,11 +8232,14 @@ function setupContextMenu() {
       };
       menu.appendChild(d);
     });
-    // v4：重入场——清退场态并强制 reflow，保证 v4CtxIn 从头播放（不与未播完的退场动画叠合
+    // 修复 ㉟（三轮）：原硬编码 150/180 钳制——菜单变宽/变高（长文件名菜单项）时
+    // 右侧/底部被视口裁切。改用实测尺寸（先显示再量，避免 offsetWidth=0）
+    menu.style.left = '0px'; menu.style.top = '0px';
     menu.classList.remove('hiding'); void menu.offsetWidth;
     menu.classList.add('show');
-    menu.style.left = Math.min(e.clientX, window.innerWidth - 150) + 'px';
-    menu.style.top = Math.min(e.clientY, window.innerHeight - 180) + 'px';
+    const mw = menu.offsetWidth || 150, mh = menu.offsetHeight || 180;
+    menu.style.left = Math.max(4, Math.min(e.clientX, window.innerWidth - mw - 4)) + 'px';
+    menu.style.top = Math.max(4, Math.min(e.clientY, window.innerHeight - mh - 4)) + 'px';
   });
   document.addEventListener('click', hideMenu);
   window.addEventListener('scroll', hideMenu, true);

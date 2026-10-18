@@ -367,8 +367,8 @@ body.dark .eff-tag-s{background:var(--ok-bg);color:var(--ok);}
 .session-item:hover .session-acts{opacity:1;pointer-events:auto;}
 .session-del:hover{color:var(--err);background:var(--err-bg);}
 /* ===== 修复 F1（v1.4）：会话导出按钮（纯新增）===== */
-.session-acts{position:absolute;top:50%;right:8px;transform:translateY(-50%);display:none;gap:2px;}
-.session-item:hover .session-acts{display:inline-flex;}
+/* 修复 W31（三轮）：删此处的 .session-acts 重复定义——后块 display:none 会覆盖上面
+   362 行的修复版（hover 淡入回归为瞬现，出货产物 harbor.html 同病） */
 .session-exp{width:20px;height:20px;border:none;background:transparent;cursor:pointer;
   color:var(--text-3);border-radius:var(--radius-xs);font-size:12px;display:flex;
   align-items:center;justify-content:center;flex-shrink:0;}
@@ -1461,6 +1461,19 @@ body.fx-off .panel,body.fx-off .message,body.fx-off .settings-panel.show{animati
             <div><label>截屏</label><select id="guard_take_screenshot" onchange="saveGuardSettings()">
               <option value="session" selected>会话内首次确认</option><option value="always">每次确认</option><option value="list">仅保护名单</option><option value="off">不拦截</option>
             </select></div>
+            <!-- 修复 W32（三轮）：命令三档原缺失——guard_service 的 GUARD_OPS 一直含
+                 run_command/run_powershell/run_admin_command，但 UI 无入口，命令护栏
+                 对终端用户不可达（只能手改 guard.json）。补三个下拉（renderGuardSettings/
+                 saveGuardSettings 已遍历 8 op，无需改 JS） -->
+            <div><label>执行命令（CMD）</label><select id="guard_run_command" onchange="saveGuardSettings()">
+              <option value="always" selected>每次确认</option><option value="list">仅保护名单</option><option value="session">会话内首次确认</option><option value="off">不拦截</option>
+            </select></div>
+            <div><label>PowerShell</label><select id="guard_run_powershell" onchange="saveGuardSettings()">
+              <option value="always" selected>每次确认</option><option value="list">仅保护名单</option><option value="session">会话内首次确认</option><option value="off">不拦截</option>
+            </select></div>
+            <div><label>管理员命令（UAC）</label><select id="guard_run_admin_command" onchange="saveGuardSettings()">
+              <option value="always" selected>每次确认</option><option value="list">仅保护名单</option><option value="session">会话内首次确认</option><option value="off">不拦截</option>
+            </select></div>
           </div>
           <label style="margin-top:12px;font-weight:400;color:var(--text-2);">保护名单 · 路径（每行一条，支持通配，如 C:\Users\*\Documents\**）</label>
           <textarea class="guard-txt" id="guardProtectPaths" rows="2" placeholder="C:\Users\*\Documents\**" onchange="saveGuardSettings()"></textarea>
@@ -1486,6 +1499,9 @@ body.fx-off .panel,body.fx-off .message,body.fx-off .settings-panel.show{animati
 
 
 <script>
+/* 修复 ㊷（三轮）：APP_VERSION 由 build.js 从 VERSION 文件注入（原前端永无定义，
+   导出 MD 页脚恒显硬编码 '1.4'）。占位符仅允许出现 1 次，build 校验。 */
+const APP_VERSION = '__APP_VERSION__';
 /*__APP_SCRIPT__*/
 </script>
 </body>

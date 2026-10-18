@@ -49,12 +49,25 @@ function main() {
   if (hits !== 1) fail('模板占位符 ' + PLACEHOLDER + ' 应恰好出现 1 次，实际 ' + hits + ' 次');
   // 修复 建议㊷（二轮）：校验 libs 四个依赖文件存在（原缺文件时构建成功、
   // 运行期 marked/DOMPurify/flate 静默缺失，renderMd 直接 fail-closed 降级）
-  for (const lib of ['marked.min.js', 'purify.min.js', 'flate.js']) {
+  // 修复 ㉞（三轮）：原漏检 highlight.min.js（四个 libs 只查三个）
+  for (const lib of ['marked.min.js', 'purify.min.js', 'flate.js', 'highlight.min.js']) {
     if (!fs.existsSync(path.join(ROOT, 'libs', lib))) {
-      fail('libs/' + lib + ' 缺失（marked/DOMPurify/flate 为运行期必需）');
+      fail('libs/' + lib + ' 缺失（marked/DOMPurify/flate/highlight 为运行期必需）');
     }
   }
-  const html = tpl.replace(PLACEHOLDER, script);
+  // 修复 ㊷（三轮）：把 VERSION 文件内容注入模板 __APP_VERSION__ 占位（原前端永无
+  // APP_VERSION 定义，导出 MD 页脚恒显硬编码 '1.4'）
+  let version = '';
+  try { version = fs.readFileSync(path.join(ROOT, 'VERSION'), 'utf8').trim(); } catch (e) {}
+  if (!version) fail('VERSION 文件缺失或为空');
+  // 修复：并行修复残留的重复 const tpl 声明（L63 复读模板与 L45 冲突 → SyntaxError）
+  if (tpl.split('__APP_VERSION__').length - 1 !== 1) {
+    fail('模板占位符 __APP_VERSION__ 应恰好出现 1 次');
+  }
+  // 修复 ㉞（三轮）：String.replace 的 replacement 里 $&/$1/$$ 等序列会被特殊解释
+  // （拼接脚本含正则/模板字符串时可能被静默改写）——改用函数替换，原样注入
+  const html = tpl.replace(PLACEHOLDER, () => script)
+                  .replace('__APP_VERSION__', () => version);
   // 原重复 </script> 检查升级为上面的逐模块检查 + 语法校验，保留产物输出
   fs.writeFileSync(OUT, html, 'utf8');
   console.log('[build] %d 个模块 -> %s (%d 行)',

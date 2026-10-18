@@ -98,7 +98,16 @@ def validate_config(cfg):
     remote_path = str(cfg.get('remote_path') or '').strip() or '/glm-chat-backup'
     if not remote_path.startswith('/'):
         remote_path = '/' + remote_path
-    record['remote_path'] = remote_path.rstrip('/') or '/'
+    # 修复 W19（三轮）：未校验 '..' 时 `remote_path=/a/../../etc` 可服务端侧路径穿越
+    norm_parts = []
+    for seg in remote_path.split('/'):
+        if seg in ('', '.'):
+            continue
+        if seg == '..':
+            return None, '远端目录不允许包含 ".."（路径穿越风险）'
+        norm_parts.append(seg)
+    remote_path = '/' + '/'.join(norm_parts)
+    record['remote_path'] = remote_path or '/'
     record['auto_sync'] = bool(cfg.get('auto_sync'))
     policy = str(cfg.get('conflict_policy') or 'ask').strip().lower()
     if policy not in CONFLICT_POLICIES:
@@ -357,8 +366,15 @@ def export_backup(config_dir, record=None):
         try:
             with open(local, 'rb') as f:
                 data = f.read(_DOWNLOAD_CAP)
+                truncated = f.read(1) != b''   # 修复 W18（三轮）：cap 外仍有字节 =
+                # 备份被静默截断（manifest 记全量 sha、上传截断内容，恢复侧对拍必过）
+                # → 显式标记并在 manifest 记录真实 sha，恢复侧可检出
         except OSError as e:
             return {'ok': False, 'error': '读取 %s 失败: %s' % (rel, e),
+                    'uploaded': uploaded}
+        if truncated:
+            return {'ok': False,
+                    'error': '%s 超过 %d MB 上限，备份已中止（避免静默截断损坏备份）' % (rel, _DOWNLOAD_CAP // 1024 // 1024),
                     'uploaded': uploaded}
         status, _, rdata = _dav_request(
             record, 'PUT', rel, body=data, timeout=120, read_cap=_ERR_READ_CAP,
@@ -539,13 +555,21 @@ class WebDAVService:
         out = dict(record)
         enc = mcp_dpapi.encrypt_value(record['password'])
         out['password'] = enc
+        # 修复 W17（三轮）：DPAPI 不可用时 encrypt_value 兜底明文落盘——原静默无告警。
+        # 返回值附 warning（前端可提示），配置本身不回显密码
+        warn = ''
+        if isinstance(enc, str) and not enc.startswith('dpapi:'):
+            warn = '当前系统 DPAPI 不可用，密码以本地文件权限保护（未加密）；建议在正常 Windows 会话使用'
         try:
             from ..fio import atomic_write_json
             os.makedirs(self._config_dir, exist_ok=True)
             atomic_write_json(self._path(), out, indent=2)
         except Exception as e:
             return {'ok': False, 'error': 'webdav.json 写入失败: %s' % e}
-        return {'ok': True, 'config': {k: v for k, v in record.items() if k != 'password'}}
+        r = {'ok': True, 'config': {k: v for k, v in record.items() if k != 'password'}}
+        if warn:
+            r['warning'] = warn
+        return r
 
     # ---- 连通性 / 导出 / 恢复 ----
     def _record_for_io(self, cfg_json='{}'):

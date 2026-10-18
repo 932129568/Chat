@@ -40,7 +40,11 @@ function newSession() {
   refreshWsCard();
 }
 function switchSession(id, silent) {
-  if (isStreaming) return;
+  if (isStreaming) {
+    // 修复 ㉑（三轮）：流式中静默 return——用户点了没反应，以为卡死。补 toast 反馈
+    if (typeof toast === 'function') toast('正在生成回复，请先暂停或等待完成', 'warn');
+    return;
+  }
   const target = sessions.find(s => s.id === id);   // 修复 ㊳：先校验存在性再赋值（原先赋值，非法 id 时 currentSessionId 悬空）
   if (!target) return;
   currentSessionId = id;
@@ -148,7 +152,11 @@ function exportSessionMd(id, e) {
   const lines = [];
   lines.push('# ' + (s.title || 'Harbor 会话'));
   lines.push('');
-  lines.push('> 导出自 Harbor v' + (typeof APP_VERSION !== 'undefined' ? APP_VERSION : '1.4') +
+  // 修复 建议㊷（三轮）：APP_VERSION 前端永无定义（原恒显旧版 '1.4'）——兜底取全局
+  // window.__appVersion（后端可注入），再无则省略版本号，不显示错误版本
+  const _ver = (typeof APP_VERSION !== 'undefined' && APP_VERSION)
+    ? APP_VERSION : (window.__appVersion || '');
+  lines.push('> 导出自 Harbor' + (_ver ? ' v' + _ver : '') +
     ' · ' + new Date().toLocaleString('zh-CN'));
   lines.push('');
   let toolCount = 0, usage = null;
@@ -209,7 +217,10 @@ async function deleteSession(id, e) {
   else renderSessionList();
 }
 /** 修复 建议㉝（二轮）：会话 id 拼 onclick 前统一转义（模块作用域，UX-3 搜索跳转同样复用）。 */
-const _escId = (id) => escapeHtml(String(id)).replace(/'/g, '&#39;');
+// 修复 建议㉝（二轮）：会话 id 拼 onclick 前统一转义（模块作用域，UX-3 搜索跳转同样复用）。
+// 修复 51（三轮）：补双引号转义——escapeHtml 走 textContent→innerHTML 不转引号，
+// 属性上下文（onclick="..."）里双引号同样有注入面（与单引号一并纵深防御）
+const _escId = (id) => escapeHtml(String(id)).replace(/'/g, '&#39;').replace(/"/g, '&quot;');
 function renderSessionList() {
   const box = document.getElementById('sessionList');
   if (sessions.length === 0) {
@@ -230,7 +241,10 @@ function renderSessionList() {
   updateTokenStat();
 }
 function formatTime(ts) {
-  const d = new Date(ts), now = new Date();
+  // 修复 建议㉲（三轮）：undefined/非时间戳不再显示 Invalid Date/NaN
+  const t = Number(ts);
+  if (!ts || !isFinite(t)) return '';
+  const d = new Date(t), now = new Date();
   if (d.toDateString() === now.toDateString())
     return d.getHours().toString().padStart(2, '0') + ':' + d.getMinutes().toString().padStart(2, '0');
   return (d.getMonth() + 1) + '/' + d.getDate();

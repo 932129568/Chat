@@ -126,6 +126,12 @@ class Api:
             if os.path.isdir(path):
                 self._config.cwd = path
                 self._config._save_workspace()
+                # 修复 ⑦（三轮）：set_workspace 不更新 recent 列表——经 api 直改目录
+                # （会话绑定等路径）后 recent 不出现该目录，快捷条/面板下拉缺失
+                try:
+                    self._workspace.touch_recent_ws(path)
+                except Exception:
+                    pass
                 return ok({'ok': True, 'path': self._config.cwd})
             return err(f'目录不存在: {path}')
         except Exception as e:

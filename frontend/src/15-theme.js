@@ -15,5 +15,6 @@ function toggleTheme() {
   }
   document.body.classList.add('theming');
   apply();
-  setTimeout(() => document.body.classList.remove('theming'), MOTION.theme() + 60);
+  // 修复 建议㉗（三轮）：MOTION 未定义（模块未加载/降级路径）时兜底 240ms，不再 ReferenceError
+  setTimeout(() => document.body.classList.remove('theming'), (typeof MOTION !== 'undefined' && MOTION.theme ? MOTION.theme() : 240) + 60);
 }

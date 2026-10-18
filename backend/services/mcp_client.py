@@ -158,12 +158,13 @@ class McpClient:
 
     def call_tool(self, name: str, arguments: dict, timeout: float = None) -> dict:
         """tools/call；超时发 notifications/cancelled 并抛 McpTimeoutError。"""
+        # 修复 ⑩（三轮）：原 `timeout or CALL_TIMEOUT` 会把显式 0 吞成默认——None 检查
         return self._request('tools/call',
                              {'name': name, 'arguments': arguments or {}},
-                             timeout=timeout or CALL_TIMEOUT) or {}
+                             timeout=timeout if timeout is not None else CALL_TIMEOUT) or {}
 
     def ping(self) -> dict:
-        return self._request('ping', {}, timeout=PING_TIMEOUT) or {}
+        return self._request('ping', {}, timeout=PING_TIMEOUT if PING_TIMEOUT is not None else 15) or {}
 
     def cancel(self, request_id) -> None:
         """notifications/cancelled（规范取消语义，best-effort）。"""
@@ -267,7 +268,9 @@ class McpClient:
                 raise McpProtocolError(err.get('code', -1), err.get('message', '未知错误'),
                                        err.get('data'))
             raise McpProtocolError(-1, str(err))
-        if 'id' in resp and str(resp.get('id')) != str(rid):
+        # 修复 ⑨（三轮）：原 `if 'id' in resp and ...` 对**缺 id 的响应直接放行**——
+        # 非法/伪造帧可注入伪造 result；error 帧已在上方特许 null id，此处响应帧必须带匹配 id
+        if 'id' not in resp or str(resp.get('id')) != str(rid):
             raise McpProtocolError(-1, '响应 id 不匹配（期望 %s，实际 %r）' % (rid, resp.get('id')))
         return resp.get('result')
 

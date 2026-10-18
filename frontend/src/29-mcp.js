@@ -18,12 +18,15 @@ const MCP_STATUS_NAMES = {
 async function loadMcpServers() {
   const box = document.getElementById('mcpServerList');
   if (!box) return;
+  // 修复 ㊿（三轮）：失败标记供渲染层区分「加载失败」与「真的没有服务器」
+  mcpLoadFailed = false;
   try {
     const raw = await callApi('mcp_list_servers', []);
     const d = JSON.parse(raw) || {};
     mcpServers = d.servers || [];
   } catch (e) {
     mcpServers = [];
+    mcpLoadFailed = true;
     toast('MCP 服务器列表加载失败：' + (e.message || e) + '（后端可能为旧版，请重新打包）', 'err');
   }
   renderMcpServerList();
@@ -38,6 +41,16 @@ function renderMcpServerList() {
   const box = document.getElementById('mcpServerList');
   if (!box) return;
   box.innerHTML = '';
+  // 修复 ㊿（三轮）：加载失败（mcpServers=[] 且失败标记）时显示错误态——
+  // 原一律渲染「还没有服务器」空态，用户误以为真没配置
+  if (mcpLoadFailed) {
+    const err = document.createElement('div');
+    err.className = 'mcp-empty';
+    err.style.color = 'var(--err)';
+    err.textContent = 'MCP 服务器列表加载失败（后端可能为旧版，请重新打包）。配置未丢失，恢复后自动显示。';
+    box.appendChild(err);
+    return;
+  }
   if (!mcpServers.length) {
     const empty = document.createElement('div');
     empty.className = 'mcp-empty';
@@ -137,6 +150,11 @@ async function mcpToggleServer(name, on) {
 }
 
 async function mcpDeleteServer(name) {
+  // 修复 ⑱（三轮）：busy 守卫——原无保护，双击删除按钮会弹两个确认框
+  // （第一个删除后第二个对已删名再确认，误导用户）
+  if (mcpToggleServer._busy.has(name)) return;
+  mcpToggleServer._busy.add(name);
+  try {
   const r = await uiConfirm({
     title: '删除 MCP 服务器', body: '确认删除「' + name + '」？\n其配置（含档位覆盖）将一并移除，此操作不可恢复。',
     danger: true, okText: '删除'
@@ -149,6 +167,9 @@ async function mcpDeleteServer(name) {
     toast('删除失败：' + (e.message || e), 'err');
   }
   loadMcpServers();
+  } finally {
+    mcpToggleServer._busy.delete(name);
+  }
 }
 
 async function mcpTestServer(name) {

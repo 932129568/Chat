@@ -86,7 +86,8 @@ async function renderAuditList() {
     if (cnt) cnt.textContent = '';
     return;
   }
-  let entries = data.entries || [];
+  // 修复 建议52（三轮）：entries 非数组（脏数据/旧格式）不再 TypeError，退空列表
+  let entries = Array.isArray(data.entries) ? data.entries : [];
   if (_auditFilter === 'rejected') {
     entries = entries.filter(en => {
       const k = _auditStatusKey(en);
