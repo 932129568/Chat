@@ -64,6 +64,10 @@ async function showUpdateDialog() {
 
 async function startUpdateFlow() {
   if (!_updateInfo) return;
+  // 修复 W36（三轮）：下载可重入——并发双轮询 + 双 pinned 进度 toast（一个下载
+  // 两个进度条互相覆盖）。加 in-flight 守卫，重复触发直接提示
+  if (startUpdateFlow._busy) { toast('更新正在下载中，请稍候…', 'info'); return; }
+  startUpdateFlow._busy = true;
   // 修复 ㊵：进度 toast 改 pinned（永不自动消失）——原 stay 上限 60s，慢网络下载中途进度不可见
   const t = toast('正在下载 v' + _updateInfo.latest + '… 0%', 'info', { stay: true, pinned: true });
   const setMsg = (txt) => { const m = t && t.querySelector ? t.querySelector('.toast-msg') : null; if (m) m.textContent = txt; };
@@ -96,5 +100,7 @@ async function startUpdateFlow() {
   } catch (e) {
     dismiss();   // 修复 ㊵：失败时先收掉 pinned 进度条，再弹可关闭的错误明细
     toast('更新失败：' + e.message + '（当前版本不受影响，可重试）', 'err', { stay: true, detail: e.message });
+  } finally {
+    startUpdateFlow._busy = false;   // 修复 W36（三轮）：流程结束（成功/失败/暂缓）解除重入守卫
   }
 }

@@ -260,8 +260,11 @@ class TestS2Warm:
         c1 = _Fake()
         wr.register('s', c1)
         time.sleep(0.25)
+        # 修复 S8（三轮）：reap 返回 (server, client) 对——调用方 close 的就是它
         reaped = wr.reap()
-        assert 's' in reaped
+        assert [s for s, _c in reaped] == ['s']
+        stale = dict(reaped)['s']
+        assert stale is c1
         assert wr.pop('s') is None         # reap 已摘
 
     def test_stale_and_backoff_helpers(self):

@@ -274,6 +274,11 @@ class HttpTransport:
                 if frame is None:
                     continue                     # 注释帧/缺 data 帧跳过
                 if self._is_response_frame(frame, req_obj):
+                    # 修复 S6（三轮）：拿到响应帧后排干剩余 SSE 流再返回——原直接 return，
+                    # 连接里残留未读字节，归还连接池后下次复用必抛
+                    # CannotSendRequest('Request-sent')（Streamable HTTP 主流形态必发，
+                    # 两次回环实证；既有测试因 HTTP/1.0 桩不复用而漏检）
+                    self._drain_sse(resp, reader, deadline, req_obj)
                     return frame
                 self._dispatch_frame(frame)      # 通知/服务器请求（W15）
         # EOF 兜底：缓冲区里可能还有末帧
@@ -287,6 +292,34 @@ class HttpTransport:
                     return frame
                 self._dispatch_frame(frame)
         raise HttpTransportError('SSE 响应无匹配 data 帧')
+
+    def _drain_sse(self, resp, reader, deadline, req_obj):
+        """修复 S6（三轮）：响应帧已取到，排干 SSE 剩余字节（继续 dispatch 途中帧，
+        不丢通知）后再归还连接池。残留未读字节会让复用连接报
+        CannotSendRequest('Request-sent')。上限 = 同一 watchdog deadline。"""
+        buf = b''
+        try:
+            while time.monotonic() <= deadline:
+                try:
+                    chunk = reader(_SSE_CHUNK)
+                except Exception:
+                    return
+                if not chunk:
+                    return                     # EOF：已排干
+                buf += chunk
+                while True:
+                    ev, buf = self._pop_event(buf)
+                    if ev is None:
+                        break
+                    try:
+                        frame = self._frame_from_event(ev)
+                    except HttpTransportError:
+                        continue
+                    if frame is None:
+                        continue
+                    self._dispatch_frame(frame)
+        except Exception:
+            pass   # 排干失败不升级：healthy 标记兜底，finally 里会正确归还
 
     @staticmethod
     def _pop_event(buf):

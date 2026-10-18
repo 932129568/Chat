@@ -100,20 +100,29 @@ function openSessionSearch() {
   setTimeout(() => input.focus(), 30);
 }
 
-/** 点击搜索结果：切换会话 → 滚动到命中消息 → 高亮闪烁 2.4s。 */
+/** 点击搜索结果：切换会话 → 滚动到命中消息 → 高亮闪烁 2.4s。
+ *  修复 S10（三轮）：原 rAF(≈16ms) 早于 switchSession 的 140ms 切换过渡 + 历史重建，
+ *  [data-midx] 元素尚未产出 → 恒落兜底滚到底、高亮错消息。改为轮询等待（≤1s）。 */
 function jumpToSearchHit(sessionId, midx) {
   _closeModal();
   if (isStreaming) { toast('正在生成回复，请先停止', 'warn'); return; }
   if (currentSessionId !== sessionId) switchSession(sessionId);
-  requestAnimationFrame(() => {
-    const el = document.querySelector('#chatContainer [data-midx="' + String(midx) + '"]');
-    if (el) {
-      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      el.classList.add('search-hit-flash');
-      setTimeout(() => el.classList.remove('search-hit-flash'), 2400);
-    } else {
+  const selector = '#chatContainer [data-midx="' + String(midx) + '"]';
+  const flash = (el) => {
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    el.classList.add('search-hit-flash');
+    setTimeout(() => el.classList.remove('search-hit-flash'), 2400);
+  };
+  let tries = 0;
+  const poll = () => {
+    const el = document.querySelector(selector);
+    if (el) { flash(el); return; }
+    if (++tries > 20) {   // 1s 仍未产出（目标消息未渲染/空内容）→ 兜底滚到底
       const box = document.getElementById('chatContainer');
-      if (box) box.scrollTop = box.scrollHeight;   // 目标消息未产出 DOM（空内容等）→ 兜底滚到底
+      if (box) box.scrollTop = box.scrollHeight;
+      return;
     }
-  });
+    setTimeout(poll, 50);
+  };
+  poll();
 }

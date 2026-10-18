@@ -532,9 +532,14 @@ class TestWarmRegistry:
         time.sleep(0.1)
         assert reg.get('s1') is None                       # 空闲过期自动回收
         assert reg.reap() == []
-        reg.register('s2', object())
+        c2 = object()
+        reg.register('s2', c2)
         time.sleep(0.1)
-        assert reg.reap() == ['s2']
+        # 修复 S8（三轮）：reap 返回 (server, client) 对——调用方拿到的 client 才是要
+        # close 的对象（原返回 server 名，调用方再 pop 恒 None，close 永不执行）
+        reaped = reg.reap()
+        assert [s for s, _c in reaped] == ['s2']
+        assert dict(reaped)['s2'] is c2
         assert reg.stats() == {'warm': [], 'count': 0}
 
 

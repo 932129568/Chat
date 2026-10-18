@@ -20,8 +20,8 @@ def setup_logging(log_dir=None, level=logging.INFO):
     # 修复 S1：原 `if logger.handlers: return` 被模块级 NullHandler 恒真卡住，
     # RotatingFileHandler 永远不会挂上 → 落盘日志完全失效。
     # 已初始化判断限定文件 handler（NullHandler 不算已初始化）。
-    if any(isinstance(h, RotatingFileHandler) for h in logger.handlers):
-        return logger
+    # 修复 ⑥（三轮）：删冗余死分支——RotatingFileHandler 本就是 FileHandler 子类，
+    # 第二个 isinstance 检查恒被第一个覆盖。
     if any(isinstance(h, logging.FileHandler) for h in logger.handlers):
         return logger
     logger.setLevel(level)

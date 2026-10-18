@@ -18,3 +18,5 @@ let providerState = { enabled: false };// R6：当前自定义端点（boot 时�
 const mcpTrusted = new Set();          // R3：会话内已信任的 MCP 工具（键 server__tool；
                                        // 修复 W26：切会话/新会话即清空——与「本会话内不再提示」文案对齐）
 let mcpServers = [];                   // R5：MCP 服务器面板缓存（loadMcpServers 回填）
+// 修复 ㊿（三轮）：MCP 列表加载失败标记（渲染层区分「失败」与「真的没有服务器」）
+let mcpLoadFailed = false;

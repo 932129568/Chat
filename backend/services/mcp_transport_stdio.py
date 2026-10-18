@@ -52,6 +52,7 @@ class StdioTransport:
         self._reader = None
         self._drain = None
         self._closed = False
+        self._eof = False   # 修复 ⑮（三轮）：读线程 EOF 置位（is_alive 据此判死，防僵尸空转）
 
     def start(self, command: str, args: list, env: dict) -> bool:
         """拉起子进程并启动读线程。失败返回 False（不抛）。"""
@@ -123,7 +124,9 @@ class StdioTransport:
 
     def is_alive(self) -> bool:
         # 修复 S4（二轮）：_closed 也算死（防御性断开后必须让上层触发重拉）
-        return not self._closed and self._proc is not None and self._proc.poll() is None
+        # 修复 ⑮（三轮）：_eof 也算死——原 EOF 后读线程结束但进程不退（僵尸）时
+        # is_alive 恒真，recv 恒 None，调用方无限空转
+        return not self._closed and not self._eof and self._proc is not None and self._proc.poll() is None
 
     def _defensive_abort(self, reason):
         """修复 S4（二轮）：防御性断开统一走完整断开设义——置 _closed + 杀子进程，
@@ -171,6 +174,7 @@ class StdioTransport:
         except Exception as e:
             self._log.debug('stdio 读线程结束: %r', e)
         finally:
+            self._eof = True   # 修复 ⑮（三轮）：读线程结束即置 EOF（进程不退时 is_alive 判死）
             try:
                 self._queue.put(_EOF, timeout=1)
             except Exception:

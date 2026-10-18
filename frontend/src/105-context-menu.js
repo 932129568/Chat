@@ -66,11 +66,14 @@ function setupContextMenu() {
       };
       menu.appendChild(d);
     });
-    // v4：重入场——清退场态并强制 reflow，保证 v4CtxIn 从头播放（不与未播完的退场动画叠合
+    // 修复 ㉟（三轮）：原硬编码 150/180 钳制——菜单变宽/变高（长文件名菜单项）时
+    // 右侧/底部被视口裁切。改用实测尺寸（先显示再量，避免 offsetWidth=0）
+    menu.style.left = '0px'; menu.style.top = '0px';
     menu.classList.remove('hiding'); void menu.offsetWidth;
     menu.classList.add('show');
-    menu.style.left = Math.min(e.clientX, window.innerWidth - 150) + 'px';
-    menu.style.top = Math.min(e.clientY, window.innerHeight - 180) + 'px';
+    const mw = menu.offsetWidth || 150, mh = menu.offsetHeight || 180;
+    menu.style.left = Math.max(4, Math.min(e.clientX, window.innerWidth - mw - 4)) + 'px';
+    menu.style.top = Math.max(4, Math.min(e.clientY, window.innerHeight - mh - 4)) + 'px';
   });
   document.addEventListener('click', hideMenu);
   window.addEventListener('scroll', hideMenu, true);

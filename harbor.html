@@ -367,8 +367,8 @@ body.dark .eff-tag-s{background:var(--ok-bg);color:var(--ok);}
 .session-item:hover .session-acts{opacity:1;pointer-events:auto;}
 .session-del:hover{color:var(--err);background:var(--err-bg);}
 /* ===== 修复 F1（v1.4）：会话导出按钮（纯新增）===== */
-.session-acts{position:absolute;top:50%;right:8px;transform:translateY(-50%);display:none;gap:2px;}
-.session-item:hover .session-acts{display:inline-flex;}
+/* 修复 W31（三轮）：删此处的 .session-acts 重复定义——后块 display:none 会覆盖上面
+   362 行的修复版（hover 淡入回归为瞬现，出货产物 harbor.html 同病） */
 .session-exp{width:20px;height:20px;border:none;background:transparent;cursor:pointer;
   color:var(--text-3);border-radius:var(--radius-xs);font-size:12px;display:flex;
   align-items:center;justify-content:center;flex-shrink:0;}
@@ -529,7 +529,8 @@ body.dark .md-body :not(pre)>code{background:var(--chip-bg);color:#f87171;}
 .md-body li{margin:3px 0;}
 .md-body blockquote{border-left:2px solid var(--primary);padding:4px 12px;color:var(--text-2);
   margin:8px 0;background:var(--surface-2);border-radius:0 var(--radius-sm) var(--radius-sm) 0;}
-.md-body table{border-collapse:collapse;margin:10px 0;width:100%;font-size:13px;}
+/* 修复 Bug B（2026-10-18）：宽表格横向滚动包裹，不再撑出聊天区 */
+.md-body table{border-collapse:collapse;margin:10px 0;width:100%;font-size:13px;max-width:100%;display:block;overflow-x:auto;}
 .md-body th,.md-body td{border:1px solid var(--border);padding:7px 10px;text-align:left;}
 .md-body th{background:var(--surface-2);font-weight:600;}
 .md-body tr:hover td{background:var(--hover);}
@@ -599,12 +600,14 @@ body.dark .md-body :not(pre)>code{background:var(--chip-bg);color:#f87171;}
 .tool-call-item{background:var(--surface-2);border:1px solid var(--border);border-left:2px solid var(--primary);
   border-radius:var(--radius-sm);margin-top:6px;color:var(--text-2);font-size:12px;font-family:var(--font-mono);
   display:flex;align-items:center;gap:8px;padding:8px 10px;line-height:1.45;
-  position:relative;overflow:hidden;
+  position:relative;overflow:hidden;min-width:0;
   transition:border-color var(--dur-comp) var(--ease-out-soft),
              background-color var(--dur-comp) var(--ease-out-soft),
              color var(--dur-comp) var(--ease-out-soft);
   animation:v4ToolBreathe var(--dur-breathe) ease-in-out infinite;}
 @keyframes v4ToolBreathe{0%,100%{opacity:.88}50%{opacity:1}}
+/* 修复 Bug B（2026-10-18）：flex 子项标签补 min-width:0+ellipsis，长命令/长路径不再被 overflow:hidden 无声裁切 */
+.tool-call-item>span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .tool-call-item .tc-dot{width:7px;height:7px;border-radius:50%;background:var(--primary);flex-shrink:0;
   transition:background-color var(--dur-comp) var(--ease-out-soft);}
 .tool-call-item.done .tc-dot{background:var(--ok);}
@@ -630,6 +633,7 @@ body:not(.fx-off) .tool-call-item:not(.done):not(.fail)::after{content:"";positi
 /* v4 系统提示条：enter v4TipIn 200ms；退场 .out 类驱动（80-utils.js 配合，删内联 opacity .3s） */
 .sys-tip{position:fixed;top:14px;right:14px;z-index:9999;background:var(--text);color:var(--bg);
   padding:9px 15px;border-radius:var(--radius-md);font-size:12.5px;box-shadow:var(--shadow-lg);
+  max-width:calc(100vw - 28px);word-break:break-all;
   animation:v4TipIn var(--dur-comp) var(--ease-out-soft);}
 @keyframes v4TipIn{from{opacity:0;transform:translateY(calc(-1*var(--shift-comp)))}to{opacity:1;transform:none}}
 .sys-tip.out{animation:none;opacity:0;transform:translateY(calc(-1*var(--shift-comp)));
@@ -686,15 +690,19 @@ body.fx-off .input-row:focus-within{box-shadow:0 0 0 3px var(--primary-soft);}
 .icon-btn svg,.pill-btn svg,.tool-btn svg,.ws-btn svg,.ghost-btn svg,.rail-btn svg{
   width:16px;height:16px;flex-shrink:0;display:block;}
 .rail-btn svg{width:20px;height:20px;}
+/* 修复 Bug B（2026-10-18）：输入框显式 overflow/软换行声明，消除对 UA 默认值的隐式依赖 */
 .input-row textarea{flex:1;border:none;background:transparent;font-size:14px;font-family:inherit;
-  padding:8px 6px;resize:none;outline:none;max-height:160px;line-height:1.5;color:var(--text);}
+  padding:8px 6px;resize:none;outline:none;max-height:160px;line-height:1.5;color:var(--text);
+  overflow-y:auto;overflow-wrap:anywhere;}
 .send-btn{width:36px;height:36px;border-radius:var(--radius-md);border:none;background:var(--primary);
   color:#fff;cursor:pointer;font-size:15px;flex-shrink:0;display:flex;align-items:center;
   justify-content:center;}
 .send-btn:hover{background:var(--primary-hover);box-shadow:var(--glow);}
 .send-btn:disabled{opacity:.45;cursor:not-allowed;}
 .hint{font-size:11px;color:var(--text-3);margin-top:8px;display:flex;align-items:center;
-  gap:12px;font-family:var(--font-mono);}
+  gap:12px;font-family:var(--font-mono);min-width:0;}
+/* 修复 Bug B（2026-10-18）：hint 行文本子项收缩+省略，不再换行撑高输入区 */
+.hint>span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 #continueNewBtn{margin-left:auto;font-size:11px;color:var(--text-2);background:var(--chip-bg);
   border:none;padding:4px 10px;border-radius:var(--radius-full);cursor:pointer;
   font-family:inherit;white-space:nowrap;}
@@ -803,20 +811,22 @@ body.fx-off .panel,body.fx-off .message,body.fx-off .settings-panel.show{animati
 /* ============================================================
    v1.2「信任版」新增样式（纯新增：toast / 模态 / 暂停面板 / 更新 pill / 护栏设置）
    ============================================================ */
-#toastBox{position:fixed;right:14px;bottom:14px;z-index:10000;display:flex;flex-direction:column;gap:8px;max-width:min(420px,90vw);}
+/* 修复 Bug B（2026-10-18）：toast 栈封顶 40vh + 纵向滚动，长明细 toast 不再长出视口不可达 */
+#toastBox{position:fixed;right:14px;bottom:14px;z-index:10000;display:flex;flex-direction:column;gap:8px;max-width:min(420px,90vw);max-height:40vh;overflow-y:auto;}
 /* v4 toast：入场 200ms out-soft translateX(8px)；退场 .out 140ms in-soft 镜像 */
 .toast{display:flex;align-items:flex-start;gap:8px;padding:10px 12px;border-radius:var(--radius-md);
   background:var(--card-bg);border:1px solid var(--border);box-shadow:var(--shadow-lg);
-  font-size:12.5px;color:var(--text);animation:v4ToastIn var(--dur-comp) var(--ease-out-soft);word-break:break-all;}
+  font-size:12.5px;color:var(--text);animation:v4ToastIn var(--dur-comp) var(--ease-out-soft);word-break:break-all;
+  max-height:40vh;overflow-y:auto;flex-shrink:0;}
 @keyframes v4ToastIn{from{opacity:0;transform:translateX(var(--shift-toast))}to{opacity:1;transform:none}}
 .toast.out{animation:none;opacity:0;transform:translateX(var(--shift-toast));
   transition:opacity var(--dur-comp-out) var(--ease-in-soft),transform var(--dur-comp-out) var(--ease-in-soft);}
 .toast-ico{flex-shrink:0;width:18px;height:18px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:#fff;}
 .toast-ok .toast-ico{background:var(--ok);} .toast-warn .toast-ico{background:var(--warn);} .toast-err .toast-ico{background:var(--err);} .toast-info .toast-ico{background:var(--primary);}
-.toast-msg{flex:1;line-height:1.5;white-space:pre-wrap;}
+.toast-msg{flex:1;min-width:0;line-height:1.5;white-space:pre-wrap;overflow-wrap:anywhere;}
 .toast-more{flex-shrink:0;border:none;background:transparent;color:var(--primary);font-size:11.5px;cursor:pointer;padding:0;}
 .toast-close{flex-shrink:0;border:none;background:transparent;color:var(--text-3);cursor:pointer;font-size:11px;padding:0 2px;}
-.toast-detail{width:100%;margin-top:6px;padding:8px;background:var(--surface-2);border-radius:var(--radius-sm);font-size:11.5px;color:var(--text-2);white-space:pre-wrap;}
+.toast-detail{width:100%;margin-top:6px;padding:8px;background:var(--surface-2);border-radius:var(--radius-sm);font-size:11.5px;color:var(--text-2);white-space:pre-wrap;max-height:30vh;overflow-y:auto;}
 #modalRoot{position:fixed;inset:0;z-index:10001;}
 .modal-mask{position:absolute;inset:0;background:rgba(16,18,28,.45);backdrop-filter:blur(2px);
   animation:v4MaskIn var(--dur-comp) var(--ease-out-soft);}
@@ -1451,6 +1461,19 @@ body.fx-off .panel,body.fx-off .message,body.fx-off .settings-panel.show{animati
             <div><label>截屏</label><select id="guard_take_screenshot" onchange="saveGuardSettings()">
               <option value="session" selected>会话内首次确认</option><option value="always">每次确认</option><option value="list">仅保护名单</option><option value="off">不拦截</option>
             </select></div>
+            <!-- 修复 W32（三轮）：命令三档原缺失——guard_service 的 GUARD_OPS 一直含
+                 run_command/run_powershell/run_admin_command，但 UI 无入口，命令护栏
+                 对终端用户不可达（只能手改 guard.json）。补三个下拉（renderGuardSettings/
+                 saveGuardSettings 已遍历 8 op，无需改 JS） -->
+            <div><label>执行命令（CMD）</label><select id="guard_run_command" onchange="saveGuardSettings()">
+              <option value="always" selected>每次确认</option><option value="list">仅保护名单</option><option value="session">会话内首次确认</option><option value="off">不拦截</option>
+            </select></div>
+            <div><label>PowerShell</label><select id="guard_run_powershell" onchange="saveGuardSettings()">
+              <option value="always" selected>每次确认</option><option value="list">仅保护名单</option><option value="session">会话内首次确认</option><option value="off">不拦截</option>
+            </select></div>
+            <div><label>管理员命令（UAC）</label><select id="guard_run_admin_command" onchange="saveGuardSettings()">
+              <option value="always" selected>每次确认</option><option value="list">仅保护名单</option><option value="session">会话内首次确认</option><option value="off">不拦截</option>
+            </select></div>
           </div>
           <label style="margin-top:12px;font-weight:400;color:var(--text-2);">保护名单 · 路径（每行一条，支持通配，如 C:\Users\*\Documents\**）</label>
           <textarea class="guard-txt" id="guardProtectPaths" rows="2" placeholder="C:\Users\*\Documents\**" onchange="saveGuardSettings()"></textarea>
@@ -1476,6 +1499,9 @@ body.fx-off .panel,body.fx-off .message,body.fx-off .settings-panel.show{animati
 
 
 <script>
+/* 修复 ㊷（三轮）：APP_VERSION 由 build.js 从 VERSION 文件注入（原前端永无定义，
+   导出 MD 页脚恒显硬编码 '1.4'）。占位符仅允许出现 1 次，build 校验。 */
+const APP_VERSION = '1.5.0';
 /* ===== 00-motion.js ===== */
 /* ================= v4 动效常量表（CSS 变量为单一事实源） =================
  * 来源：deliverables/design/v4 设计令牌文档（彩格调）附录 A。
@@ -1556,6 +1582,8 @@ let providerState = { enabled: false };// R6：当前自定义端点（boot 时�
 const mcpTrusted = new Set();          // R3：会话内已信任的 MCP 工具（键 server__tool；
                                        // 修复 W26：切会话/新会话即清空——与「本会话内不再提示」文案对齐）
 let mcpServers = [];                   // R5：MCP 服务器面板缓存（loadMcpServers 回填）
+// 修复 ㊿（三轮）：MCP 列表加载失败标记（渲染层区分「失败」与「真的没有服务器」）
+let mcpLoadFailed = false;
 
 /* ===== 05-bridge.js ===== */
 /* ================= 桥接 ================= */
@@ -1703,7 +1731,8 @@ function toggleTheme() {
   }
   document.body.classList.add('theming');
   apply();
-  setTimeout(() => document.body.classList.remove('theming'), MOTION.theme() + 60);
+  // 修复 建议㉗（三轮）：MOTION 未定义（模块未加载/降级路径）时兜底 240ms，不再 ReferenceError
+  setTimeout(() => document.body.classList.remove('theming'), (typeof MOTION !== 'undefined' && MOTION.theme ? MOTION.theme() : 240) + 60);
 }
 
 /* ===== 16-panel-fx.js ===== */
@@ -1739,7 +1768,7 @@ function switchPanel(name) {
   } else {
     if (_panelLeaving) { _panelLeaving.el.classList.remove('on', 'leaving', 'out-fwd', 'out-back'); _panelLeaving = null; }
     if (oldEl) oldEl.classList.add('leaving', 'out-' + dir);
-    if (newEl) newEl.classList.add('on', 'in-' + dir);
+    if (newEl) newEl.classList.add('on', 'in-' + dir);   // 修复 建议㉝（三轮）：newEl null 守卫（原 L33 无守卫，面板 id 不存在即抛）
     MOTION.onAnimEnd(newEl, 'animationend', MOTION.panel()).then(() => newEl.classList.remove('in-' + dir));
     if (oldEl) {
       _panelLeaving = { el: oldEl };
@@ -1990,22 +2019,29 @@ function uiPrompt(opts) {
 /* ================= dHash 截图去重 ================= */
 function dHashOfDataUrl(dataUrl) {
   return new Promise(resolve => {
+    // 修复 ㊲（三轮）：img.src 赋值后 onload/onerror 均不触发（极端：坏 dataUrl/
+    // 引擎静默失败）时 Promise 永不 settle，调用方 await 挂死。加 3s 兜底 resolve(null)。
+    let settled = false;
+    const done = (v) => { if (!settled) { settled = true; resolve(v); } };
+    setTimeout(() => done(null), 3000);
     const img = new Image();
     img.onload = () => {
-      const w = 9, h = 8, c = document.createElement('canvas');
-      c.width = w; c.height = h;
-      const ctx = c.getContext('2d', { willReadFrequently: true });
-      ctx.drawImage(img, 0, 0, w, h);
-      const d = ctx.getImageData(0, 0, w, h).data, g = [];
-      for (let i = 0; i < w * h; i++)
-        g.push(0.299 * d[i*4] + 0.587 * d[i*4+1] + 0.114 * d[i*4+2]);
-      const bits = [];
-      for (let y = 0; y < h; y++)
-        for (let x = 0; x < w - 1; x++)
-          bits.push(g[y*w + x] > g[y*w + x + 1] ? 1 : 0);
-      resolve(bits);
+      try {
+        const w = 9, h = 8, c = document.createElement('canvas');
+        c.width = w; c.height = h;
+        const ctx = c.getContext('2d', { willReadFrequently: true });
+        ctx.drawImage(img, 0, 0, w, h);
+        const d = ctx.getImageData(0, 0, w, h).data, g = [];
+        for (let i = 0; i < w * h; i++)
+          g.push(0.299 * d[i*4] + 0.587 * d[i*4+1] + 0.114 * d[i*4+2]);
+        const bits = [];
+        for (let y = 0; y < h; y++)
+          for (let x = 0; x < w - 1; x++)
+            bits.push(g[y*w + x] > g[y*w + x + 1] ? 1 : 0);
+        done(bits);
+      } catch (e) { done(null); }
     };
-    img.onerror = () => resolve(null);
+    img.onerror = () => done(null);
     img.src = dataUrl;
   });
 }
@@ -2061,9 +2097,20 @@ async function executeToolRaw(name, args) {
   // 修复 ㊱：pickPath 缺省 ''（原 undefined 会以位置参数形式把 undefined 传给后端）
   const pickPath = (a) => a.path || a.file_path || a.filename || a.file || a.target || a.src || '';
   // 修复 ㊱：命令取值与护栏 detail 同口径（args.cmd 优先，缺失时回退 args.command）
-  const pickCmd = (a) => a.cmd != null ? String(a.cmd) : String(a.command || '');
+  // 修复 ②（三轮）：原 `a.cmd != null ? String(a.cmd) : ...` 对空串 falsy 穿透
+  // （cmd='' 时取到空命令，后端/护栏拿到空串）——空值也回退 command
+  const pickCmd = (a) => {
+    const c = (a.cmd != null) ? String(a.cmd) : '';
+    return c.trim() ? c : String(a.command || '');
+  };
   // 修复 ㊱：timeout 显式判断（原 `args.timeout || 60` 吞 0 值）
-  const pickTimeout = (a) => (typeof a.timeout === 'number' && a.timeout > 0) ? a.timeout : 60;
+  // 修复 ⑧（三轮）：兼容数字字符串（模型常传 "120"）——原 typeof number 检查被吞成默认 60
+  const pickTimeout = (a) => {
+    const t = a.timeout;
+    if (typeof t === 'number' && t > 0) return t;
+    if (typeof t === 'string' && /^\d+(\.\d+)?$/.test(t.trim()) && parseFloat(t) > 0) return parseFloat(t);
+    return 60;
+  };
   // 修复 S4①：token 作为最后一个位置参数追加（仅非空时——旧 exe 没有该形参，多传会 TypeError）
   const withToken = (arr, token) => token ? arr.concat([token]) : arr;
   try {
@@ -2079,7 +2126,20 @@ async function executeToolRaw(name, args) {
     if (name === 'get_file_info')     return await callApi('get_file_info', [pickPath(args)]);
     if (name === 'run_command')       return await callApi('run_command', withToken([pickCmd(args), pickTimeout(args)], guardToken), 660000);
     if (name === 'run_powershell')    return await callApi('run_powershell', withToken([pickCmd(args), pickTimeout(args)], guardToken), 660000);
-    if (name === 'run_admin_command') return await callApi('run_admin_command', withToken([pickCmd(args)], guardToken), 150000);
+    if (name === 'run_admin_command') {
+      /* 修复 S5/W8（三轮）：① timeout 参数接线（原只传 cmd，后端 timeout 是死参数）；
+       * ② 前端 150s 超时与后端人审口径对齐——人审是 MessageBox 无限期阻塞，前端超时后
+       *    模型若重试会排队等第二个确认框（二次提权执行）。超时返回不可重试语义。 */
+      try {
+        return await callApi('run_admin_command', withToken([pickCmd(args), pickTimeout(args)], guardToken), 150000);
+      } catch (e) {
+        const msg = String((e && e.message) || e);
+        if (/timeout|超时|Timeout/i.test(msg)) {
+          return JSON.stringify({ error: '管理员命令的人审确认未在 150 秒内完成，命令未执行。请勿原样重试——重复调用会再次弹出确认框；请等待用户确认或改用普通命令。', non_retryable: true });
+        }
+        throw e;
+      }
+    }
     if (name === 'read_more')         return await callApi('read_more', [args.cache_id, args.offset || 0, args.limit || 2000]);
     if (name === 'open_app')          return await callApi('open_app', [pickPath(args)]);
     if (name === 'open_url')          return await callApi('open_url', [args.url]);
@@ -2420,6 +2480,10 @@ async function showUpdateDialog() {
 
 async function startUpdateFlow() {
   if (!_updateInfo) return;
+  // 修复 W36（三轮）：下载可重入——并发双轮询 + 双 pinned 进度 toast（一个下载
+  // 两个进度条互相覆盖）。加 in-flight 守卫，重复触发直接提示
+  if (startUpdateFlow._busy) { toast('更新正在下载中，请稍候…', 'info'); return; }
+  startUpdateFlow._busy = true;
   // 修复 ㊵：进度 toast 改 pinned（永不自动消失）——原 stay 上限 60s，慢网络下载中途进度不可见
   const t = toast('正在下载 v' + _updateInfo.latest + '… 0%', 'info', { stay: true, pinned: true });
   const setMsg = (txt) => { const m = t && t.querySelector ? t.querySelector('.toast-msg') : null; if (m) m.textContent = txt; };
@@ -2452,6 +2516,8 @@ async function startUpdateFlow() {
   } catch (e) {
     dismiss();   // 修复 ㊵：失败时先收掉 pinned 进度条，再弹可关闭的错误明细
     toast('更新失败：' + e.message + '（当前版本不受影响，可重试）', 'err', { stay: true, detail: e.message });
+  } finally {
+    startUpdateFlow._busy = false;   // 修复 W36（三轮）：流程结束（成功/失败/暂缓）解除重入守卫
   }
 }
 
@@ -2544,7 +2610,8 @@ async function renderAuditList() {
     if (cnt) cnt.textContent = '';
     return;
   }
-  let entries = data.entries || [];
+  // 修复 建议52（三轮）：entries 非数组（脏数据/旧格式）不再 TypeError，退空列表
+  let entries = Array.isArray(data.entries) ? data.entries : [];
   if (_auditFilter === 'rejected') {
     entries = entries.filter(en => {
       const k = _auditStatusKey(en);
@@ -2602,12 +2669,15 @@ const MCP_STATUS_NAMES = {
 async function loadMcpServers() {
   const box = document.getElementById('mcpServerList');
   if (!box) return;
+  // 修复 ㊿（三轮）：失败标记供渲染层区分「加载失败」与「真的没有服务器」
+  mcpLoadFailed = false;
   try {
     const raw = await callApi('mcp_list_servers', []);
     const d = JSON.parse(raw) || {};
     mcpServers = d.servers || [];
   } catch (e) {
     mcpServers = [];
+    mcpLoadFailed = true;
     toast('MCP 服务器列表加载失败：' + (e.message || e) + '（后端可能为旧版，请重新打包）', 'err');
   }
   renderMcpServerList();
@@ -2622,6 +2692,16 @@ function renderMcpServerList() {
   const box = document.getElementById('mcpServerList');
   if (!box) return;
   box.innerHTML = '';
+  // 修复 ㊿（三轮）：加载失败（mcpServers=[] 且失败标记）时显示错误态——
+  // 原一律渲染「还没有服务器」空态，用户误以为真没配置
+  if (mcpLoadFailed) {
+    const err = document.createElement('div');
+    err.className = 'mcp-empty';
+    err.style.color = 'var(--err)';
+    err.textContent = 'MCP 服务器列表加载失败（后端可能为旧版，请重新打包）。配置未丢失，恢复后自动显示。';
+    box.appendChild(err);
+    return;
+  }
   if (!mcpServers.length) {
     const empty = document.createElement('div');
     empty.className = 'mcp-empty';
@@ -2721,6 +2801,11 @@ async function mcpToggleServer(name, on) {
 }
 
 async function mcpDeleteServer(name) {
+  // 修复 ⑱（三轮）：busy 守卫——原无保护，双击删除按钮会弹两个确认框
+  // （第一个删除后第二个对已删名再确认，误导用户）
+  if (mcpToggleServer._busy.has(name)) return;
+  mcpToggleServer._busy.add(name);
+  try {
   const r = await uiConfirm({
     title: '删除 MCP 服务器', body: '确认删除「' + name + '」？\n其配置（含档位覆盖）将一并移除，此操作不可恢复。',
     danger: true, okText: '删除'
@@ -2733,6 +2818,9 @@ async function mcpDeleteServer(name) {
     toast('删除失败：' + (e.message || e), 'err');
   }
   loadMcpServers();
+  } finally {
+    mcpToggleServer._busy.delete(name);
+  }
 }
 
 async function mcpTestServer(name) {
@@ -3281,22 +3369,31 @@ function openSessionSearch() {
   setTimeout(() => input.focus(), 30);
 }
 
-/** 点击搜索结果：切换会话 → 滚动到命中消息 → 高亮闪烁 2.4s。 */
+/** 点击搜索结果：切换会话 → 滚动到命中消息 → 高亮闪烁 2.4s。
+ *  修复 S10（三轮）：原 rAF(≈16ms) 早于 switchSession 的 140ms 切换过渡 + 历史重建，
+ *  [data-midx] 元素尚未产出 → 恒落兜底滚到底、高亮错消息。改为轮询等待（≤1s）。 */
 function jumpToSearchHit(sessionId, midx) {
   _closeModal();
   if (isStreaming) { toast('正在生成回复，请先停止', 'warn'); return; }
   if (currentSessionId !== sessionId) switchSession(sessionId);
-  requestAnimationFrame(() => {
-    const el = document.querySelector('#chatContainer [data-midx="' + String(midx) + '"]');
-    if (el) {
-      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      el.classList.add('search-hit-flash');
-      setTimeout(() => el.classList.remove('search-hit-flash'), 2400);
-    } else {
+  const selector = '#chatContainer [data-midx="' + String(midx) + '"]';
+  const flash = (el) => {
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    el.classList.add('search-hit-flash');
+    setTimeout(() => el.classList.remove('search-hit-flash'), 2400);
+  };
+  let tries = 0;
+  const poll = () => {
+    const el = document.querySelector(selector);
+    if (el) { flash(el); return; }
+    if (++tries > 20) {   // 1s 仍未产出（目标消息未渲染/空内容）→ 兜底滚到底
       const box = document.getElementById('chatContainer');
-      if (box) box.scrollTop = box.scrollHeight;   // 目标消息未产出 DOM（空内容等）→ 兜底滚到底
+      if (box) box.scrollTop = box.scrollHeight;
+      return;
     }
-  });
+    setTimeout(poll, 50);
+  };
+  poll();
 }
 
 /* ===== 33-set-nav.js ===== */
@@ -3494,10 +3591,12 @@ function applyLocalMetaBadge() {
     const toolTxt = localState.tool_capable === 'off' ? '工具关'
       : localState.tool_capable === 'on' ? '工具开'
       : (meta.tool_capable ? '工具可用' : '工具存疑');
-    badge.textContent = '窗口 ' + (w >= 1024 ? (w / 1024) + 'k' : w) + (meta.estimated ? '（估）' : '') + ' · ' + toolTxt;
+    // 修复 ㊾（三轮）：ctx 徽标取整——原 20000/1024=19.53k 直接拼小数，与
+    // 36-connect 侧 Math.round 口径不一（两套舍入）。统一四舍五入
+    badge.textContent = '窗口 ' + (w >= 1024 ? Math.round(w / 1024) + 'k' : w) + (meta.estimated ? '（估）' : '') + ' · ' + toolTxt;
     badge.className = 'local-badge ' + (meta.tool_capable ? 'on' : 'warn');
   } else {
-    badge.textContent = ctx > 0 ? ('窗口 ' + (ctx >= 1024 ? (ctx / 1024) + 'k' : ctx) + '（手设）') : '元数据待获取';
+    badge.textContent = ctx > 0 ? ('窗口 ' + (ctx >= 1024 ? Math.round(ctx / 1024) + 'k' : ctx) + '（手设）') : '元数据待获取';
     badge.className = 'local-badge';
   }
 }
@@ -4190,8 +4289,16 @@ function connectOnModelChange() {
 /** 高级折叠三条条件显隐（设计书 §5 矩阵）。 */
 function connectUpdateAdvanced() {
   const meta = connectPresetMeta(connectCurrentPreset());
-  const showReasoning = !!meta.glm_capable;
-  const showBilling = !meta.glm_capable && !meta.local;
+  // 修复 W34（三轮）：GLM 判据双轨制——发送层 isGlmEndpoint() 认「name==='glm'
+  // 或 base_url 含 bigmodel.cn」，UI 显隐原只认 meta.glm_capable（仅 glm 预设）。
+  // 用户填官方域名的自定义预设：发送层走 GLM 语义（thinking/智能档/内置价表），
+  // UI 却按非 GLM 显隐 → 用户填的三价实际不生效。显隐加同口径判据
+  // （isGlmBaseUrl 在 71-provider 定义，同脚本作用域；typeof 守卫保模块沙箱可测）
+  const _pid = connectCurrentPreset();
+  const _glmUi = !!meta.glm_capable
+    || (_pid === 'custom' && typeof isGlmBaseUrl === 'function' && isGlmBaseUrl(connectBaseUrl()));
+  const showReasoning = _glmUi;
+  const showBilling = !_glmUi && !meta.local;
   const showLocal = !!meta.local;
   const show = (id, on) => {
     const el = document.getElementById(id);
@@ -4280,6 +4387,7 @@ async function connectApplyPreset(id, opts) {
   opts = opts || {};
   const presetId = PRESETS[id] ? id : 'custom';
   clearTimeout(connectIdentifyTimer);
+  if (typeof connectIdentifySeq === 'number') connectIdentifySeq++;   // 修复 S9（三轮）：切预设使在途识别请求失效（旧端点清单不污染新预设下拉）
   if (opts.animate && typeof MOTION !== 'undefined' && !MOTION.instant()) {
     const flow = document.getElementById('cmFlow');
     if (flow && flow.classList) flow.classList.add('swapping');
@@ -4475,8 +4583,11 @@ function connectLoadFromConfig(cfg) {
        无 local_model 时才回落到原 provider_model/model。 */
     model = String(cfg.local_model || '').trim() || model;
     needSeed = true;
-  } else if (!base && (legacyKey || legacyModel || !presetId)) {
-    /* v1.2/更早：只有 api_key（或完全没有端点信息）→ 一次性 seed 为 GLM 预设 */
+  } else if (!base && !presetId && (legacyKey || legacyModel)) {
+    /* v1.2/更早：只有 api_key（完全没有端点信息）→ 一次性 seed 为 GLM 预设。
+       修复 W37（三轮）：原条件 `(legacyKey || legacyModel || !presetId)` 把
+       「provider_name 有效但 base 为空」的配置也强并为 GLM 并落盘——用户选过
+       预设的配置被静默改写。现只有无预设名才 seed GLM；有预设名走下方预设默认 base。 */
     presetId = 'glm';
     base = PRESETS.glm.base_url;
     key = key || legacyKey;
@@ -4695,6 +4806,41 @@ function webdavSetStatus(text, ok) {
   const st = document.getElementById('webdavStatus');
   if (st) { st.textContent = text; st.style.color = ok ? 'var(--ok)' : 'var(--text-2)'; }
 }
+/* 修复 W35（三轮）：表单脏检查——记录上次加载/保存时的配置快照，与当前表单值
+   比对。导出/恢复前发现未保存改动则自动带上（原直接用后端旧配置，用户改了
+   地址/账号没点保存时静默失效）。 */
+let _webdavSnapshot = null;
+function webdavFormDirty() {
+  try {
+    const cur = webdavCollectConfig();
+    if (!_webdavSnapshot) return false;   // 未加载过配置（无快照）不判定脏
+    const keys = ['url', 'username', 'password', 'remote_path', 'conflict_policy'];
+    return keys.some(k => String(cur[k] || '') !== String(_webdavSnapshot[k] || ''));
+  } catch (e) { return false; }
+}
+/** 加载配置回填表单后调用：刷新快照（脏检查基线）。 */
+function webdavMarkSnapshot() {
+  try { _webdavSnapshot = webdavCollectConfig(); } catch (e) {}
+}
+/* 修复 W35+回填缺失（三轮）：前端从不调 webdav_get_config 回填——保存后重开软件
+   表单全空，用户误以为配置丢失（后端 webdav.json 其实有）。boot 时回填 + 刷新快照。
+   密码不回填（后端 get_config 不回显密码，只影响「测试连接」需重输——安全取舍）。 */
+async function loadWebdavConfigNow() {
+  try {
+    const r = JSON.parse(await callApi('webdav_get_config', [])) || {};
+    const set = (id, v) => { const el = document.getElementById(id); if (el && v != null) el.value = v; };
+    set('webdavUrl', r.url);
+    set('webdavUser', r.username);
+    set('webdavPath', r.remote_path || '/glm-chat-backup');
+    set('webdavConflict', r.conflict_policy || 'ask');
+    webdavMarkSnapshot();
+  } catch (e) { /* 后端不可用（旧 exe）：留空表单 */ }
+}
+if (typeof document !== 'undefined' && document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', loadWebdavConfigNow);
+} else if (typeof document !== 'undefined') {
+  loadWebdavConfigNow();
+}
 /** 保存配置（webdav.json，DPAPI 加密 password；导出/恢复前必须先保存）。 */
 async function saveWebdavConfigNow() {
   const btn = document.getElementById('webdavSaveBtn');
@@ -4703,6 +4849,8 @@ async function saveWebdavConfigNow() {
   try {
     const r = JSON.parse(await callApi('webdav_save_config', [JSON.stringify(webdavCollectConfig())]));
     if (r.ok) {
+      webdavMarkSnapshot();   // 修复 W35（三轮）：保存成功即刷新脏检查基线
+      if (r.warning) toast(r.warning, 'warn', { stay: true });   // W17：DPAPI 兜底明文告警
       webdavSetStatus('✓ 配置已保存到本机 webdav.json（密码已加密）', true);
       toast('WebDAV 配置已保存', 'ok');
     } else {
@@ -4738,6 +4886,13 @@ async function webdavTestNow() {
 }
 async function webdavExportNow() {
   const btn = document.getElementById('webdavExportBtn');
+  // 修复 W35（三轮）：导出/恢复原直接用后端已存配置——UI 表单改了地址/账号但
+  // 没点保存时静默用旧配置（用户以为改了其实没生效）。导出前自动带上未保存改动
+  try {
+    if (typeof webdavFormDirty === 'function' && webdavFormDirty()) {
+      await saveWebdavConfigNow();
+    }
+  } catch (e) {}
   if (btn) { btn.disabled = true; btn.textContent = '上传中…'; }
   webdavSetStatus('', true);
   try {
@@ -4765,6 +4920,24 @@ async function webdavExportNow() {
 }
 async function webdavRestoreNow() {
   const btn = document.getElementById('webdavRestoreBtn');
+  // 修复 W35（三轮）：同导出——恢复前自动保存未保存的表单改动（地址/账号）
+  try {
+    if (typeof webdavFormDirty === 'function' && webdavFormDirty()) {
+      await saveWebdavConfigNow();
+    }
+  } catch (e) {}
+  // 修复 S13（三轮）：数据覆盖级操作补二次确认（config+sessions+audit 全覆盖，
+  // 与项目其他破坏性操作的确认惯例对齐；误点不可逆）
+  const confirmed = await uiConfirm({
+    title: '从备份恢复',
+    body: '将用云端备份覆盖本地配置、会话与审计日志（共 3 项数据），此操作不可撤销。\n确定继续？',
+    danger: true,
+    okText: '确定恢复'
+  });
+  if (!confirmed || !confirmed.ok) {
+    if (btn) { btn.disabled = false; btn.textContent = '从备份恢复'; }
+    return;
+  }
   if (btn) { btn.disabled = true; btn.textContent = '恢复中…'; }
   webdavSetStatus('', true);
   try {
@@ -4848,11 +5021,15 @@ document.addEventListener('keydown', (e) => {
 });
 
 /** 刷新快捷条状态（boot / 任何工作区变化后调用）。 */
+/* 修复 55（三轮）：刷新序号——并发/慢响应时旧结果不覆盖新状态（last-wins） */
+let _wsqSeq = 0;
 async function wsQuickRefresh() {
   const nameEl = document.getElementById('wsqName');
   if (!nameEl) return;
+  const seq = ++_wsqSeq;
   let st = { ws: '', bound: false, enabled: true, recent: [] };
   try { st = Object.assign(st, JSON.parse(await callApi('get_ws_state', [currentSessionId])) || {}); } catch (e) {}
+  if (seq !== _wsqSeq) return;   // 过期响应丢弃
   const on = !!st.enabled && !!st.ws;
   nameEl.textContent = on ? wsShort(st.ws, 3) : '未启用工作区';
   nameEl.title = on ? st.ws : '点此启用并选择工作区文件夹';
@@ -5035,7 +5212,8 @@ async function maybeAutoCompact(s) {   // 修复 ㊸：传会话对象（原传�
     return false;
   }
   if (Date.now() - __lastAutoCompact < 60000) return false;  // 60秒冷却，防每轮重弹
-  addSysTip('历史接近上限,自动压缩中…');
+  // 修复 ㊶（三轮）：与上方 skip-tip 的守卫保持一致（模块未加载时不再 ReferenceError）
+  if (typeof addSysTip === 'function') addSysTip('历史接近上限,自动压缩中…');
   callApi('append_worklog', ['历史接近上限 自动压缩']).catch(() => {});
   if (typeof compactHistory === 'function') {
     try {
@@ -5108,7 +5286,9 @@ if (window.DOMPurify) {
 function escapeHtml(text) {
   const div = document.createElement('div');
   div.textContent = text;
-  return div.innerHTML;
+  // 修复 W29（三轮）：textContent→innerHTML 只转义 & < >，不转义引号——onclick
+  // 属性上下文（'...'）存在注入面。补引号转义（纵深防御；当前 id 规则不可触发）
+  return div.innerHTML.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 function renderMd(text) {
   if (window.marked && window.DOMPurify) {
@@ -5143,20 +5323,28 @@ function enhanceCodeBlocks(container) {
     btn.onclick = (e) => {
       e.stopPropagation();
       const t = (pre.querySelector('code') || {}).innerText || pre.innerText;
-      navigator.clipboard.writeText(t).then(() => {
+      navigator.clipboard.writeText(t).then(() => {   // 修复 建议㉔（三轮）：补 .catch，剪贴板权限拒绝不再 unhandled rejection
         btn.textContent = '✓';
         setTimeout(() => btn.textContent = '复制', 1500);
-      });
+      }).catch(() => { btn.textContent = '✗'; setTimeout(() => btn.textContent = '复制', 1500); });
     };
     pre.appendChild(btn);
   });
 }
 function viewImage(src) {
+  // 修复 建议㉓（三轮）：单例 + Esc 关闭——原多开叠加无上限、只能点图关闭
+  const prev = document.getElementById('__imgViewer');
+  if (prev) prev.remove();
   const ov = document.createElement('div');
+  ov.id = '__imgViewer';
   ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:9999;display:flex;align-items:center;justify-content:center;cursor:zoom-out;';
   const img = document.createElement('img');
   img.src = src; img.style.cssText = 'max-width:92%;max-height:92%;border-radius:10px;';
-  ov.appendChild(img); ov.onclick = () => ov.remove();
+  ov.appendChild(img);
+  const close = () => { ov.remove(); document.removeEventListener('keydown', onKey); };
+  const onKey = (e) => { if (e.key === 'Escape') close(); };
+  ov.onclick = close;
+  document.addEventListener('keydown', onKey);
   document.body.appendChild(ov);
 }
 function addMessage(role, content, extra) {
@@ -5319,6 +5507,19 @@ function routeTools(text, hasAttach, recentTools, recentResult) {
 /* ===== 60-agent-loop.js ===== */
 /* ================= Agent 主循环 ================= */
 
+/* 修复 S3（三轮）：暂停/中止后把悬挂 tool_calls 配平——assistant.tool_calls 与 tool
+ * 消息必须一一对应，否则会话被毒化、后续每轮 HTTP 400。暂停 break（工具批未跑完）
+ * 与 AbortError 两条路径共用本函数（原只在 AbortError 分支内联处理）。 */
+function fillMissingToolResults(s) {
+  const last = s.messages[s.messages.length - 1];
+  if (last && last.role === 'assistant' && last.tool_calls) {
+    const done = new Set(s.messages.filter(m => m.role === 'tool').map(m => m.tool_call_id));
+    last.tool_calls.forEach(t => {
+      if (!done.has(t.id)) s.messages.push({ role: 'tool', tool_call_id: t.id, content: '（用户已停止，未执行）' });
+    });
+  }
+}
+
 async function runAgentLoop(s, apiKey) {
   isStreaming = true;   // 修复 S20：同步置位移到最前（原在两个 await 之后，快速双发可起双循环）
   // 修复（2026-10-18）：暂停标志。原 abortController.abort() 只中止 fetch 流，
@@ -5330,6 +5531,7 @@ async function runAgentLoop(s, apiKey) {
   let _localWaitTimer = null;   // 修复 B3（v1.5）：本地首字节等待态计时器（函数级声明，异常路径也要清理）
   try {   // 修复 ㉗：原前 27 行在 try 外，任一 throw 变 unhandled rejection 且 isStreaming 卡死
     try { await callApi('set_current_sid', [currentSessionId]); } catch (e) {}
+    try { await callApi('begin_task', []); } catch (e) {}   // 修复 W2（三轮）：任务开始重置后端命令去重器（前端 deduper 为 per-task，两层生命周期对齐；旧 exe 无此方法静默跳过）
     try { await maybeAutoCompact(s); } catch (e) { console.warn(e); }  // 修复 ㊸：传会话对象（原传合成 {messages}）；压缩失败不中断主流程
     abortController = new AbortController();
     resetCostDefense();   // v1.2 R4：每次任务重置循环/无进展计数
@@ -5427,20 +5629,66 @@ async function runAgentLoop(s, apiKey) {
     const readFileSet = new Set(s._readKeys || []);   // 会话级持久化已读记录
     const listDirsSet = new Set();
     const cmdDeduper = (() => {
-      const WRITE = ['>', '>>', 'del', 'rmdir', 'rd', 'remove-item', 'mkdir', 'new-item', 'move', 'copy', 'reg', 'setx', 'format', 'taskkill', 'stop-process', 'start-process', 'iex'];
+      // 修复 W4（三轮）：WRITE 动词表与后端 RunDeduper.WRITE_VERBS 全量对齐
+      // （原缺 erase/ri/ni/md/mv 系/cp/regedit/regsvr32/rm 系等 11 个动词，口径分叉）
+      const WRITE_VERBS = new Set(['del', 'erase', 'rmdir', 'rd', 'remove-item', 'ri', 'mkdir', 'md',
+        'new-item', 'ni', 'move', 'move-item', 'copy', 'copy-item', 'cp',
+        'reg', 'regedit', 'regsvr32', 'setx', 'format', 'taskkill',
+        'stop-process', 'start-process', 'iex', 'invoke-expression', 'rm', 'rm-item']);
       let last = null; const recent = new Map(); const MAX = 64;
+      // 修复 W3（三轮）：写命令判定改 token 级匹配（原子串 `includes` 把
+      // `type third.txt`（含 rd）、`chcp 65001`（含 cp）、`findstr guard`（含 rd）误报为写命令）
+      const isWrite = (norm) => {
+        const tokens = norm.replace(/[|&;]/g, ' ').split(' ')
+          .map(t => t.replace(/^["']+|["']+$/g, '').replace(/\^/g, ''))
+          .filter(t => t.length > 0);
+        if (tokens.some(t => WRITE_VERBS.has(t))) return true;
+        // 未闭合引号外的重定向（与后端 _unquoted_redirect 同口径）
+        let q = null;
+        for (const ch of norm) {
+          if (q) { if (ch === q) q = null; }
+          else if (ch === '"' || ch === "'") q = ch;
+          else if (ch === '>') return true;
+        }
+        return false;
+      };
+      // 修复 S2（三轮）：键归一——剥 chcp/rem 前缀 + token 级剥引号与 ./ .\ 前缀，
+      // `del x.txt` / `del ./x.txt` / `del "x.txt"` 归一同键；与后端 dedup_key 逐字同口径
+      const normKey = (cmd) => {
+        let k = String(cmd || '').trim().replace(/\s+/g, ' ').toLowerCase();
+        k = k.replace(/chcp\s+65001\s*>?\s*nul\s*&?\s*/g, '').trim();
+        k = k.replace(/^(?:(?:rem|rem\.*|::)\s+)+/, '').trim();
+        return k;
+      };
+      const dedupKey = (cmd) => normKey(cmd).split(' ').map(t => {
+        t = t.replace(/^["']+|["']+$/g, '');
+        while (t.startsWith('./') || t.startsWith('.\\')) t = t.slice(2);
+        return t;
+      }).join(' ');
       return {
         check(cmd) {
-          const key = String(cmd || '').trim().replace(/\s+/g, ' ').toLowerCase();
+          const key = dedupKey(cmd);
           if (key === last) return '与上一条完全相同的命令已拒绝重复执行;如需观察最新状态,请换角度(加参数)或先说明目的。';
-          if (WRITE.some(h => key.includes(h)) && recent.has(key)) return '该写操作本次会话已执行过,已拦截以防误操作;确需重跑请修改参数或说明原因。';
+          // 修复 S1（三轮）：全窗比对——原 recent 只对写命令生效，非紧邻的读命令重复
+          // 全部放行（Bug A 直接根因：echo 1 → echo 2 → echo 1 第三条被放行再执行）
+          if (recent.has(key)) {
+            if (isWrite(normKey(cmd))) return '该写操作本次会话已执行过,已拦截以防误操作;确需重跑请修改参数或说明原因。';
+            return '该命令最近已执行过,已拒绝重复执行;如需观察最新状态,请换角度(加参数)或先说明目的。';
+          }
           last = key; recent.set(key, true);
           if (recent.size > MAX) recent.delete(recent.keys().next().value);
           return null;
+        },
+        // 修复 W1（三轮）：执行失败/被护栏拒绝的命令回滚登记（合法重试不被误拦）；
+        // 与后端 RunDeduper.unmark 同口径
+        unmark(cmd) {
+          const key = dedupKey(cmd);
+          recent.delete(key);
+          if (last === key) last = null;
         }
       };
     })();
-    let lastToolSig = null;
+    // 修复 建议㉛（三轮）：lastToolSig 死变量（只写不读）已删除声明与赋值
     const recentSigs = [];
     const taskEffort = _route.effort;
     const taskCapOut = 16384;  // 统一输出上限，不再区分纯聊天/工具模式
@@ -5545,7 +5793,9 @@ async function runAgentLoop(s, apiKey) {
           delete reqBody.thinking;
           delete reqBody.reasoning_effort;   // 修复 建议㉖（二轮）：降级重试同步剥离 reasoning_effort（GLM 400 对同族字段一并拒）
           resp = await fetchGLMStream({ apiKey, body: reqBody }, abortController.signal);
-        } else if (reqBody.tools && /tool|function/i.test(errText)) {
+        } else if (reqBody.tools && /does not support tools|tools?\s*(are|is)?\s*not\s*(supported|enabled|available)|tool_choice|tool_calls?.*(unsupported|invalid)/i.test(errText)) {
+          // 修复 建议㉘（三轮）：原 /tool|function/i 过宽——错误体任意含 function 字样即误判为
+          // 「不支持工具」并去 tools 重发，真实错误（如参数格式错）被掩盖。收紧为显式特征。
           delete reqBody.tools;
           toast('当前模型不支持工具调用，已切换为纯对话模式', 'warn');
           resp = await fetchGLMStream({ apiKey, body: reqBody }, abortController.signal);
@@ -5587,6 +5837,7 @@ async function runAgentLoop(s, apiKey) {
       let fullContent = '';
       let fullReasoning = '';
       const toolCallMap = {};
+      let _lastTcBucket = '0';   // 修复 S4（三轮）：无 index 端点（Ollama 等）按 name 分桶的"当前桶"追踪
       let usage = null;
       let pending = '';
       const reasonHtml = (rr) => rr ? `<div style="color:var(--text-2);font-style:italic;font-size:13px;margin-bottom:10px;padding:8px;background:var(--hover);border-radius:6px;border-left:3px solid var(--border);">思考中: ${escapeHtml(rr)}</div>` : '';
@@ -5614,8 +5865,15 @@ async function runAgentLoop(s, apiKey) {
           }
           if (delta?.tool_calls) {
             for (const tc of delta.tool_calls) {
-              const idx = (tc.index != null) ? tc.index : 0;   // 修复 ㉚：缺 index 的兼容端点退单块聚合（原 undefined 键造成错乱）
-              if (!toolCallMap[idx]) toolCallMap[idx] = { id: 'call_r' + round + '_' + idx, name: '', argsStr: '' };
+              /* 修复 S4（三轮）：无 index 端点（本地/Ollama 常见）兜底 idx=0 会让多个工具
+               * 调用的 name 互相覆盖、argsStr 拼接，第二个命令静默丢失。
+               * 分桶优先级：index > function.name > id > 最近 name 桶（纯参数 delta）。 */
+              let idx;
+              if (tc.index != null) idx = tc.index;
+              else if (tc.function && tc.function.name) { idx = tc.function.name; _lastTcBucket = idx; }
+              else if (tc.id) idx = tc.id;
+              else idx = _lastTcBucket;   // 修复 ㉚：缺 index 的兼容端点退单块聚合（原 undefined 键造成错乱）
+              if (!toolCallMap[idx]) toolCallMap[idx] = { id: 'call_r' + round + '_' + String(idx).replace(/[^\w-]/g, ''), name: '', argsStr: '' };
               if (tc.id) toolCallMap[idx].id = tc.id;
               if (tc.function?.name) toolCallMap[idx].name = tc.function.name;
               if (tc.function?.arguments) toolCallMap[idx].argsStr += tc.function.arguments;
@@ -5699,9 +5957,13 @@ async function runAgentLoop(s, apiKey) {
           acts.className = 'msg-actions';
           const copyBtn = document.createElement('button');
           copyBtn.className = 'copy-btn'; copyBtn.textContent = '⧉ 复制';
-          copyBtn.onclick = () => navigator.clipboard.writeText(fullContent).then(() => {
-            copyBtn.textContent = '✓ 已复制'; setTimeout(() => copyBtn.textContent = '⧉ 复制', 1500);
-          });
+          copyBtn.onclick = () =>           navigator.clipboard.writeText(fullContent)
+            .then(() => {
+              copyBtn.textContent = '✓ 已复制'; setTimeout(() => copyBtn.textContent = '⧉ 复制', 1500);
+            })
+            // 修复 ㉔（三轮）：原无 .catch——剪贴板不可用（非安全上下文/权限）时
+            // unhandled rejection，按钮停在「复制」态无任何反馈
+            .catch(() => { copyBtn.textContent = '✗ 失败'; setTimeout(() => copyBtn.textContent = '⧉ 复制', 1500); });
           acts.appendChild(copyBtn);
           const regenBtn = document.createElement('button');
           regenBtn.className = 'copy-btn'; regenBtn.textContent = '↻ 重新生成';
@@ -5844,12 +6106,18 @@ async function runAgentLoop(s, apiKey) {
             listDirsSet.add(dirKey);
             result = await executeTool(tc.name, args);
           }
-        } else if (['run_command','run_powershell','run_admin_command'].includes(tc.name)) {
-          const dupTip = cmdDeduper.check(args.cmd || args.command || '');
+        } else if (['run_command','run_powershell','run_admin_command','open_app'].includes(tc.name)) {
+          // 修复 W9（三轮）：open_app 纳入前端去重（反复弹窗面的前端闸；后端 api.open_app 同步接入）
+          const cmdKey = tc.name === 'open_app'
+            ? 'open_app ' + String(args.path || args.file_path || args.filename || args.file || args.target || '')
+            : (args.cmd || args.command || '');
+          const dupTip = cmdDeduper.check(cmdKey);
           if (dupTip) {
             result = JSON.stringify({ info: dupTip, skipped: true });
           } else {
             result = await executeTool(tc.name, args);
+            // 修复 W1（三轮）：执行失败/被护栏拒绝（error/skipped）回滚登记，合法重试不被误拦
+            try { const d0 = JSON.parse(result); if (d0 && (d0.error || d0.skipped)) cmdDeduper.unmark(cmdKey); } catch (e) {}
             try { const d = JSON.parse(result); if (d.output) { d.output = compressCliOutput(d.output); result = JSON.stringify(d); } } catch (e) {}
           }
         } else {
@@ -5940,6 +6208,7 @@ async function runAgentLoop(s, apiKey) {
         batchPending = batchPending.slice(batch.length);
       }
       toolResults.forEach(r => s.messages.push({ role: 'tool', tool_call_id: r.id, content: r.content, __tool: r.name }));
+      if (userStopped) fillMissingToolResults(s);   // 修复 S3（三轮）：暂停 break 后未执行的 tool_calls 补占位 tool 消息（配平防 400）
       toolCalls.forEach(tc => taskUsed.add(tc.name));  // 回填已用工具，后续轮次保留
       s._readKeys = [...readFileSet];   // 跨任务持久化已读记录
 
@@ -5947,7 +6216,7 @@ async function runAgentLoop(s, apiKey) {
       const n = recentSigs.length;
       const alternating = n >= 3 && sig === recentSigs[n-2] && recentSigs[n-1] === recentSigs[n-3];
       recentSigs.push(sig); if (recentSigs.length > 6) recentSigs.shift();
-      lastToolSig = sig;
+      // 修复 建议㉛（三轮）：lastToolSig 为死变量（只写不读），删除
       // v1.2 R4：循环熔断——同工具同参数 ×3（或交替模式）→ 暂停并询问，不再静默自动停止
       const loopHit = registerToolSig(sig);
       if (loopHit || alternating) {
@@ -5993,7 +6262,11 @@ async function runAgentLoop(s, apiKey) {
   } catch (err) {
     // 修复 S6（二轮）：请求失败/abort 后截图不能永久失陷——复位 shotState 让下轮可重发
     if (shotState === 'sending') shotState = 'idle';
+    if (_localWaitTimer) { clearInterval(_localWaitTimer); _localWaitTimer = null; }   // 修复 S15（三轮）：AbortError 路径也清本地等待定时器（原只清 else 分支，1s 定时器永久存活劫持状态行）
     if (err.name === 'AbortError') {
+      // 修复 建议㉕（三轮）：abort/停止时清 pendingShots——原只复位 shotState，
+      // 待发截图残留致下一轮重发 + 重复 note 消息
+      if (pendingShots.length) pendingShots = [];
       // 修复 W21（二轮）：abort 时固化部分正文入历史（原流中气泡有字但 messages 无此消息，
       // 重开即丢）+ 清理「正在输入」动画残留
       if (partialContent) {
@@ -6004,13 +6277,7 @@ async function runAgentLoop(s, apiKey) {
         const dots = aiContent.querySelector && aiContent.querySelector('.typing-dots');
         if (dots) dots.remove();
       }
-      const last = s.messages[s.messages.length - 1];
-      if (last && last.role === 'assistant' && last.tool_calls) {
-        const done = new Set(s.messages.filter(m => m.role === 'tool').map(m => m.tool_call_id));
-        last.tool_calls.forEach(t => {
-          if (!done.has(t.id)) s.messages.push({ role: 'tool', tool_call_id: t.id, content: '（用户已停止，未执行）' });
-        });
-      }
+      fillMissingToolResults(s);   // 修复 S3（三轮）：AbortError 路径复用同一配平实现
       saveSessions();
     } else {
       if (_localWaitTimer) { clearInterval(_localWaitTimer); _localWaitTimer = null; }   // 修复 B3：异常路径清理等待态计时器
@@ -6137,7 +6404,9 @@ async function mcpGuardCheck(name, args) {
     const t = JSON.parse(await callApi('guard_confirm_token', ['mcp_call', JSON.stringify({ server: p.server, tool: p.tool })]));
     if (t && t.token) token = t.token;
   } catch (e) { /* 旧 exe 无此方法：留空按 legacy 直调（新后端会强制拦截并返回人话错误） */ }
-  if (r.checked) mcpTrusted.add(trustKey);
+  // 修复 S11（三轮）：写侧与读侧对称——local 模式勾选"不再提示"不写入 session 信任
+  // （原无条件写入：读侧排除 local 但持久化后切云端预设会读到，免确认跨端点泄漏）
+  if (r.checked && !_localMode) mcpTrusted.add(trustKey);
   return { blocked: null, decision: r.checked ? 'session-trust' : 'allow', token };
 }
 
@@ -6145,6 +6414,13 @@ async function mcpGuardCheck(name, args) {
 async function mcpExecTool(name, args, decision, token) {
   const p = mcpParseName(name);
   if (!p) return JSON.stringify({ error: '非法 MCP 工具名: ' + name });
+  // 修复 ⑰（三轮）：mcpCallTimeoutMs 依赖 mcpServers 缓存——未开过设置面板时
+  // 缓存为空，per-server callTimeout 静默失效（回落默认 90s）。执行前确保列表已加载
+  try {
+    if ((typeof mcpServers === 'undefined' || !mcpServers.length) && typeof loadMcpServers === 'function') {
+      await loadMcpServers();
+    }
+  } catch (e) {}
   try {
     // 修复 S4①：token 作为第 5 个位置参数（仅非空时追加——旧 exe 没有该形参）
     const callArgs = [p.server, p.tool, JSON.stringify(args || {}), decision || 'deny'];
@@ -6223,7 +6499,10 @@ async function loadSessions() {
   put(local); put(backend);   // 同 id 时取 updatedAt 较新的一侧
   sessions = [...byId.values()].sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 60);
 }
+// 修复 建议㉜（三轮）：saveSessions 串行化——原并发调用可让旧快照后落盘覆盖新快照
+let _saveChain = Promise.resolve();
 async function saveSessions() {
+  const run = async () => {
   if (sessions.length > 60) {
     sessions.sort((a, b) => b.updatedAt - a.updatedAt);
     sessions = sessions.slice(0, 60);
@@ -6242,6 +6521,9 @@ async function saveSessions() {
   try {
     if (window.pywebview && window.pywebview.api) await callApi('save_sessions', [data]);
   } catch (e) { toast('会话历史保存失败：' + e.message, 'warn'); }   // v1.2 R3：静默吞错 → 可见
+  };
+  _saveChain = _saveChain.then(run).catch(() => {});
+  return _saveChain;
 }
 function getCurrentSession() { return sessions.find(s => s.id === currentSessionId); }
 
@@ -6318,7 +6600,9 @@ async function saveConfig() {
     delete c.api_key;
     delete c.provider_key;
     localCfg = JSON.stringify(c);
-  } catch (e) { /* 序列化异常时保持原样写入（不含密钥的概率极低，仍以上述剔除为准） */ }
+    // 修复 ㊸（三轮）：序列化异常时原样写回 cfg（含密钥明文进 localStorage）——
+    // 异常路径改为写空对象，绝不回退含密钥版本
+  } catch (e) { localCfg = '{}'; }
   try { localStorage.setItem('glm_config', localCfg); } catch (e) {}
   try {
     if (window.pywebview && window.pywebview.api) await callApi('save_config', [cfg]);
@@ -6544,7 +6828,8 @@ function updateLiveTokenStat() {
   const breakdown = `（标准 ¥${costStdIn.toFixed(3)} · 缓存 ¥${costCache.toFixed(3)} · 输出 ¥${costOut.toFixed(3)}）`;
   el.textContent = `本会话约花费 ¥${cost.toFixed(4)}${breakdown} | ${total.toLocaleString()} tokens | 缓存命中 ${cached.toLocaleString()}（${window.__hitRate || 0}%）${turn}${warn}`;
 }
-setInterval(updateLiveTokenStat, 10000);
+// 修复 建议㉙+㊴（三轮）：回调包 try/catch（单点异常不再杀死 10s 轮询）+ 流式态不抢写状态行
+setInterval(() => { try { if (typeof isStreaming === 'undefined' || !isStreaming) updateLiveTokenStat(); } catch (e) {} }, 10000);
 async function openBilling() {
   try {
     if (window.pywebview && window.pywebview.api) await callApi('open_billing', []);
@@ -6561,7 +6846,7 @@ async function openBilling() {
 const ERROR_HUMANIZE = [
   [/1113|余额不足.*coding|coding plan/i,
     'GLM Coding Plan 仅限官方指定工具使用，API 直连会报 1113。\n可行操作：① 在 bigmodel.cn 充值按量付费并使用平台 API Key；② 或切换到自定义 OpenAI 兼容端点（设置 → 模型服务商）。'],
-  [/\b401\b|invalid.*key| unauthorized/i, 'API Key 无效或未授权：请检查设置中的 Key 是否正确、是否属于所选服务商。'],
+  [/\b401\b|invalid.*key|unauthorized/i, 'API Key 无效或未授权：请检查设置中的 Key 是否正确、是否属于所选服务商。'],
   [/\b403\b/i, '无权访问该端点（Key 权限不足或 IP 受限）。'],
   [/\b404\b/i, '端点地址不存在：请检查 Base URL（OpenAI 兼容端点通常需要 /v1 后缀）。'],
   [/\b429\b|rate.?limit/i, '请求过于频繁或额度耗尽：稍等片刻重试，或检查账户余额。'],
@@ -6969,7 +7254,10 @@ function addSysTip(msg) {
       MOTION.onAnimEnd(d, 'transitionend', MOTION.compOut()).then(fin);
     } else { fin(); }
   };
-  setTimeout(dismiss, 2200);
+  // 修复 ㉖（三轮）：2200ms 硬编码违反 MOTION 令牌纪律——展示时长 = 2×comp
+  // （令牌缺失时兜底 2200，fx-off/reduced-motion 下 MOTION.instant() 已同步退场）
+  const _tipMs = (typeof MOTION !== 'undefined' && MOTION.comp) ? MOTION.comp() * 2 : 2200;
+  setTimeout(dismiss, _tipMs);
 }
 async function refreshEffectiveWs() {
   try {
@@ -7122,7 +7410,11 @@ function newSession() {
   refreshWsCard();
 }
 function switchSession(id, silent) {
-  if (isStreaming) return;
+  if (isStreaming) {
+    // 修复 ㉑（三轮）：流式中静默 return——用户点了没反应，以为卡死。补 toast 反馈
+    if (typeof toast === 'function') toast('正在生成回复，请先暂停或等待完成', 'warn');
+    return;
+  }
   const target = sessions.find(s => s.id === id);   // 修复 ㊳：先校验存在性再赋值（原先赋值，非法 id 时 currentSessionId 悬空）
   if (!target) return;
   currentSessionId = id;
@@ -7139,9 +7431,15 @@ function switchSession(id, silent) {
     renderChatHistory(target);
   } else {
     box.classList.add('swapping');
+    // 修复 S14（三轮）：原 .swapping 移除与渲染同回调无 finally——渲染抛错
+    // （持久化数据含畸形消息）即 opacity:0 永久锁死聊天区，只能重启
     MOTION.onAnimEnd(box, 'transitionend', MOTION.compOut()).then(() => {
-      renderChatHistory(target); void box.offsetWidth; box.classList.remove('swapping');
-    });
+      try {
+        renderChatHistory(target);
+      } finally {
+        void box.offsetWidth; box.classList.remove('swapping');
+      }
+    }).catch(() => { box.classList.remove('swapping'); });
   }
   renderSessionList();
   updateLiveTokenStat();
@@ -7224,7 +7522,11 @@ function exportSessionMd(id, e) {
   const lines = [];
   lines.push('# ' + (s.title || 'Harbor 会话'));
   lines.push('');
-  lines.push('> 导出自 Harbor v' + (typeof APP_VERSION !== 'undefined' ? APP_VERSION : '1.4') +
+  // 修复 建议㊷（三轮）：APP_VERSION 前端永无定义（原恒显旧版 '1.4'）——兜底取全局
+  // window.__appVersion（后端可注入），再无则省略版本号，不显示错误版本
+  const _ver = (typeof APP_VERSION !== 'undefined' && APP_VERSION)
+    ? APP_VERSION : (window.__appVersion || '');
+  lines.push('> 导出自 Harbor' + (_ver ? ' v' + _ver : '') +
     ' · ' + new Date().toLocaleString('zh-CN'));
   lines.push('');
   let toolCount = 0, usage = null;
@@ -7285,7 +7587,10 @@ async function deleteSession(id, e) {
   else renderSessionList();
 }
 /** 修复 建议㉝（二轮）：会话 id 拼 onclick 前统一转义（模块作用域，UX-3 搜索跳转同样复用）。 */
-const _escId = (id) => escapeHtml(String(id)).replace(/'/g, '&#39;');
+// 修复 建议㉝（二轮）：会话 id 拼 onclick 前统一转义（模块作用域，UX-3 搜索跳转同样复用）。
+// 修复 51（三轮）：补双引号转义——escapeHtml 走 textContent→innerHTML 不转引号，
+// 属性上下文（onclick="..."）里双引号同样有注入面（与单引号一并纵深防御）
+const _escId = (id) => escapeHtml(String(id)).replace(/'/g, '&#39;').replace(/"/g, '&quot;');
 function renderSessionList() {
   const box = document.getElementById('sessionList');
   if (sessions.length === 0) {
@@ -7306,7 +7611,10 @@ function renderSessionList() {
   updateTokenStat();
 }
 function formatTime(ts) {
-  const d = new Date(ts), now = new Date();
+  // 修复 建议㉲（三轮）：undefined/非时间戳不再显示 Invalid Date/NaN
+  const t = Number(ts);
+  if (!ts || !isFinite(t)) return '';
+  const d = new Date(t), now = new Date();
   if (d.toDateString() === now.toDateString())
     return d.getHours().toString().padStart(2, '0') + ':' + d.getMinutes().toString().padStart(2, '0');
   return (d.getMonth() + 1) + '/' + d.getDate();
@@ -8009,11 +8317,14 @@ function setupContextMenu() {
       };
       menu.appendChild(d);
     });
-    // v4：重入场——清退场态并强制 reflow，保证 v4CtxIn 从头播放（不与未播完的退场动画叠合
+    // 修复 ㉟（三轮）：原硬编码 150/180 钳制——菜单变宽/变高（长文件名菜单项）时
+    // 右侧/底部被视口裁切。改用实测尺寸（先显示再量，避免 offsetWidth=0）
+    menu.style.left = '0px'; menu.style.top = '0px';
     menu.classList.remove('hiding'); void menu.offsetWidth;
     menu.classList.add('show');
-    menu.style.left = Math.min(e.clientX, window.innerWidth - 150) + 'px';
-    menu.style.top = Math.min(e.clientY, window.innerHeight - 180) + 'px';
+    const mw = menu.offsetWidth || 150, mh = menu.offsetHeight || 180;
+    menu.style.left = Math.max(4, Math.min(e.clientX, window.innerWidth - mw - 4)) + 'px';
+    menu.style.top = Math.max(4, Math.min(e.clientY, window.innerHeight - mh - 4)) + 'px';
   });
   document.addEventListener('click', hideMenu);
   window.addEventListener('scroll', hideMenu, true);

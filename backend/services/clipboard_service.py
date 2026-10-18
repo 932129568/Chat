@@ -75,8 +75,10 @@ class ClipboardService:
             for attempt in range(8):
                 text, busy = self._clipboard_read()
                 if text is not None:
-                    return ok({'ok': True, 'text': text[:30000],
-                               'len': len(text)})
+                    # 修复 ④（三轮）：截断后 len 用原文长度与 text[:30000] 不符——
+                    # len 改为截断后实际返回长度（模型据此判断是否还有未读内容）
+                    t = text[:30000]
+                    return ok({'ok': True, 'text': t, 'len': len(t)})
                 _t.sleep(0.06)
             return ok({'error': '剪贴板被持续占用, 请稍后再试'})
         except Exception as e:

@@ -118,20 +118,26 @@ class McpService:
             return {'error': '服务器不存在: %s' % name}
         entry = self._ensure_entry(name)
         with entry['lock']:
-            self._close_client(entry)      # 旧客户端（如有）先关，防子进程泄漏
+            self._close_client(entry, name)      # 旧客户端（如有）先关，防子进程泄漏
+            # 修复 ⑯（三轮）：close 传 name——否则 warm 仍持死 client（get 命中后
+            # 多一次 is_alive 往返才丢）
             client, error = self._spawn_client(name, cfg)
             if error:
                 entry['status'] = 'error'
                 entry['last_error'] = error
                 return {'error': error}
-            try:
-                tools = client.list_tools()
-            except Exception as e:
-                self._close_client(entry)
+            entry['client'] = client
+        # 修复 ⑪（三轮）：list_tools（可达 45s）移出 entry 锁——原持锁阻塞
+        # shutdown/call/test 其他服务器（单锁全局串行化）
+        try:
+            tools = client.list_tools()
+        except Exception as e:
+            with entry['lock']:
+                self._close_client(entry, name)
                 entry['status'] = 'error'
                 entry['last_error'] = self._failure_text(e)
-                return {'error': entry['last_error']}
-            entry['client'] = client
+            return {'error': self._failure_text(e)}
+        with entry['lock']:
             entry['tools'] = tools
             entry['status'] = 'ok'
             entry['last_error'] = ''
@@ -341,7 +347,9 @@ class McpService:
                     self._session_trust.add(trust_key)
 
         entry = self._ensure_entry(server)
-        client, error = self._get_or_spawn(server, entry)
+        # 修复 ⑭（三轮）：call_tool 每调两次 get_server（deepcopy + DPAPI 解密热路径）
+        # ——本处已持有解密视图 cfg，直接传给 _get_or_spawn 复用
+        client, error = self._get_or_spawn(server, entry, cfg=cfg)
         if error:
             # 修复 建议⑱（二轮）：spawn 失败时退还已消耗的 token——
             # 用户在界面确认过，不应因服务器拉起失败被白扣一次确认
@@ -450,9 +458,9 @@ class McpService:
                         entry['client'] = None
                         self._warm.unregister(srv_name)
                         self._log.info('MCP 服务器空闲超 %ss，已回收子进程', IDLE_TIMEOUT)
-            # 修复 S2：warm 过期条目清理（理论上已被 unregister/关闭覆盖，双保险防泄漏）
-            for server in self._warm.reap():
-                stale = self._warm.pop(server)
+            # 修复 S2：warm 过期条目清理（reap 返回 (server, client) 对，直接 close——原
+            # 「reap 摘除 + 调用方 pop」双保险实际反向：pop 恒 None，永不关闭）
+            for server, stale in self._warm.reap():
                 if stale is not None:
                     try:
                         stale.close()
@@ -461,10 +469,13 @@ class McpService:
                     self._log.info('温启条目 %s 超 %ss 未用，已关闭', server, WARM_ENTRY_IDLE_TTL)
 
     # ============ 拉起/重拉 ============
-    def _get_or_spawn(self, name, entry=None):
-        """双检锁：活客户端直接用；进程已死 → 重拉一次；无客户端 → 按需拉起。"""
+    def _get_or_spawn(self, name, entry=None, cfg=None):
+        """双检锁：活客户端直接用；进程已死 → 重拉一次；无客户端 → 按需拉起。
+
+        修复 ⑭（三轮）：cfg 参数——调用方（call_tool）已持解密视图时可传入复用，
+        省一次 get_server 的 deepcopy + DPAPI 解密（热路径）。"""
         entry = entry or self._ensure_entry(name)
-        cfg = self._cfg.get_server(name)
+        cfg = cfg or self._cfg.get_server(name)
         if not cfg:
             return None, 'MCP 服务器 %s 不存在。' % name
         if not cfg.get('enabled'):
@@ -479,7 +490,7 @@ class McpService:
                 # 进程已死 → 自动重拉一次（R6 兜底）
                 # 真实属性是 _transport（StdioTransport 有 returncode property；HTTP 无 → None → 显示 ?）
                 rc = getattr(getattr(client, '_transport', None), 'returncode', None)
-                self._close_client(entry)
+                self._close_client(entry, name)   # 修复 ⑯（三轮）：传 name 同步摘 warm
                 client, error = self._spawn_client(name, cfg)
                 if error:
                     entry['status'] = 'error'

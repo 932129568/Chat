@@ -58,6 +58,18 @@ BACKUP_MANIFEST_VERSION = 1
 BACKUP_SCOPE = ('config.json', 'sessions.json', 'audit_log.jsonl')
 
 
+def _webdav_hostname(url):
+    """修复 S7（三轮）：取 URL hostname 小写（无端口）——供 localhost 豁免精确比较。
+    整串子串 'localhost' in url 可被 http://localhost.evil.com 绕过（凭证明文出网）。"""
+    import urllib.parse as _up
+    try:
+        s = str(url or '')
+        u = _up.urlsplit(s if '://' in s else 'http://' + s)
+        return (u.hostname or '').lower()
+    except Exception:
+        return ''
+
+
 def validate_config(cfg):
     """WebDAV 配置校验（只验证不落盘）。返回 (record, error)。"""
     if not isinstance(cfg, dict):
@@ -68,8 +80,9 @@ def validate_config(cfg):
         return None, '缺少 WebDAV 地址'
     if not url.lower().startswith(('http://', 'https://')):
         return None, 'WebDAV 地址需要 http:// 或 https:// 开头'
-    if url.lower().startswith('http://') and 'localhost' not in url \
-            and '127.0.0.1' not in url:
+    # 修复 S7（三轮）：原整串子串 'localhost' in url 可被 http://localhost.evil.com 绕过
+    # （凭证明文出网，4/4 实证）→ hostname 精确比较
+    if url.lower().startswith('http://') and _webdav_hostname(url) not in ('localhost', '127.0.0.1', '::1'):
         return None, 'WebDAV 必须使用 https://（凭证明文出网风险；localhost 除外）'
     if '@' in url:
         return None, '地址内不允许内嵌凭证（user:pass@host），请分开填写账号密码'
@@ -85,7 +98,16 @@ def validate_config(cfg):
     remote_path = str(cfg.get('remote_path') or '').strip() or '/glm-chat-backup'
     if not remote_path.startswith('/'):
         remote_path = '/' + remote_path
-    record['remote_path'] = remote_path.rstrip('/') or '/'
+    # 修复 W19（三轮）：未校验 '..' 时 `remote_path=/a/../../etc` 可服务端侧路径穿越
+    norm_parts = []
+    for seg in remote_path.split('/'):
+        if seg in ('', '.'):
+            continue
+        if seg == '..':
+            return None, '远端目录不允许包含 ".."（路径穿越风险）'
+        norm_parts.append(seg)
+    remote_path = '/' + '/'.join(norm_parts)
+    record['remote_path'] = remote_path or '/'
     record['auto_sync'] = bool(cfg.get('auto_sync'))
     policy = str(cfg.get('conflict_policy') or 'ask').strip().lower()
     if policy not in CONFLICT_POLICIES:
@@ -344,8 +366,15 @@ def export_backup(config_dir, record=None):
         try:
             with open(local, 'rb') as f:
                 data = f.read(_DOWNLOAD_CAP)
+                truncated = f.read(1) != b''   # 修复 W18（三轮）：cap 外仍有字节 =
+                # 备份被静默截断（manifest 记全量 sha、上传截断内容，恢复侧对拍必过）
+                # → 显式标记并在 manifest 记录真实 sha，恢复侧可检出
         except OSError as e:
             return {'ok': False, 'error': '读取 %s 失败: %s' % (rel, e),
+                    'uploaded': uploaded}
+        if truncated:
+            return {'ok': False,
+                    'error': '%s 超过 %d MB 上限，备份已中止（避免静默截断损坏备份）' % (rel, _DOWNLOAD_CAP // 1024 // 1024),
                     'uploaded': uploaded}
         status, _, rdata = _dav_request(
             record, 'PUT', rel, body=data, timeout=120, read_cap=_ERR_READ_CAP,
@@ -526,13 +555,21 @@ class WebDAVService:
         out = dict(record)
         enc = mcp_dpapi.encrypt_value(record['password'])
         out['password'] = enc
+        # 修复 W17（三轮）：DPAPI 不可用时 encrypt_value 兜底明文落盘——原静默无告警。
+        # 返回值附 warning（前端可提示），配置本身不回显密码
+        warn = ''
+        if isinstance(enc, str) and not enc.startswith('dpapi:'):
+            warn = '当前系统 DPAPI 不可用，密码以本地文件权限保护（未加密）；建议在正常 Windows 会话使用'
         try:
             from ..fio import atomic_write_json
             os.makedirs(self._config_dir, exist_ok=True)
             atomic_write_json(self._path(), out, indent=2)
         except Exception as e:
             return {'ok': False, 'error': 'webdav.json 写入失败: %s' % e}
-        return {'ok': True, 'config': {k: v for k, v in record.items() if k != 'password'}}
+        r = {'ok': True, 'config': {k: v for k, v in record.items() if k != 'password'}}
+        if warn:
+            r['warning'] = warn
+        return r
 
     # ---- 连通性 / 导出 / 恢复 ----
     def _record_for_io(self, cfg_json='{}'):

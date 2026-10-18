@@ -52,11 +52,15 @@ document.addEventListener('keydown', (e) => {
 });
 
 /** 刷新快捷条状态（boot / 任何工作区变化后调用）。 */
+/* 修复 55（三轮）：刷新序号——并发/慢响应时旧结果不覆盖新状态（last-wins） */
+let _wsqSeq = 0;
 async function wsQuickRefresh() {
   const nameEl = document.getElementById('wsqName');
   if (!nameEl) return;
+  const seq = ++_wsqSeq;
   let st = { ws: '', bound: false, enabled: true, recent: [] };
   try { st = Object.assign(st, JSON.parse(await callApi('get_ws_state', [currentSessionId])) || {}); } catch (e) {}
+  if (seq !== _wsqSeq) return;   // 过期响应丢弃
   const on = !!st.enabled && !!st.ws;
   nameEl.textContent = on ? wsShort(st.ws, 3) : '未启用工作区';
   nameEl.title = on ? st.ws : '点此启用并选择工作区文件夹';

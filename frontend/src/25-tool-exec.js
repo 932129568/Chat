@@ -34,9 +34,20 @@ async function executeToolRaw(name, args) {
   // 修复 ㊱：pickPath 缺省 ''（原 undefined 会以位置参数形式把 undefined 传给后端）
   const pickPath = (a) => a.path || a.file_path || a.filename || a.file || a.target || a.src || '';
   // 修复 ㊱：命令取值与护栏 detail 同口径（args.cmd 优先，缺失时回退 args.command）
-  const pickCmd = (a) => a.cmd != null ? String(a.cmd) : String(a.command || '');
+  // 修复 ②（三轮）：原 `a.cmd != null ? String(a.cmd) : ...` 对空串 falsy 穿透
+  // （cmd='' 时取到空命令，后端/护栏拿到空串）——空值也回退 command
+  const pickCmd = (a) => {
+    const c = (a.cmd != null) ? String(a.cmd) : '';
+    return c.trim() ? c : String(a.command || '');
+  };
   // 修复 ㊱：timeout 显式判断（原 `args.timeout || 60` 吞 0 值）
-  const pickTimeout = (a) => (typeof a.timeout === 'number' && a.timeout > 0) ? a.timeout : 60;
+  // 修复 ⑧（三轮）：兼容数字字符串（模型常传 "120"）——原 typeof number 检查被吞成默认 60
+  const pickTimeout = (a) => {
+    const t = a.timeout;
+    if (typeof t === 'number' && t > 0) return t;
+    if (typeof t === 'string' && /^\d+(\.\d+)?$/.test(t.trim()) && parseFloat(t) > 0) return parseFloat(t);
+    return 60;
+  };
   // 修复 S4①：token 作为最后一个位置参数追加（仅非空时——旧 exe 没有该形参，多传会 TypeError）
   const withToken = (arr, token) => token ? arr.concat([token]) : arr;
   try {
@@ -52,7 +63,20 @@ async function executeToolRaw(name, args) {
     if (name === 'get_file_info')     return await callApi('get_file_info', [pickPath(args)]);
     if (name === 'run_command')       return await callApi('run_command', withToken([pickCmd(args), pickTimeout(args)], guardToken), 660000);
     if (name === 'run_powershell')    return await callApi('run_powershell', withToken([pickCmd(args), pickTimeout(args)], guardToken), 660000);
-    if (name === 'run_admin_command') return await callApi('run_admin_command', withToken([pickCmd(args)], guardToken), 150000);
+    if (name === 'run_admin_command') {
+      /* 修复 S5/W8（三轮）：① timeout 参数接线（原只传 cmd，后端 timeout 是死参数）；
+       * ② 前端 150s 超时与后端人审口径对齐——人审是 MessageBox 无限期阻塞，前端超时后
+       *    模型若重试会排队等第二个确认框（二次提权执行）。超时返回不可重试语义。 */
+      try {
+        return await callApi('run_admin_command', withToken([pickCmd(args), pickTimeout(args)], guardToken), 150000);
+      } catch (e) {
+        const msg = String((e && e.message) || e);
+        if (/timeout|超时|Timeout/i.test(msg)) {
+          return JSON.stringify({ error: '管理员命令的人审确认未在 150 秒内完成，命令未执行。请勿原样重试——重复调用会再次弹出确认框；请等待用户确认或改用普通命令。', non_retryable: true });
+        }
+        throw e;
+      }
+    }
     if (name === 'read_more')         return await callApi('read_more', [args.cache_id, args.offset || 0, args.limit || 2000]);
     if (name === 'open_app')          return await callApi('open_app', [pickPath(args)]);
     if (name === 'open_url')          return await callApi('open_url', [args.url]);

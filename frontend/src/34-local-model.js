@@ -129,10 +129,12 @@ function applyLocalMetaBadge() {
     const toolTxt = localState.tool_capable === 'off' ? '工具关'
       : localState.tool_capable === 'on' ? '工具开'
       : (meta.tool_capable ? '工具可用' : '工具存疑');
-    badge.textContent = '窗口 ' + (w >= 1024 ? (w / 1024) + 'k' : w) + (meta.estimated ? '（估）' : '') + ' · ' + toolTxt;
+    // 修复 ㊾（三轮）：ctx 徽标取整——原 20000/1024=19.53k 直接拼小数，与
+    // 36-connect 侧 Math.round 口径不一（两套舍入）。统一四舍五入
+    badge.textContent = '窗口 ' + (w >= 1024 ? Math.round(w / 1024) + 'k' : w) + (meta.estimated ? '（估）' : '') + ' · ' + toolTxt;
     badge.className = 'local-badge ' + (meta.tool_capable ? 'on' : 'warn');
   } else {
-    badge.textContent = ctx > 0 ? ('窗口 ' + (ctx >= 1024 ? (ctx / 1024) + 'k' : ctx) + '（手设）') : '元数据待获取';
+    badge.textContent = ctx > 0 ? ('窗口 ' + (ctx >= 1024 ? Math.round(ctx / 1024) + 'k' : ctx) + '（手设）') : '元数据待获取';
     badge.className = 'local-badge';
   }
 }

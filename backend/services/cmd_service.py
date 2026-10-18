@@ -69,19 +69,36 @@ class RunDeduper:
         if '[console]::outputencoding' in key:
             return '后端已强制 UTF-8，命令里不要再设置编码；读文件请用 read_file（自动识别 UTF-8/GBK）。'
         norm = subprocess_norm(key)
-        first = norm.split(' ', 1)[0].strip('"\'').lstrip('./\\') if norm else ''
+        # 修复 S2（三轮）：原 `first = norm.split(...)...` 计算后从未使用（死代码）——
+        # 「路径归一」本是设计意图；现正式接线为 dedup_key()，剥引号与 ./ .\ 前缀，
+        # `del x.txt` / `del ./x.txt` / `del "x.txt"` 归一为同一条命令。
+        dkey = dedup_key(norm)
         is_write = self._is_write(norm)
         with self._lock:
-            if norm == self._last:
+            if dkey == self._last:
                 return '与上一条命令完全相同，已拒绝；如需刷新结果请加参数或说明目的。'
-            if is_write and norm in self._recent:
-                return '该写命令本会话已执行过，已拦截；确需重跑请修改参数。'
-            self._last = norm
-            if is_write:
-                self._recent[norm] = True
-                if len(self._recent) > self._max:
-                    self._recent.popitem(last=False)
+            # 修复 S1（三轮）：全窗比对——原仅写命令进 recent，非紧邻的读命令重复
+            # 全部放行（Bug A 直接根因：echo 1 → echo 2 → echo 1 第三条放行再执行）
+            if dkey in self._recent:
+                if is_write:
+                    return '该写命令本会话已执行过，已拦截；确需重跑请修改参数。'
+                return '该命令最近已执行过，已拒绝重复执行；如需刷新结果请加参数或说明目的。'
+            self._last = dkey
+            self._recent[dkey] = True
+            self._recent.move_to_end(dkey)
+            if len(self._recent) > self._max:
+                self._recent.popitem(last=False)
         return None
+
+    def unmark(self, cmd):
+        """修复 W1（三轮）：执行失败/被护栏拒绝的命令回滚登记——原 check() 执行前
+        预记账，命令失败后合法重试反被去重误拦。与前端 cmdDeduper.unmark 同口径。"""
+        key = ' '.join(str(cmd).split()).lower()
+        dkey = dedup_key(subprocess_norm(key))
+        with self._lock:
+            self._recent.pop(dkey, None)
+            if self._last == dkey:
+                self._last = None
 
     def reset(self):
         with self._lock:
@@ -96,6 +113,23 @@ def subprocess_norm(key):
     # 使 `del x` 与 `rem del x`、`echo hi` 与 `:: echo hi` 归一为同一条命令。
     s = re.sub(r'^(?:(?:rem|rem\.*|::)\s+)+', '', s).strip()
     return s
+
+
+def _dedup_token(t):
+    """修复 S2（三轮）：单 token 归一——剥首尾引号与前导 ./ .\\ 前缀。
+    注意只剥「./ 当前目录」前缀（循环剥离嵌套形态 ././x），`..` 父目录引用保留
+    （`del ../x.txt` 与 `del x.txt` 语义不同，不可归一）。"""
+    t = t.strip('"\'')
+    while t.startswith('./') or t.startswith('.\\'):
+        t = t[2:]
+    return t
+
+
+def dedup_key(norm):
+    """修复 S2（三轮）：去重身份键——在 subprocess_norm（结构归一，引号保留供
+    _is_write 重定向判定）之上做 token 级归一，语义等值变体同键。
+    与前端 60-agent-loop.js cmdDeduper 的键口径逐字一致（双层同构）。"""
+    return ' '.join(_dedup_token(t) for t in norm.split())
 
 
 def _apply_win32_signatures():
@@ -214,8 +248,10 @@ class CmdService:
                 info['note'] = '命令执行完毕，无任何输出'
             return ok(info)
         except subprocess.TimeoutExpired:
+            self.cmd_deduper.unmark(cmd)   # 修复 W1（三轮）：超时未执行完，回滚登记放行合法重试
             return err(f'命令执行超时({timeout}s)')
         except Exception as e:
+            self.cmd_deduper.unmark(cmd)   # 修复 W1（三轮）：执行级失败回滚登记
             self._log.exception('run_command 失败')
             return err(e)
 
@@ -242,8 +278,10 @@ class CmdService:
                 info['note'] = '命令执行完毕，无任何输出'
             return ok(info)
         except subprocess.TimeoutExpired:
+            self.cmd_deduper.unmark(cmd)   # 修复 W1（三轮）：超时未执行完，回滚登记放行合法重试
             return err(f'命令执行超时({timeout}s)')
         except Exception as e:
+            self.cmd_deduper.unmark(cmd)   # 修复 W1（三轮）：执行级失败回滚登记
             self._log.exception('run_powershell 失败')
             return err(e)
 
@@ -262,14 +300,30 @@ class CmdService:
         tmp_out = tmp_exit = tmp_bat = None
         slow_cleanup = False   # 超时/授权后慢路径：延迟 45s 再清理
         try:
-            tip = self.cmd_deduper.check('[admin] ' + cmd)
+            # 修复 W5（三轮）：去掉 '[admin] ' 键域前缀——前端 deduper 对同一命令不带
+            # 前缀，两层键域不一会导致换通道重放「前端误拦/后端放行」方向分裂
+            tip = self.cmd_deduper.check(cmd)
             if tip:
                 return ok({'info': tip, 'skipped': True})
+            # 修复 W7（三轮）：畸形命令提前拒绝——未闭合引号会让 bat 重定向失效
+            # （命令吞掉 "> 输出路径" 段，走满 60s 超时且无输出）；mbcs 不可表字符
+            # 会被 errors='replace' 静默写成 '?'（命令内容被篡改后提权执行）
+            if str(cmd).count('"') % 2 == 1:
+                self.cmd_deduper.unmark(cmd)
+                return err('命令含未闭合的双引号，管理员通道无法安全包装（重定向会失效）；请修正引号后重试。')
+            try:
+                str(cmd).encode('mbcs')
+            except UnicodeEncodeError:
+                self.cmd_deduper.unmark(cmd)
+                return err('命令含当前系统代码页（GBK/mbcs）不可表示的字符，管理员通道（.bat 包装）'
+                           '无法无损传递；请改用 run_command/run_powershell（UTF-8 通道）。')
             _apply_win32_signatures()
             r = ctypes.windll.user32.MessageBoxW(
                 0, f'AI 请求以管理员权限执行：\n\n{cmd}\n\n允许执行吗？',
                 'Harbor · 管理员确认', 0x04 | 0x30)
             if r != 6:
+                # 修复 W1（三轮）：用户拒绝的命令回滚登记（用户改主意后合法重试不被误拦）
+                self.cmd_deduper.unmark(cmd)
                 return ok({'info': '用户拒绝了本次管理员命令，请改用无需提权的方案。', 'skipped': True})
             # 修复 W7（二轮）：mkstemp 唯一名（pid+毫秒同毫秒并发互删对方文件）
             fd, tmp_out = tempfile.mkstemp(prefix='glm_admin_out_', suffix='.txt'); os.close(fd)
@@ -283,6 +337,7 @@ class CmdService:
                 f.write(bat_body)
             ret = ctypes.windll.shell32.ShellExecuteW(None, 'runas', 'cmd', f'/c "{tmp_bat}"', None, 0)
             if (ret or 0) <= 32:
+                self.cmd_deduper.unmark(cmd)   # 修复 W1（三轮）：授权失败未执行，回滚登记
                 return err(f'授权失败，错误码 {ret}（可能用户拒绝了 UAC）')
             # 修复 W13（二轮）：超时阈值可调（默认 60s）
             max_rounds = int((timeout or 60) * 2)
@@ -306,6 +361,7 @@ class CmdService:
             return ok({'exit_code': None, 'output': '（命令已执行，输出读取超时，退出码未知）',
                        'note': '已通过管理员权限执行'})
         except Exception as e:
+            self.cmd_deduper.unmark(cmd)   # 修复 W1（三轮）：异常路径回滚登记
             self._log.exception('run_admin_command 失败')
             return err(e)
         finally:

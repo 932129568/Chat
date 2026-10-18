@@ -39,7 +39,8 @@ TOKEN_TTL = 60                         # confirm token 一次性有效时长（�
 
 # 操作清单与默认档位（PRD Q3 平衡：破坏性最高的默认每次确认；被动/低危的默认会话内首次确认）
 GUARD_OPS = ('delete_path', 'kill_process', 'clipboard_write', 'clipboard_read',
-             'take_screenshot', 'run_command', 'run_powershell', 'run_admin_command')
+             'take_screenshot', 'run_command', 'run_powershell', 'run_admin_command',
+             'open_app')   # 修复 W9（三轮）：open_app 纳入护栏矩阵（默认 off 行为不变）
 DEFAULT_TIERS = {
     'delete_path': 'always',
     'kill_process': 'always',
@@ -50,11 +51,13 @@ DEFAULT_TIERS = {
     'run_command': 'off',
     'run_powershell': 'off',
     'run_admin_command': 'off',
+    'open_app': 'off',   # 修复 W9（三轮）：默认 off 保持既有行为，提档后弹窗/ token 生效
 }
 
 # 无保护名单意义的操作：'list' 档对它们语义等同 off 是误导（W10），后端降级为每次确认
 _LISTLESS_OPS = {'clipboard_write', 'clipboard_read', 'take_screenshot',
-                 'run_command', 'run_powershell', 'run_admin_command'}
+                 'run_command', 'run_powershell', 'run_admin_command',
+                 'open_app'}   # 修复 W9（三轮）：open_app 无名单语义
 
 # kill_process 内置保护（叠加用户名单；与 process_service.PROTECTED_NAMES 保持一致但独立声明，
 # 避免 service 间反向依赖）。修复 S4③：内置关键进程名单默认非空。
@@ -74,6 +77,7 @@ OP_LABELS = {
     'run_command': '执行命令',
     'run_powershell': '执行 PowerShell',
     'run_admin_command': '管理员命令',
+    'open_app': '打开应用/链接',   # 修复 W9（三轮）
 }
 
 # token 可签发的操作集合（mcp_call 由 McpService 在 call_tool 校验）
@@ -321,6 +325,8 @@ class GuardService:
             return {}
         if op in ('run_command', 'run_powershell', 'run_admin_command'):
             return {'cmd': str(d.get('cmd') or '')[:200]}
+        if op == 'open_app':
+            return {'path': str(d.get('path') or '')[:200]}   # 修复 W9（三轮）
         if op == 'mcp_call':
             return {'server': str(d.get('server') or ''), 'tool': str(d.get('tool') or '')}
         return {}

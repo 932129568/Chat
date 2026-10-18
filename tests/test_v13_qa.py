@@ -1063,7 +1063,7 @@ class TestFrontendPanel:
 // ---- DOM stub ----
 function __el() {
   return { innerHTML: '', className: '', textContent: '', value: '', checked: false,
-           appendChild() {}, classList: { toggle() {}, add() {}, remove() {} } };
+           style: {}, appendChild() {}, classList: { toggle() {}, add() {}, remove() {} } };
 }
 const document = {
   getElementById: () => __el(),

@@ -7,7 +7,9 @@ if (window.DOMPurify) {
 function escapeHtml(text) {
   const div = document.createElement('div');
   div.textContent = text;
-  return div.innerHTML;
+  // 修复 W29（三轮）：textContent→innerHTML 只转义 & < >，不转义引号——onclick
+  // 属性上下文（'...'）存在注入面。补引号转义（纵深防御；当前 id 规则不可触发）
+  return div.innerHTML.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 function renderMd(text) {
   if (window.marked && window.DOMPurify) {
@@ -42,20 +44,28 @@ function enhanceCodeBlocks(container) {
     btn.onclick = (e) => {
       e.stopPropagation();
       const t = (pre.querySelector('code') || {}).innerText || pre.innerText;
-      navigator.clipboard.writeText(t).then(() => {
+      navigator.clipboard.writeText(t).then(() => {   // 修复 建议㉔（三轮）：补 .catch，剪贴板权限拒绝不再 unhandled rejection
         btn.textContent = '✓';
         setTimeout(() => btn.textContent = '复制', 1500);
-      });
+      }).catch(() => { btn.textContent = '✗'; setTimeout(() => btn.textContent = '复制', 1500); });
     };
     pre.appendChild(btn);
   });
 }
 function viewImage(src) {
+  // 修复 建议㉓（三轮）：单例 + Esc 关闭——原多开叠加无上限、只能点图关闭
+  const prev = document.getElementById('__imgViewer');
+  if (prev) prev.remove();
   const ov = document.createElement('div');
+  ov.id = '__imgViewer';
   ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:9999;display:flex;align-items:center;justify-content:center;cursor:zoom-out;';
   const img = document.createElement('img');
   img.src = src; img.style.cssText = 'max-width:92%;max-height:92%;border-radius:10px;';
-  ov.appendChild(img); ov.onclick = () => ov.remove();
+  ov.appendChild(img);
+  const close = () => { ov.remove(); document.removeEventListener('keydown', onKey); };
+  const onKey = (e) => { if (e.key === 'Escape') close(); };
+  ov.onclick = close;
+  document.addEventListener('keydown', onKey);
   document.body.appendChild(ov);
 }
 function addMessage(role, content, extra) {
