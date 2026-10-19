@@ -264,7 +264,24 @@ from backend.api import Api as NewApi  # noqa: E402
 @pytest.fixture(autouse=True)
 def fresh_home():
     reset_home()
+    _reset_sandbox_stats()
     yield
+
+
+def _reset_sandbox_stats():
+    """实现 v1.6 测试基建（team-lead 路由的隔离缺陷）：sandbox_service._STATS 是
+    模块级跨测试累积计数器——T9 真实执行（jobs_created +N）与批次 2 失败注入
+    （runs_failed_closed）在同一进程内互相污染，使依赖「测试起步计数」的断言产生
+    文件间顺序依赖（test_sandbox 末测试的 importlib.reload 重置只是巧合掩盖）。
+    每个测试从干净计数起步；既有断言全部为 st0→st1 增量式，两种起步态下等价。
+    取当前模块对象（reload 后为重绑定模块），重置其 _STATS。"""
+    try:
+        from backend.services import sandbox_service as _sb
+        with _sb._STATS_LOCK:
+            for _k in list(_sb._STATS.keys()):
+                _sb._STATS[_k] = 0
+    except Exception:
+        pass
 
 
 def reset_home():

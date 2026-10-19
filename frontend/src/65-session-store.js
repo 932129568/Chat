@@ -41,21 +41,28 @@ async function loadSessions() {
   // 修复 W30：双源按 updatedAt 合并——原「后端优先、失败回退本地」在后端写失败时会静默丢新会话
   let backend = [];
   let local = [];
+  let backendOk = false;   // 实现 v1.6 W27：后端读取成败标志——墓碑清理只在读成功后进行
   try {
     if (window.pywebview && window.pywebview.api) {
       backend = normalizeSessions(await callApi('get_sessions', []));
+      backendOk = true;
     }
   } catch (e) {}
   try { local = normalizeSessions(localStorage.getItem('glm_sessions')); } catch (e) {}
   // 修复 W24（二轮）：删除墓碑——后端写失败时下次启动合并会把已删会话复活；
   // 墓碑记录在 localStorage（本地删除即生效，不依赖后端成功），合并时过滤；
   // 后端列表已不含的 id 出棺（防墓碑无限膨胀）
+  // 修复 W27（v1.6）：原无脑按 backendIds 过滤墓碑——后端读取失败（异常/无
+  // pywebview）时 backendIds 恒空 → 墓碑被清空 → 已删对话在下次成功读取时
+  // 复活。仅在 backendOk 时执行出棺。
   let tomb = [];
   try { tomb = JSON.parse(localStorage.getItem('glm_deleted_ids') || '[]'); } catch (e) { tomb = []; }
   const tombSet = new Set(tomb.filter(x => x && typeof x === 'string'));
-  const backendIds = new Set(backend.map(s => s.id));
-  const keptTomb = tomb.filter(id => backendIds.has(id));
-  try { localStorage.setItem('glm_deleted_ids', JSON.stringify(keptTomb)); } catch (e) {}
+  if (backendOk) {
+    const backendIds = new Set(backend.map(s => s.id));
+    const keptTomb = tomb.filter(id => backendIds.has(id));
+    try { localStorage.setItem('glm_deleted_ids', JSON.stringify(keptTomb)); } catch (e) {}
+  }
   const byId = new Map();
   const put = (list) => list.forEach(s => {
     if (tombSet.has(s.id)) return;   // 修复 W24：墓碑中的 id 不参与合并

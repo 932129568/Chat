@@ -478,7 +478,15 @@ def restore_backup(payload_json, config_dir, record=None):
         for p in verdict['only_remote']:
             plan_out.append({'path': p, 'action': 'download'})
         for c in verdict['conflicts']:
-            plan_out.append({'path': c['path'], 'action': resolve_conflict(policy, c)['action']})
+            act = resolve_conflict(policy, c)['action']
+            # 修复 W26（v1.6）：local_wins 在恢复方向不会真上传（上传只发生在导出
+            # export_backup）——原 plan 标 'upload' 但执行器恒不动本地，语义误导。
+            # 统一标 'keep_local' 与 only_local 同口径（执行器对未知 action 原样
+            # 不动，行为不变）；resolve_conflict 纯函数保持 'upload'（同步方向标签，
+            # 测试锁定不动）。
+            if act == 'upload':
+                act = 'keep_local'
+            plan_out.append({'path': c['path'], 'action': act})
         if policy == 'ask' and verdict['conflicts']:
             return {'ok': False, 'need_decision': True,
                     'conflicts': verdict['conflicts'],
@@ -498,16 +506,22 @@ def restore_backup(payload_json, config_dir, record=None):
                             'applied': applied}
                 applied.append(p)
             elif action == 'keep_both':
+                # 修复 W26（v1.6）：秒级时间戳同名互覆（同秒多个冲突文件/重复恢复
+                # 时后写覆盖先写，双保留语义丢文件）——加毫秒 + 存在性探测。
                 base, ext = os.path.splitext(p)
-                stamp = time.strftime('%Y%m%d-%H%M%S')
+                stamp = time.strftime('%Y%m%d-%H%M%S') + '-%03d' % (int(time.time() * 1000) % 1000)
                 target = os.path.join(config_dir, '%s.%s%s' % (base, stamp, ext))
+                n = 1
+                while os.path.exists(target):
+                    target = os.path.join(config_dir, '%s.%s-%d%s' % (base, stamp, n, ext))
+                    n += 1
                 with open(target, 'wb') as f:
                     f.write(downloaded[p])
                 if file_sha256(target) != remote_sha[p]:
                     return {'ok': False, 'error': '落盘校验失败：%s' % target,
                             'applied': applied}
                 kept.append(target)
-            # upload（local_wins）→ 不动本地
+            # keep_local（local_wins 冲突）→ 不动本地（恢复方向从不上传）
         # 修复 ⑳（三轮）：成功返回同带 plan（含 keep_local 项）——UI 可透明展示
         # 「哪些保留本地未上行」，恢复≠全量同步的口径对用户可见
         return {'ok': True, 'applied': applied, 'kept_both': kept,

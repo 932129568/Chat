@@ -101,6 +101,27 @@
 
 ---
 
+## 六、v1.6 命令沙箱模块（2026-10-19 新增）
+
+### 16. 沙箱已实现：Job Object 进程隔离 + 资源限制（后端核心完成）
+- **范围**：run_command/run_powershell 默认走沙箱（standard 档：1GB 内存/16 进程/120s CPU/UI 限制 basic）；run_admin_command 显式排除（提权进程无法被中型父进程收编）；配置 `~/.glm-chat/sandbox.json`（不碰 config.json）；js_api：sandbox_get_config/sandbox_save_config/sandbox_status（隐身）
+- **架构与风险矩阵**：deliverables/dev-plan/sandbox-architecture-2026-10-19.md
+- **测试**：tests/test_sandbox.py 24 项真实 Win32 API 全过；全量 584 passed / 契约 PASS
+- **处理状态**：🟡 后端核心完成；设置面板 UI 未接线（默认开箱生效）；真机起窗冒烟待做（同第 1 条）
+
+### 17. 沙箱的已知能力边界（诚实缺口，文档化接受）
+- **网络隔离不可达**：零依赖 + 无管理员前提下，Job Object 不含网络控制；沙箱内进程可外联。缓解：guard 审计可见 + 「netsh 封禁助手」脚本（需用户 UAC，opt-in）
+- **剪贴板/截屏隔离不可达**：Job 无剪贴板 UI 限制；沙箱内进程可绕过应用层直接调 Win32 API。由 guard 三档确认兜底（应用层）
+- **文件系统越界仅为应用层校验**：未做 ACL/AppContainer（与零依赖单文件约束冲突）；沙箱内进程直接调 API 写工作区外路径理论上可行，威胁模型主要为提示注入驱动的外联（R5/R6 同源）
+- **处理状态**：🟡 文档化接受（sandbox-architecture §5 R4/R5/R6）；根治需重新评估定位（AppContainer 或独立低权限用户，涉及打包与启动链）
+
+### 18. 【已修复】P0 潜伏 bug：非桩路径命令「执行成功但向 Agent 报错」
+- **根因**：`cmd_service._exec` 的 Popen 路径 `return proc`——`proc.stdout` 是 BufferedReader 而非字节，`_dec(result.stdout)` 必抛 AttributeError。自 v1.1 重构起存在，被测试桩（stub subprocess.run）全面掩盖；真机现象=命令实际执行（弹窗/副作用发生）但 Agent 收到错误 → 重试 → 「cmd 反复弹窗」用户报告的部分同源
+- **修复**：返回 `subprocess.CompletedProcess(popen_args, proc.returncode, communicate() 捕获的字节)`；回归测试 `test_cmd_service_no_sandbox_path_unchanged`（沙箱集成时实测发现）
+- **处理状态**：🟢 已修复（584 passed 含回归）
+
+---
+
 ## 发布检查清单（上传前确认）
 
 - [x] 全量测试 480 passed

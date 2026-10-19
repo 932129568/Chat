@@ -105,7 +105,10 @@ class TestContractRedLines:
             assert m not in info['methods']
 
     def test_v12_extra_matches_actual_defs(self):
-        """_V12_EXTRA 中 10 个 mcp_* 与 api.py 类 Api 实际 def 一一对应。"""
+        """_V12_EXTRA 中 mcp_* 与 api.py 类 Api 实际 def 一一对应。
+
+        实现 v1.6 T12：v1.3 的 10 个 + resources 三方法 = 13 个；新增必须同步登记
+        _V12_EXTRA（get_api_info 零漂移）。"""
         from backend.api import _V12_EXTRA
         src = open(os.path.join(PROJECT_ROOT, 'backend', 'api.py'),
                    encoding='utf-8').read()
@@ -117,7 +120,10 @@ class TestContractRedLines:
         declared = {n for n in _V12_EXTRA if n.startswith('mcp_')}
         assert actual == declared, '漏登记: %s；幽灵名: %s' % (
             sorted(actual - declared), sorted(declared - actual))
-        assert len(declared) == 10
+        assert len(declared) == 13
+        # v1.6 T12：三个 resources 方法在册
+        assert {'mcp_list_resources', 'mcp_read_resource',
+                'mcp_save_subscriptions'} <= declared
         # v1.2 的 10 个隐身方法仍在集合内（无回归移除）
         v12 = {'guard_get_config', 'guard_save_config', 'guard_check', 'guard_audit',
                'get_audit_log', 'check_update', 'start_update_download',

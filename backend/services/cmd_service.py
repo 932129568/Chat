@@ -185,20 +185,43 @@ class CmdService:
             return ok({'info': tip, 'skipped': True})
         return None
 
-    def _exec(self, popen_args, shell, timeout, cwd):
+    def _exec(self, popen_args, shell, timeout, cwd, sandbox=None):
         """执行子进程；超时杀整树后抛 TimeoutExpired（修复 S11）。
 
-        subprocess.run 语义等价封装；宿主替换过 subprocess.run 时直接用其执行
-        （测试桩不产生真实进程，无需杀树）。
+        sandbox 传入限制字典时走沙箱路径（CreateProcessW 挂起态收编进 Job，
+        无竞业逃逸窗口；超时 TerminateJobObject 内核级清剿整树）。
+        宿主替换过 subprocess.run 时（测试桩，不产生真实进程、无逃逸面）
+        沙箱请求退化为桩路径。
         """
+        if sandbox is not None:
+            if subprocess.run is not _STDLIB_RUN:
+                return subprocess.run(popen_args, capture_output=True, shell=shell,
+                                      timeout=timeout, cwd=cwd,
+                                      creationflags=_NO_WINDOW)
+            from . import sandbox_service
+            try:
+                result = sandbox_service.run_in_sandbox(
+                    popen_args, shell=shell, cwd=cwd, timeout=timeout,
+                    limits=sandbox)
+            except sandbox_service.SandboxUnavailable as e:
+                # fail-closed：沙箱不可用不裸跑，向上传递明确原因
+                raise RuntimeError('沙箱执行被阻止（fail-closed）：%s' % e)
+            if getattr(result, 'timed_out', False):
+                raise subprocess.TimeoutExpired(popen_args, timeout)
+            return result
         if subprocess.run is not _STDLIB_RUN:
             return subprocess.run(popen_args, capture_output=True, shell=shell,
                                   timeout=timeout, cwd=cwd, creationflags=_NO_WINDOW)
         proc = subprocess.Popen(popen_args, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                 shell=shell, cwd=cwd, creationflags=_NO_WINDOW)
         try:
-            proc.communicate(timeout=timeout)
-            return proc
+            # 修复（v1.6 沙箱集成时实测发现）：必须返回 communicate() 捕获的字节，
+            # 不能返回 proc 本身——proc.stdout 是管道对象（BufferedReader），
+            # 调用方 _dec(result.stdout) 会 AttributeError。该路径自 v1.1 重构起
+            # 即为缺陷，被测试桩全面掩盖（真实执行成功但向 Agent 报错）。
+            out, errout = proc.communicate(timeout=timeout)
+            return subprocess.CompletedProcess(popen_args, proc.returncode,
+                                               stdout=out, stderr=errout)
         except subprocess.TimeoutExpired:
             _kill_tree(proc.pid)
             try:
@@ -226,7 +249,7 @@ class CmdService:
         return s.replace('\r\r\n', '\r\n')   # 归一双换行 bug
 
     # ---- cmd（legacy L582-612）----
-    def run_command(self, sid, cmd, timeout=60):
+    def run_command(self, sid, cmd, timeout=60, sandbox=None):
         try:
             rejected = self._dedup_reject(cmd)
             if rejected:
@@ -236,7 +259,8 @@ class CmdService:
             except Exception:
                 timeout = 60
             result = self._exec('chcp 65001 >nul & ' + str(cmd), shell=True,
-                                timeout=timeout, cwd=self.workspace.effective_root(sid))
+                                timeout=timeout, cwd=self.workspace.effective_root(sid),
+                                sandbox=sandbox)
 
             output = self._dec(result.stdout)
             errtxt = self._dec(result.stderr).strip()
@@ -256,7 +280,7 @@ class CmdService:
             return err(e)
 
     # ---- PowerShell（legacy L614-636）----
-    def run_powershell(self, sid, cmd, timeout=60):
+    def run_powershell(self, sid, cmd, timeout=60, sandbox=None):
         try:
             rejected = self._dedup_reject(cmd)
             if rejected:
@@ -268,7 +292,8 @@ class CmdService:
             enc = ('[Console]::OutputEncoding=[System.Text.Encoding]::UTF8;'
                    '$OutputEncoding=[System.Text.Encoding]::UTF8;')
             result = self._exec(['powershell', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', enc + cmd],
-                                shell=False, timeout=timeout, cwd=self.workspace.effective_root(sid))
+                                shell=False, timeout=timeout, cwd=self.workspace.effective_root(sid),
+                                sandbox=sandbox)
             out = result.stdout.decode('utf-8', errors='replace').lstrip('\ufeff')
             error = result.stderr.decode('utf-8', errors='replace').strip()
             output = out + (('\n[stderr] ' + error) if error else '')

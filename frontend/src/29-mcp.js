@@ -2,6 +2,8 @@
  * 设置页「MCP 服务器」区块：列表（状态灯/传输/工具数/开关/编辑/删除/测试连接）、
  * 添加编辑表单（stdio: command+args+env；HTTP: url+headers）、逐工具档位覆盖、
  * 导入 Claude 配置模态、instructions 展示（仅展示，不注入系统提示）。
+ * 实现 v1.6 T12：服务器详情页「资源」tab（与工具 tab 并列）——resources/list
+ * 列表渲染、text/blob 读取展开、资源订阅（resourceSubs）勾选即存。
  * 静态 DOM 仅 4 个 id（mcpServerList/mcpAddBtn/mcpImportBtn/mcpRefreshBtn）+ mcp-* class，
  * 其余全部动态模态创建（复用 18-toast 的 _modalRoot）；错误走 toast。
  * 调 mcp_test_server/mcp_call_tool 一律传 timeoutMs=90000（后端 60s + 拉起 + 余量）。
@@ -13,6 +15,8 @@ const MCP_TIER_NAMES = { always: '每次确认', session: '会话内首次确认
 const MCP_STATUS_NAMES = {
   ok: '已连接', error: '错误', stale: '待刷新', disabled: '未启用', untested: '未测试'
 };
+// 实现 v1.6 T12：text 类资源预览截断保护（超过该长度只展示头部并提示，防巨文撑爆弹层）
+const MCP_RES_PREVIEW_MAX = 20000;
 
 /** 加载服务器列表（面板打开/刷新时调用；纯本地读取零网络）。 */
 async function loadMcpServers() {
@@ -212,27 +216,54 @@ async function mcpOpenDetail(name) {
     '<div class="modal-mask"></div>' +
     '<div class="modal-card" role="dialog" aria-modal="true">' +
     '  <div class="modal-title"></div>' +
-    '  <div class="modal-body"></div>' +
+    '  <div class="modal-body">' +
+    // 实现 v1.6 T12：详情页双 tab（工具 / 资源）；新 id 全唯一，UI 契约只增不改
+    '    <div class="mcp-tabs" role="tablist">' +
+    '      <button type="button" class="mcp-tab on" id="mcpTabTools" role="tab">工具与档位</button>' +
+    '      <button type="button" class="mcp-tab" id="mcpTabRes" role="tab">资源</button>' +
+    '    </div>' +
+    '    <div id="mcpPaneTools" role="tabpanel"></div>' +
+    '    <div id="mcpPaneRes" role="tabpanel" style="display:none"></div>' +
+    '  </div>' +
     '  <div class="modal-btns">' +
     '    <button class="modal-btn modal-test">测试连接</button>' +
     '    <button class="modal-btn modal-ok primary">关闭</button>' +
     '  </div></div>';
   m.querySelector('.modal-title').textContent = 'MCP 服务器 · ' + name;
-  const body = m.querySelector('.modal-body');
+  const toolsPane = m.querySelector('#mcpPaneTools');
+  const resPane = m.querySelector('#mcpPaneRes');
+  // tab 切换：工具页（原内容）↔ 资源页（打开时拉 resources/list）
+  const mcpShowTab = (which) => {
+    const tabTools = m.querySelector('#mcpTabTools');
+    const tabRes = m.querySelector('#mcpTabRes');
+    tabTools.classList.toggle('on', which === 'tools');
+    tabRes.classList.toggle('on', which === 'res');
+    toolsPane.style.display = which === 'tools' ? '' : 'none';
+    resPane.style.display = which === 'res' ? '' : 'none';
+  };
+  m.querySelector('#mcpTabTools').onclick = () => mcpShowTab('tools');
+  let mcpResLoaded = false;   // 每次打开详情只拉一次资源列表（切 tab 不重复请求）
+  m.querySelector('#mcpTabRes').onclick = () => {
+    mcpShowTab('res');
+    if (mcpResLoaded) return;
+    mcpResLoaded = true;
+    const subs = (d.config && d.config.resourceSubs) || [];
+    mcpResOpen(name, resPane, subs);
+  };
   const info = document.createElement('div');
   info.className = 'set-hint';
   info.textContent = '状态：' + (MCP_STATUS_NAMES[d.status] || d.status) +
     ' · 传输：' + (d.transport === 'http' ? 'HTTP' : 'stdio') +
     (d.server_info && d.server_info.name ? ' · 服务器：' + d.server_info.name : '') +
     (d.last_error ? ' · ' + d.last_error : '');
-  body.appendChild(info);
+  toolsPane.appendChild(info);
   if (d.decrypt_failed && d.decrypt_failed.length) {
     const warn = document.createElement('div');
     warn.className = 'set-hint';
     warn.style.color = 'var(--warn)';
     warn.textContent = '以下密钥解密失败（可能更换了机器或 Windows 用户），请重新填写：' +
       d.decrypt_failed.join('、');
-    body.appendChild(warn);
+    toolsPane.appendChild(warn);
   }
   if (d.instructions) {
     const ins = document.createElement('div');
@@ -248,13 +279,13 @@ async function mcpOpenDetail(name) {
     note.className = 'set-hint';
     note.textContent = '（仅展示，不会注入系统提示）';
     ins.appendChild(t); ins.appendChild(c); ins.appendChild(note);
-    body.appendChild(ins);
+    toolsPane.appendChild(ins);
   }
   const toolsTitle = document.createElement('div');
   toolsTitle.style.fontWeight = '600';
   toolsTitle.style.margin = '10px 0 4px';
   toolsTitle.textContent = '工具与档位（' + (d.tools || []).length + '）';
-  body.appendChild(toolsTitle);
+  toolsPane.appendChild(toolsTitle);
   const list = document.createElement('div');
   list.className = 'mcp-tool-list';
   (d.tools || []).forEach(t => {
@@ -288,7 +319,7 @@ async function mcpOpenDetail(name) {
     empty.textContent = '尚未缓存工具列表——点「测试连接」拉取。';
     list.appendChild(empty);
   }
-  body.appendChild(list);
+  toolsPane.appendChild(list);
   const done = () => _closeModal();
   m.querySelector('.modal-ok').onclick = done;
   m.querySelector('.modal-mask').onclick = done;
@@ -302,6 +333,182 @@ async function mcpSetToolTier(server, tool, tier) {
     else toast(server + ' · ' + tool + ' 档位已设为「' + MCP_TIER_NAMES[tier] + '」', 'ok');
   } catch (e) {
     toast('档位保存失败：' + (e.message || e), 'err');
+  }
+}
+
+/* ---- 资源 tab（实现 v1.6 T12）----
+ * 打开时调 mcp_list_resources 渲染（uri + name + mimeType）；
+ * 每条资源可「读取」（text 类展开 + 截断保护；blob 类给落盘提示与打开目录）；
+ * 订阅 checkbox 变更即调 mcp_save_subscriptions 持久化 resourceSubs。
+ */
+let mcpResSubs = [];      // 当前 tab 的订阅 uri 列表（checkbox 唯一真相源）
+let mcpResBusyUri = '';   // 正在读取的 uri（读取中禁用按钮，防连点并发）
+
+/** 小工具：建元素（tag/类名/文本一次性到位）。 */
+function mcpResEl(tag, cls, text) {
+  const el = document.createElement(tag);
+  if (cls) el.className = cls;
+  if (text != null) el.textContent = text;
+  return el;
+}
+
+/** 顶部说明行：「已订阅 N 个资源将注入对话上下文」。 */
+function mcpResRenderSubCount(box) {
+  box.textContent = '已订阅 ' + mcpResSubs.length + ' 个资源将注入对话上下文';
+}
+
+/** 在 row 的 children 里找已存在的输出容器（桩/真实 DOM 通用，不依赖 querySelector）。 */
+function mcpResFindOut(row) {
+  for (let i = 0; i < row.children.length; i++) {
+    const c = row.children[i];
+    if (c && c.className && String(c.className).indexOf('mcp-res-out') >= 0) return c;
+  }
+  return null;
+}
+
+/** 打开/刷新资源 tab：拉列表 → 渲染；supported=false 给人话提示（非错误红）。 */
+async function mcpResOpen(server, pane, subs) {
+  pane.innerHTML = '';
+  mcpResSubs = Array.isArray(subs) ? subs.filter(u => typeof u === 'string' && u.trim()) : [];
+  const loading = mcpResEl('div', 'set-hint', '正在读取资源列表 …');
+  pane.appendChild(loading);
+  let d = null;
+  try {
+    d = JSON.parse(await callApi('mcp_list_resources', [server])) || {};
+  } catch (e) {
+    pane.innerHTML = '';
+    const err = mcpResEl('div', 'set-hint', '资源列表读取失败：' + (e.message || e) +
+      '（后端可能为旧版，请重新打包）');
+    err.style.color = 'var(--err)';
+    pane.appendChild(err);
+    return;
+  }
+  if (d.error) {
+    pane.innerHTML = '';
+    const err = mcpResEl('div', 'set-hint', '资源列表读取失败：' + d.error);
+    err.style.color = 'var(--err)';
+    pane.appendChild(err);
+    return;
+  }
+  pane.innerHTML = '';
+  if (d.supported === false) {
+    // -32601 降级：服务器不提供 resources 是合法形态，人话提示而非错误态
+    pane.appendChild(mcpResEl('div', 'set-hint',
+      '该服务器不支持 resources（没有可订阅的资源），不影响工具使用。'));
+    return;
+  }
+  const countBox = mcpResEl('div', 'set-hint');
+  countBox.style.margin = '8px 0 0';
+  mcpResRenderSubCount(countBox);
+  pane.appendChild(countBox);
+  const resources = (d.resources || []).filter(r => r && typeof r.uri === 'string');
+  if (!resources.length) {
+    pane.appendChild(mcpResEl('div', 'set-hint', '该服务器未提供资源。'));
+    return;
+  }
+  const box = mcpResEl('div', 'mcp-res-list');
+  resources.forEach(r => box.appendChild(mcpResRow(server, r, countBox)));
+  pane.appendChild(box);
+}
+
+/** 单资源行：订阅勾选 + uri/name/mimeType + 读取按钮。 */
+function mcpResRow(server, r, countBox) {
+  const row = mcpResEl('div', 'mcp-res-row');
+  const cb = document.createElement('input');
+  cb.type = 'checkbox';
+  cb.checked = mcpResSubs.indexOf(r.uri) >= 0;
+  cb.title = '订阅后该资源将注入对话上下文';
+  cb.onchange = () => mcpResToggleSub(server, r.uri, cb.checked, cb, countBox);
+  const main = mcpResEl('div', 'mcp-main');
+  const nm = mcpResEl('div', 'mcp-tool-name', r.name || r.uri);
+  const meta = mcpResEl('div', 'mcp-tool-desc', r.uri + (r.mimeType ? ' · ' + r.mimeType : ''));
+  main.appendChild(nm);
+  main.appendChild(meta);
+  const btn = mcpResEl('button', 'modal-btn', '读取');
+  btn.onclick = () => mcpResRead(server, r, btn, row);
+  row.appendChild(cb);
+  row.appendChild(main);
+  row.appendChild(btn);
+  return row;
+}
+
+/** 读取资源：text 类直接展开（截断保护）；blob 类显示落盘提示 + 打开目录。 */
+async function mcpResRead(server, r, btn, row) {
+  if (mcpResBusyUri && mcpResBusyUri === r.uri) return;   // 防连点：同资源在途忽略
+  mcpResBusyUri = r.uri;
+  btn.disabled = true;
+  const label = btn.textContent;
+  btn.textContent = '读取中…';
+  try {
+    const raw = await callApi('mcp_read_resource', [server, r.uri], MCP_PANEL_TIMEOUT_MS);
+    const d = JSON.parse(raw) || {};
+    if (d.error) throw new Error(d.error);
+    const out = mcpResFindOut(row) || mcpResEl('div', 'mcp-res-out');
+    out.innerHTML = '';
+    if (d.blob_cached || d.cache_id) {
+      // blob 类：后端已 base64 解码并落盘 toolcache（对话内可 read_more 分段取）
+      out.appendChild(mcpResEl('div', 'mcp-res-blob',
+        '已保存至工具缓存（id ' + (d.cache_id || '?') + '，' + (d.blob_bytes || 0) + ' 字节）'));
+      out.appendChild(mcpResEl('div', 'set-hint',
+        d.hint || '完整内容可在对话中通过 read_more 分段读取。'));
+      const openBtn = mcpResEl('button', 'modal-btn mcp-res-open', '打开目录');
+      openBtn.onclick = () => mcpResOpenToolcache();
+      out.appendChild(openBtn);
+    } else {
+      const text = String(d.text == null ? '' : d.text);
+      out.appendChild(mcpResEl('div', 'mcp-res-text',
+        text.length > MCP_RES_PREVIEW_MAX
+          ? text.slice(0, MCP_RES_PREVIEW_MAX) + '\n…（内容过长已截断，完整内容可在对话中读取）'
+          : (text || '（空内容）')));
+    }
+    row.appendChild(out);
+  } catch (e) {
+    toast('资源读取失败：' + (e.message || e), 'err');
+    const out = mcpResFindOut(row) || mcpResEl('div', 'mcp-res-out');
+    out.innerHTML = '';
+    const err = mcpResEl('div', 'set-hint', '读取失败：' + (e.message || e));
+    err.style.color = 'var(--err)';
+    out.appendChild(err);
+    row.appendChild(out);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = label;
+    mcpResBusyUri = '';
+  }
+}
+
+/** 打开工具缓存目录（%USERPROFILE%\.glm-chat\toolcache；run_command shell 展开环境变量）。 */
+async function mcpResOpenToolcache() {
+  try {
+    const r = JSON.parse(await callApi('run_command',
+      ['explorer "%USERPROFILE%\\.glm-chat\\toolcache"'])) || {};
+    if (r.error) { toast('打开目录失败：' + r.error, 'err'); return; }
+    if (r.skipped) { toast('刚刚已打开过目录：' + (r.info || ''), 'warn'); return; }
+    toast('已打开工具缓存目录', 'ok');
+  } catch (e) {
+    toast('打开目录失败：' + (e.message || e), 'err');
+  }
+}
+
+/** 订阅勾选变更：先改本地真相源 + 计数行，再持久化；失败回弹 checkbox 与计数。 */
+async function mcpResToggleSub(server, uri, on, cb, countBox) {
+  const i = mcpResSubs.indexOf(uri);
+  if (on && i < 0) mcpResSubs.push(uri);
+  if (!on && i >= 0) mcpResSubs.splice(i, 1);
+  mcpResRenderSubCount(countBox);
+  try {
+    const r = JSON.parse(await callApi('mcp_save_subscriptions',
+      [server, JSON.stringify(mcpResSubs)])) || {};
+    if (r.error) throw new Error(r.error);
+    toast(on ? ('已订阅 ' + uri) : ('已取消订阅 ' + uri), 'ok');
+  } catch (e) {
+    // 回滚：后端没存上，前端视觉与落盘保持一致
+    const j = mcpResSubs.indexOf(uri);
+    if (on && j >= 0) mcpResSubs.splice(j, 1);
+    if (!on && j < 0) mcpResSubs.push(uri);
+    if (cb) cb.checked = !on;
+    mcpResRenderSubCount(countBox);
+    toast('订阅保存失败：' + (e.message || e), 'err');
   }
 }
 

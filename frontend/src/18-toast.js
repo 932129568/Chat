@@ -5,6 +5,47 @@
  */
 
 /* ---- Toast ---- */
+
+/* 实现 v1.6 T13：DND 免打扰——窗口失焦（document.hidden / blur）时抑制非关键
+ * toast（ok/info 级；warn/err 仍弹）。被抑制项入通知中心（41-nav 的
+ * navRenderNotify 渲染；聚焦时红点清零）。开关存 localStorage['glm_dnd']
+ * （UI 偏好独立存储，不污染 config.json——契约红线）。 */
+const DND_SUPPRESS_TYPES = ['ok', 'info'];
+let _notifyItems = [];   // 通知中心数据（41-nav 消费；模块 18 先于 41 拼接，声明在前）
+
+function dndEnabled() {
+  try { return localStorage.getItem('glm_dnd') === '1'; } catch (e) { return false; }
+}
+
+/** DND 生效中 = 开关开 且 窗口失焦/最小化。 */
+function dndSuppressActive() {
+  if (!dndEnabled() || typeof document === 'undefined') return false;
+  try {
+    return document.hidden === true || document.hasFocus() === false;
+  } catch (e) { return false; }
+}
+
+/** 入通知中心（供 navRenderNotify 渲染 + 红点数）。 */
+function notifyPush(msg, type) {
+  _notifyItems.unshift({ msg: String(msg || ''), type: type || 'info', at: Date.now() });
+  if (_notifyItems.length > 50) _notifyItems.pop();
+  if (typeof navRenderNotify === 'function') navRenderNotify();
+}
+
+/** 设置面板回填（110-boot 调用）。 */
+function loadDndSetting() {
+  const el = document.getElementById('dndEnabled');
+  if (el) el.checked = dndEnabled();
+}
+
+/** 设置面板保存（checkbox onchange）。 */
+function saveDndSetting() {
+  const el = document.getElementById('dndEnabled');
+  const on = !!(el && el.checked);
+  try { localStorage.setItem('glm_dnd', on ? '1' : '0'); } catch (e) {}
+  toast(on ? '已开启免打扰：失焦时非关键提示将进入通知中心' : '已关闭免打扰', 'ok');
+}
+
 const _toastBox = (() => {
   let box = null;
   return () => {
@@ -24,6 +65,12 @@ const _toastBox = (() => {
 function toast(msg, type, opts) {
   type = type || 'info';
   opts = opts || {};
+  // 实现 v1.6 T13：DND 抑制——ok/info 非关键提示在窗口失焦时入通知中心不弹窗
+  // （opts.force 可强制弹，如更新提示等长流程；warn/err 永不被抑制）
+  if (!opts.force && DND_SUPPRESS_TYPES.indexOf(type) !== -1 && dndSuppressActive()) {
+    if (typeof notifyPush === 'function') notifyPush(msg, type);
+    return null;
+  }
   const box = _toastBox();
   // v4：队列溢出优先让最旧的走退场动画（无 close 句柄才直接移除）
   while (box.children.length >= 5) {

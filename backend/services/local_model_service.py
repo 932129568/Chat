@@ -435,7 +435,14 @@ def models(base_url, timeout=5.0, api_key=''):
     api_key 可选（v4 连接合并）：非空时请求带 `Authorization: Bearer {key}`，
     供云端 OpenAI 兼容端点（DeepSeek/Moonshot/通义/vLLM 网关）拉清单；为空时
     与 v1.5 行为逐字节一致（本地服务器免 Key，单参调用向后兼容）。
+
+    实现 v1.6 T2：GitHub Models 目录探测——host 为 models.github.ai 时走
+    catalog 分支（GET {scheme}://{host}/catalog/models，响应结构
+    {models:[{id,name,context_window,modalities}]} 与 OpenAI /models 不同），
+    在同一 js_api 内分流（零新 js_api，前端无感知）；其余 host 行为不变。
     """
+    if _is_github_catalog_host(base_url):
+        return github_catalog_models(base_url, timeout=timeout, api_key=api_key)
     url = models_url(base_url)
     if not url:
         return {'ok': False, 'error': '缺少 Base URL'}
@@ -457,6 +464,123 @@ def models(base_url, timeout=5.0, api_key=''):
     tags = _fetch_tags_meta(base_url)
     return {'ok': True, 'base_url': normalize_base_url(base_url),
             'models': [dict({'id': mid}, **model_meta(mid, tags)) for mid in ids]}
+
+
+# ================= v1.6 T2 · GitHub Models 目录探测（catalog 分支）=================
+# 外部核实（2026-10，方案 §9）：目录端点 https://models.github.ai/catalog/models
+# （与推理端点 /inference 不同主机路径）；模型 ID 为 provider/model 格式（裸名
+# 校验失败）；目录含 DeepSeek-R1；免费层限额约 15 RPM/150 RPD。
+
+GITHUB_CATALOG_HOST = 'models.github.ai'
+
+
+def _is_github_catalog_host(base_url):
+    """base_url 的 host 为 GitHub Models 目录宿主 → 走 catalog 分支。"""
+    try:
+        host = (urllib.parse.urlsplit(str(base_url or '')).hostname or '').lower()
+    except Exception:
+        return False
+    return host == GITHUB_CATALOG_HOST
+
+
+def _github_catalog_url(base_url):
+    """从推理 base_url 派生目录 URL：{scheme}://{host}/catalog/models。"""
+    u = urllib.parse.urlsplit(str(base_url or ''))
+    scheme = u.scheme or 'https'
+    host = u.hostname or GITHUB_CATALOG_HOST
+    return '%s://%s/catalog/models' % (scheme, host)
+
+
+def _github_catalog_error(exc):
+    """catalog 请求异常 → 人话（401/403 引导 PAT scope，429 限流，其余通用）。"""
+    if isinstance(exc, urllib.error.HTTPError):
+        code = exc.code
+        if code == 401:
+            return ('GitHub PAT 无效或未授权（401）：请检查 Token 是否正确、'
+                    '是否勾选 models:read scope（github.com/settings/tokens）')
+        if code == 403:
+            return '无权访问 GitHub 模型目录（403）：PAT 可能缺少 models:read scope'
+        if code == 429:
+            return 'GitHub 目录请求被限流（429）：稍后重试，或先用预设推荐模型'
+        return 'GitHub 目录请求失败（HTTP %s）' % code
+    text = str(exc)
+    if 'timed out' in text or 'timeout' in text.lower():
+        return 'GitHub 目录连接超时'
+    return 'GitHub 目录请求失败: %s' % (text[:120] or '连接失败')
+
+
+def _parse_github_catalog(raw):
+    """解析目录响应 → [{id, ctx_window, modalities}]；裸名（无 '/'）过滤。
+
+    容错：context_window 接受 context_window/context_length/max_context 别名；
+    modalities 接受 list 或字符串。返回 [] = 结构不符（调用方出人话错误）。
+    """
+    try:
+        data = json.loads(raw.decode('utf-8', 'replace'))
+    except Exception:
+        return []
+    if not isinstance(data, dict):
+        return []
+    items = data.get('models')
+    if not isinstance(items, list):
+        return []
+    out = []
+    for it in items:
+        if not isinstance(it, dict):
+            continue
+        mid = it.get('id') or it.get('name')
+        if not mid:
+            continue
+        mid = str(mid).strip()
+        if '/' not in mid:
+            continue          # 外部核实：裸名会校验失败，过滤
+        ctx = 0
+        for k in ('context_window', 'context_length', 'max_context'):
+            try:
+                ctx = int(it.get(k) or 0)
+            except (TypeError, ValueError):
+                ctx = 0
+            if ctx > 0:
+                break
+        mods = it.get('modalities')
+        if isinstance(mods, str):
+            mods = [m.strip() for m in mods.split(',') if m.strip()]
+        elif isinstance(mods, list):
+            mods = [str(m).strip() for m in mods if str(m).strip()]
+        else:
+            mods = []
+        out.append({'id': mid, 'ctx_window': ctx, 'modalities': mods})
+    return out
+
+
+def github_catalog_models(base_url, timeout=8.0, api_key=''):
+    """v1.6 T2：拉取 GitHub Models 目录 → 与 models() 同形态输出。
+
+    返回 {ok, base_url, models:[{id, ctx_window, tool_capable, estimated,
+    modalities}]}；失败 {ok: False, error: 人话}（401 scope 引导/429 限流/
+    结构异常/空目录）。探测失败不阻塞调用方其他功能（由前端降级手输）。
+    """
+    url = _github_catalog_url(base_url)
+    if not url:
+        return {'ok': False, 'error': '缺少 Base URL'}
+    headers = {'Accept': 'application/json'}
+    token = auth_header_value(api_key)
+    if token:
+        headers['Authorization'] = 'Bearer ' + token
+    try:
+        req = urllib.request.Request(url, method='GET', headers=headers)
+        with urlopen_no_redirect(req, timeout=timeout) as resp:
+            raw = resp.read(512 * 1024)
+    except Exception as e:
+        return {'ok': False, 'error': _github_catalog_error(e)}
+    entries = _parse_github_catalog(raw)
+    if not entries:
+        return {'ok': False,
+                'error': '未能解析 GitHub 模型目录（响应结构异常或无 provider/model 格式模型，接口可能已变更）'}
+    return {'ok': True, 'base_url': normalize_base_url(base_url),
+            'models': [dict({'id': e['id'], 'ctx_window': e['ctx_window'],
+                             'tool_capable': True, 'estimated': False,
+                             'modalities': e['modalities']}) for e in entries]}
 
 
 def test_local_endpoint(base_url, model, timeout=30):

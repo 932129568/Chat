@@ -25,8 +25,48 @@ const ERROR_HUMANIZE_LOCAL = [
   [/\b429\b/i, '本地服务器限流：稍等重试；持续出现请检查并发设置。'],
 ];
 
-function humanizeApiError(msg, isLocal) {
+/* 实现 v1.6 T3：GitHub Models 免费层 429 人话映射（外部核实 2026-10，方案 §9：
+ * GitHub 用响应头区分「请求频率(RPM)」与「每日配额(RPD)」）。从响应头解析
+ * （x-ratelimit-remaining / retry-after 等，键名容忍大小写与别名）；
+ * 解析失败返回 null → 调用方回落通用 429 文案（T14 验收两分支 100% 覆盖）。 */
+const GITHUB_429_RPM_TEXT =
+  '请求频率超限（GitHub 免费层约 15 RPM）：已到每分钟请求上限。\n可行操作：① 等待约 1 分钟窗口重置后重试；' +
+  '② 合并工具调用轮次、读类并行发起，减少请求数；③ 高频使用请切换 DeepSeek/GLM 付费层。';
+const GITHUB_429_RPD_TEXT =
+  '每日配额耗尽（GitHub 免费层约 150 RPD）：今日免费额度已用完。\n可行操作：① 等待次日（UTC 0 点）额度重置；' +
+  '② 切换 DeepSeek/GLM 付费层继续。';
+
+/** 429 响应头 → RPM/RPD 人话（无法区分时返回 null，走通用文案）。 */
+function humanizeGithub429(headers) {
+  if (!headers || typeof headers !== 'object') return null;
+  const flat = {};
+  try {
+    Object.keys(headers).forEach(k => { flat[String(k).toLowerCase()] = String(headers[k]); });
+  } catch (e) { return null; }
+  let rpmHit = false, rpdHit = false, retryAfter = 0;
+  Object.keys(flat).forEach(k => {
+    const v = parseInt(flat[k], 10);
+    if (/retry-after/.test(k) && v > 0) { retryAfter = v; return; }
+    if (!/remaining/.test(k)) return;
+    // 语义判据（按外部源描述实现 + 容错）：键名含 day/daily/rpd → 日额度；
+    // 含 min/request/rpm 或裸 remaining → 每分钟频率；仅 remaining==0 判超限。
+    if (!(v === 0)) return;
+    if (/day|daily|rpd/.test(k)) rpdHit = true;
+    else if (/min|request|rpm/.test(k) || k === 'x-ratelimit-remaining') rpmHit = true;
+  });
+  const wait = retryAfter > 0 ? '\n（服务端 retry-after: ' + retryAfter + ' 秒）' : '';
+  if (rpdHit) return GITHUB_429_RPD_TEXT + wait;
+  if (rpmHit) return GITHUB_429_RPM_TEXT + wait;
+  return null;
+}
+
+function humanizeApiError(msg, isLocal, headers) {
   const raw = String(msg || '');
+  // 实现 v1.6 T3：429 且带响应头 → 先试 GitHub 频率/日额分支（云端路径；local 表优先）
+  if (!isLocal && (/\b429\b/.test(raw) || /rate.?limit/i.test(raw))) {
+    const gh = humanizeGithub429(headers);
+    if (gh) return gh + '\n\n（原始错误：' + raw.slice(0, 300) + '）';
+  }
   const table = isLocal ? ERROR_HUMANIZE_LOCAL : ERROR_HUMANIZE;
   for (const [pat, text] of table) {
     if (pat.test(raw)) return text + '\n\n（原始错误：' + raw.slice(0, 300) + '）';

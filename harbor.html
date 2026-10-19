@@ -453,6 +453,43 @@ body.dark .eff-tag-s{background:var(--ok-bg);color:var(--ok);}
   white-space:nowrap;}
 .set-nav-btn:hover{border-color:var(--primary);color:var(--primary);}
 .set-nav-btn.on{background:var(--primary);border-color:var(--primary);color:#fff;}
+/* 实现 v1.6 T6：沙箱状态灯（纯新增类） */
+.sb-light{display:inline-block;width:10px;height:10px;border-radius:50%;flex-shrink:0;background:var(--text-2);}
+.sb-light.ok{background:var(--ok);}
+.sb-light.warn{background:var(--warn);}
+.sb-light.off{background:var(--err);}
+/* 实现 v1.6 T11：左侧主导航 + T13 通知中心（纯新增） */
+.main-nav{width:132px;flex-shrink:0;display:flex;flex-direction:column;gap:2px;padding:10px 8px;
+  border-right:1px solid var(--glass-border);background:var(--sidebar-bg);position:relative;overflow:visible;}
+.mn-title{font-size:11px;color:var(--text-3);padding:2px 8px 8px;font-weight:600;}
+.mn-btn{display:flex;align-items:center;gap:8px;width:100%;height:34px;padding:0 10px;border:none;
+  background:transparent;border-radius:var(--radius-md);color:var(--text-2);font-size:13px;cursor:pointer;text-align:left;}
+.mn-btn:hover{background:var(--hover);color:var(--text);}
+.mn-btn.on{background:var(--primary-soft);color:var(--primary);font-weight:600;}
+.mn-spacer{flex:1;}
+.mn-badge{min-width:16px;height:16px;border-radius:var(--radius-full);background:var(--err);color:#fff;
+  font-size:10px;display:inline-flex;align-items:center;justify-content:center;padding:0 4px;margin-left:auto;}
+.notify-pop{position:absolute;left:calc(100% + 6px);bottom:8px;width:264px;max-height:340px;overflow:auto;z-index:80;
+  background:var(--card-bg);border:1px solid var(--border);border-radius:var(--radius-md);box-shadow:var(--shadow-lg);padding:8px;}
+.notify-head{font-size:12px;font-weight:600;color:var(--text-2);padding:2px 4px 8px;display:flex;justify-content:space-between;}
+.notify-item{font-size:12px;padding:6px 8px;border-radius:var(--radius-sm);background:var(--chip-bg);margin-bottom:4px;color:var(--text);line-height:1.5;}
+.notify-item .nt-time{color:var(--text-3);font-size:10px;margin-right:6px;}
+.notify-empty{font-size:12px;color:var(--text-3);padding:10px 6px;}
+/* 实现 v1.6 T11：空态三步引导 + 会话头部状态区（纯新增） */
+.empty-guide{margin-top:14px;display:none;flex-direction:column;gap:8px;text-align:left;max-width:340px;}
+.eg-step{display:flex;align-items:center;gap:10px;font-size:13px;color:var(--text-2);
+  background:var(--card-bg);border:1px solid var(--border);border-radius:var(--radius-md);padding:8px 12px;}
+.eg-step b{width:20px;height:20px;border-radius:50%;background:var(--primary);color:#fff;
+  display:inline-flex;align-items:center;justify-content:center;font-size:11px;flex-shrink:0;}
+.eg-step button{margin-left:auto;flex-shrink:0;}
+.eg-step button:disabled{opacity:.5;cursor:default;}
+.header-status{display:flex;align-items:center;gap:6px;margin-left:10px;font-size:11px;color:var(--text-2);min-width:0;overflow:hidden;}
+.hs-chip{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:var(--radius-full);
+  background:var(--chip-bg);white-space:nowrap;max-width:150px;overflow:hidden;text-overflow:ellipsis;}
+.hs-dot{width:7px;height:7px;border-radius:50%;background:var(--text-2);flex-shrink:0;}
+.hs-dot.ok{background:var(--ok);}
+.hs-dot.warn{background:var(--warn);}
+.hs-dot.off{background:var(--err);}
 .set-title{font-size:12px;font-weight:700;color:var(--text);margin-bottom:12px;
   padding-bottom:9px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:7px;
   letter-spacing:.02em;}
@@ -917,6 +954,20 @@ body.fx-off .panel,body.fx-off .message,body.fx-off .settings-panel.show{animati
 .mcp-tool-desc{font-size:11.5px;color:var(--text-2);margin-top:2px;line-height:1.5;}
 .mcp-kv{width:100%;margin-top:4px;padding:8px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--main-bg);color:var(--text);font-size:12px;font-family:var(--font-mono,ui-monospace,Consolas,monospace);resize:vertical;}
 .mcp-instructions{margin-top:10px;padding:10px 12px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--main-bg);}
+/* 实现 v1.6 T12：MCP 详情页 工具/资源 双 tab + 资源行（纯新增） */
+.mcp-tabs{display:flex;gap:6px;margin-top:10px;border-bottom:1px solid var(--border);}
+.mcp-tab{appearance:none;border:1px solid transparent;background:transparent;color:var(--text-2);font-size:12.5px;font-family:inherit;padding:6px 14px;border-radius:var(--radius-sm) var(--radius-sm) 0 0;cursor:pointer;}
+.mcp-tab:hover{color:var(--text);}
+.mcp-tab.on{background:var(--main-bg);border-color:var(--border);color:var(--text);font-weight:600;margin-bottom:-1px;}
+.mcp-res-list{max-height:min(40vh,340px);overflow:auto;margin-top:8px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--main-bg);}
+.mcp-res-row{display:flex;gap:10px;align-items:flex-start;padding:8px 12px;border-bottom:1px solid var(--border);flex-wrap:wrap;}
+.mcp-res-row:last-child{border-bottom:none;}
+.mcp-res-row input[type=checkbox]{flex:0 0 auto;margin-top:3px;}
+.mcp-res-row .modal-btn{flex:0 0 auto;}
+.mcp-res-out{flex:1 0 100%;margin-top:6px;padding:8px 10px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--surface-2);}
+.mcp-res-text{font-size:12px;color:var(--text);white-space:pre-wrap;word-break:break-all;line-height:1.6;max-height:220px;overflow:auto;font-family:var(--font-mono,ui-monospace,Consolas,monospace);}
+.mcp-res-blob{font-size:12.5px;color:var(--text);font-weight:600;}
+.mcp-res-open{margin-top:6px;}
 /* ================= v4「连接与模型」合并块（完全单端点 · cm-* / 纯新增） =================
  * 一个区块一条纵向流：预设 → Base URL → Key → 模型 → 测试连接（+「高级」折叠）。
  * 显隐规则由 36-connect.js 按预设写入（connectUpdateAdvanced）；本段只负责布局与观感。
@@ -993,6 +1044,25 @@ body.fx-off .panel,body.fx-off .message,body.fx-off .settings-panel.show{animati
   <button class="rail-btn" id="themeBtn" data-tip="切换深色/浅色" onclick="toggleTheme()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M20 14.5A8.5 8.5 0 1 1 9.5 4a7 7 0 0 0 10.5 10.5z"/></svg></button>
 </nav>
 
+<!-- 实现 v1.6 T11：左侧主导航（对话/设置/审计/会话搜索/沙箱 + T13 通知中心）。
+     纯新增元素（flex 布局自然参与，不影响既有三栏）；新 id 全部唯一。
+     直切口径：本导航为单一入口，原设置大按钮/33-set-nav 锚点 DOM 保留不删。 -->
+<nav class="main-nav" id="mainNav" aria-label="分区导航">
+  <div class="mn-title">分区</div>
+  <button class="mn-btn on" id="navBtnChat" onclick="navSwitch('chat')">💬 对话</button>
+  <button class="mn-btn" id="navBtnSettings" onclick="navSwitch('settings')">⚙️ 设置</button>
+  <button class="mn-btn" id="navBtnAudit" onclick="navSwitch('audit')">🛡️ 审计</button>
+  <button class="mn-btn" id="navBtnSearch" onclick="navSwitch('search')">⌕ 会话搜索</button>
+  <button class="mn-btn" id="navBtnSandbox" onclick="navSwitch('sandbox')">📦 沙箱</button>
+  <div class="mn-spacer"></div>
+  <button class="mn-btn" id="navBtnNotify" onclick="navToggleNotify()">🔔 通知<span class="mn-badge" id="navNotifyBadge" style="display:none;">0</span></button>
+  <div class="notify-pop" id="notifyPop" style="display:none;">
+    <div class="notify-head"><span>通知中心</span><span id="notifyCount"></span></div>
+    <div class="notify-list" id="notifyList"></div>
+    <button type="button" class="mn-btn" id="notifyClearBtn" onclick="navClearNotify()">清空通知</button>
+  </div>
+</nav>
+
 <aside class="sidebar" id="sidebar">
   <div class="sidebar-brand">
     <div class="brand-logo">G</div>
@@ -1022,6 +1092,8 @@ body.fx-off .panel,body.fx-off .message,body.fx-off .settings-panel.show{animati
     <div class="header-left">
       <button class="icon-btn" onclick="toggleSidebar()" title="折叠/展开侧栏">☰</button>
       <div class="header-title" id="headerTitle">glm-5.3-flash</div>
+      <!-- 实现 v1.6 T11：会话头部状态区重组（模型徽标/缓存命中/沙箱态一屏可达；纯新增容器） -->
+      <div class="header-status" id="headerStatusZone"></div>
       <div class="header-badge">多模态 Agent</div>
     </div>
     <div class="header-right">
@@ -1056,6 +1128,7 @@ body.fx-off .panel,body.fx-off .message,body.fx-off .settings-panel.show{animati
                   <option value="deepseek">DeepSeek</option>
                   <option value="moonshot">Moonshot</option>
                   <option value="qwen">通义千问</option>
+                  <option value="github-models">GitHub Models（免费层）</option>
                   <option value="ollama">Ollama</option>
                   <option value="lmstudio">LM Studio</option>
                   <option value="vllm">vLLM</option>
@@ -1069,10 +1142,17 @@ body.fx-off .panel,body.fx-off .message,body.fx-off .settings-panel.show{animati
               <input type="text" id="providerBase" placeholder="https://open.bigmodel.cn/api/paas/v4" autocomplete="off" spellcheck="false">
 
               <div id="cmKeyRow">
-                <label for="apiKey">API Key（仅保存在本机）</label>
+                <label for="apiKey" id="cmKeyLabel">API Key（仅保存在本机）</label>
                 <input type="password" id="apiKey" placeholder="粘贴你的智谱 API Key">
+                <!-- 实现 v1.6 T1：GitHub PAT 获取指引（仅 GitHub Models 预设显示） -->
+                <div class="set-hint" id="cmKeyHelp" style="display:none;margin:4px 0 0;">
+                  在 <a href="https://github.com/settings/tokens" target="_blank">GitHub 设置 → 开发者设置 → Tokens</a>
+                  创建 PAT（classic 或 fine-grained 勾选 <code>models:read</code> scope）后粘贴即可。
+                </div>
               </div>
               <div class="local-badge cm-chip" id="cmNoKey" style="display:none;">ℹ 本地服务器通常无需 Key（免 Key · 零费用）</div>
+              <!-- 实现 v1.6 T1：免费层常驻声明（用户裁决①：个人自用算支持范围，明示限制） -->
+              <div class="local-badge cm-chip" id="cmFreeTier" style="display:none;">免费层仅限个人非商业使用，禁止生产使用；高频使用请切换 DeepSeek/GLM 付费层</div>
 
               <label for="modelSelect">模型</label>
               <div class="cm-row">
@@ -1268,6 +1348,18 @@ body.fx-off .panel,body.fx-off .message,body.fx-off .settings-panel.show{animati
             </div>
           </div>
 
+          <!-- 实现 v1.6 T13：免打扰（DND）设置项（独立开关，localStorage 持久，不污染 config.json） -->
+          <div class="set-block" id="dndBlock">
+            <div class="set-title">免打扰（DND）</div>
+            <label class="check-row" for="dndEnabled" style="margin-bottom:4px;">
+              <input type="checkbox" id="dndEnabled" onchange="saveDndSetting()"> 窗口失焦时免打扰
+            </label>
+            <div class="set-hint" style="margin-top:6px;">
+              开启后，窗口失焦或最小化时抑制非关键提示（成功 / 信息类）；警告与错误仍会弹出。<br>
+              被抑制的提示进入左侧导航「🔔 通知」中心（带红点数）；窗口重新聚焦时红点自动清零。
+            </div>
+          </div>
+
           <div class="set-block">
             <div class="set-title">MCP 服务器（v1.3）</div>
             <div class="set-hint" style="margin:2px 0 8px;">
@@ -1282,6 +1374,94 @@ body.fx-off .panel,body.fx-off .message,body.fx-off .settings-panel.show{animati
             </div>
             <div class="mcp-list" id="mcpServerList"></div>
           </div>
+
+          <!-- 实现 v1.6 T6：命令沙箱设置面板 + 状态灯（纯新增区块；新 id 全部唯一，
+               接线既有 js_api sandbox_get_config/sandbox_save_config/sandbox_status） -->
+          <div class="set-block" id="sandboxBlock">
+            <div class="set-title">命令沙箱（v1.6）</div>
+            <div class="set-hint" style="margin:2px 0 8px;">
+              Windows Job Object 进程隔离：每次命令一个独立 Job，收编整棵进程树，句柄关闭即清剿（防孤儿）。<br>
+              诚实边界：<b>网络不隔离、文件系统仅应用层校验</b>——沙箱不是绝对安全，敏感操作仍会先确认。
+            </div>
+            <label class="check-row" for="sandboxEnabled" style="margin-bottom:10px;">
+              <input type="checkbox" id="sandboxEnabled"> 启用命令沙箱（关闭后全部命令直接执行）
+            </label>
+            <div class="provider-row" style="align-items:center;gap:8px;">
+              <span class="sb-light" id="sandboxStatusLight"></span>
+              <span id="sandboxStatusText" style="font-size:12px;color:var(--text-2);">读取状态中…</span>
+              <button type="button" class="modal-btn" id="sandboxRefreshBtn" onclick="refreshSandboxStatus()">↻ 刷新状态</button>
+            </div>
+            <div class="set-hint" id="sandboxUnavailable" style="display:none;color:var(--warn);">
+              当前系统不支持 Job Object（非 Windows 或句柄创建失败）：沙箱不可用，命令将直接执行。
+            </div>
+            <div class="set-hint" id="sandboxStats" style="margin:2px 0 10px;"></div>
+
+            <label>命令类别档位</label>
+            <div class="provider-row">
+              <span style="width:150px;font-size:12px;color:var(--text-2);flex-shrink:0;">run_command</span>
+              <div style="width:170px;">
+                <select id="sandboxProfilerun_command">
+                  <option value="off">off（不沙箱）</option>
+                  <option value="standard" selected>standard（1024MB · 16 进程）</option>
+                  <option value="strict">strict（512MB · 8 进程）</option>
+                </select>
+              </div>
+            </div>
+            <div class="provider-row">
+              <span style="width:150px;font-size:12px;color:var(--text-2);flex-shrink:0;">run_powershell</span>
+              <div style="width:170px;">
+                <select id="sandboxProfilerun_powershell">
+                  <option value="off">off（不沙箱）</option>
+                  <option value="standard" selected>standard（1024MB · 16 进程）</option>
+                  <option value="strict">strict（512MB · 8 进程）</option>
+                </select>
+              </div>
+            </div>
+            <div class="provider-row">
+              <span style="width:150px;font-size:12px;color:var(--text-2);flex-shrink:0;">run_admin_command</span>
+              <div style="width:170px;">
+                <select id="sandboxProfilerun_admin_command">
+                  <option value="off" selected>off（恒不沙箱：提权子进程无法收编）</option>
+                  <option value="standard">standard（1024MB · 16 进程）</option>
+                  <option value="strict">strict（512MB · 8 进程）</option>
+                </select>
+              </div>
+            </div>
+
+            <label style="margin-top:12px;">standard 档限制</label>
+            <div class="provider-row">
+              <input type="number" id="sandboxLimitstandardMemory" min="64" max="100000" step="64" title="内存上限（MB）" style="width:110px;">
+              <input type="number" id="sandboxLimitstandardProcesses" min="1" max="100" title="活跃进程数上限" style="width:110px;">
+              <input type="number" id="sandboxLimitstandardCpu" min="1" max="100000" title="CPU 时间上限（秒）" style="width:110px;">
+              <div style="width:130px;">
+                <select id="sandboxLimitstandardUi" title="UI 限制级别">
+                  <option value="none">UI：不限制</option>
+                  <option value="basic" selected>UI：basic（桌面/关机）</option>
+                  <option value="strict">UI：strict（+全局原子/句柄）</option>
+                </select>
+              </div>
+            </div>
+            <label style="margin-top:10px;">strict 档限制</label>
+            <div class="provider-row">
+              <input type="number" id="sandboxLimitstrictMemory" min="64" max="100000" step="64" title="内存上限（MB）" style="width:110px;">
+              <input type="number" id="sandboxLimitstrictProcesses" min="1" max="100" title="活跃进程数上限" style="width:110px;">
+              <input type="number" id="sandboxLimitstrictCpu" min="1" max="100000" title="CPU 时间上限（秒）" style="width:110px;">
+              <div style="width:130px;">
+                <select id="sandboxLimitstrictUi" title="UI 限制级别">
+                  <option value="none">UI：不限制</option>
+                  <option value="basic">UI：basic（桌面/关机）</option>
+                  <option value="strict" selected>UI：strict（+全局原子/句柄）</option>
+                </select>
+              </div>
+            </div>
+            <div class="set-hint" style="margin-top:6px;">
+              输入顺序：内存（MB）/ 进程数 / CPU 秒；strict 的 UI=strict 可能破坏部分运行时，按需开启。
+            </div>
+            <div class="provider-row" style="margin-top:10px;">
+              <button type="button" class="modal-btn primary" id="sandboxSaveBtn" onclick="saveSandboxSettings()">保存档位</button>
+              <button type="button" class="modal-btn" id="sandboxResetBtn" onclick="sandboxResetDefaults()">重置默认</button>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -1290,6 +1470,12 @@ body.fx-off .panel,body.fx-off .message,body.fx-off .settings-panel.show{animati
           <div class="empty-icon">✦</div>
           <h2>开始和 Harbor 聊天</h2>
           <p>支持文字、图片、视频、文本文件 · 历史记录自动保存</p>
+          <!-- 实现 v1.6 T11：未配 Key 时的三步空态引导（纯新增；按钮跳导航对应位） -->
+          <div class="empty-guide" id="emptyGuide">
+            <div class="eg-step"><b>1</b>选来源<button type="button" class="modal-btn" onclick="navGuidePickSource()">去选择 →</button></div>
+            <div class="eg-step"><b>2</b>填 Key<button type="button" class="modal-btn" onclick="navGuideFillKey()">去填写 →</button></div>
+            <div class="eg-step"><b>3</b>发问<button type="button" class="modal-btn" disabled>在下方输入框</button></div>
+          </div>
         </div>
       </div>
 
@@ -1334,6 +1520,8 @@ body.fx-off .panel,body.fx-off .message,body.fx-off .settings-panel.show{animati
             <span>Enter 发送 · Shift+Enter 换行</span>
             <span id="costEstimate"></span>
             <span id="liveTokenStat">当前对话: 0 tokens</span>
+            <!-- 实现 v1.6 T10③：流式期 tokens/s 速度显示（无 usage 按字符估算标「估」） -->
+            <span id="streamSpeed"></span>
             <button id="continueNewBtn" title="总结当前对话后开新会话继续" onclick="continueInNewSession()">⇥ 新对话继续</button>
           </div>
         </div>
@@ -1823,6 +2011,47 @@ function initFx() {
  */
 
 /* ---- Toast ---- */
+
+/* 实现 v1.6 T13：DND 免打扰——窗口失焦（document.hidden / blur）时抑制非关键
+ * toast（ok/info 级；warn/err 仍弹）。被抑制项入通知中心（41-nav 的
+ * navRenderNotify 渲染；聚焦时红点清零）。开关存 localStorage['glm_dnd']
+ * （UI 偏好独立存储，不污染 config.json——契约红线）。 */
+const DND_SUPPRESS_TYPES = ['ok', 'info'];
+let _notifyItems = [];   // 通知中心数据（41-nav 消费；模块 18 先于 41 拼接，声明在前）
+
+function dndEnabled() {
+  try { return localStorage.getItem('glm_dnd') === '1'; } catch (e) { return false; }
+}
+
+/** DND 生效中 = 开关开 且 窗口失焦/最小化。 */
+function dndSuppressActive() {
+  if (!dndEnabled() || typeof document === 'undefined') return false;
+  try {
+    return document.hidden === true || document.hasFocus() === false;
+  } catch (e) { return false; }
+}
+
+/** 入通知中心（供 navRenderNotify 渲染 + 红点数）。 */
+function notifyPush(msg, type) {
+  _notifyItems.unshift({ msg: String(msg || ''), type: type || 'info', at: Date.now() });
+  if (_notifyItems.length > 50) _notifyItems.pop();
+  if (typeof navRenderNotify === 'function') navRenderNotify();
+}
+
+/** 设置面板回填（110-boot 调用）。 */
+function loadDndSetting() {
+  const el = document.getElementById('dndEnabled');
+  if (el) el.checked = dndEnabled();
+}
+
+/** 设置面板保存（checkbox onchange）。 */
+function saveDndSetting() {
+  const el = document.getElementById('dndEnabled');
+  const on = !!(el && el.checked);
+  try { localStorage.setItem('glm_dnd', on ? '1' : '0'); } catch (e) {}
+  toast(on ? '已开启免打扰：失焦时非关键提示将进入通知中心' : '已关闭免打扰', 'ok');
+}
+
 const _toastBox = (() => {
   let box = null;
   return () => {
@@ -1842,6 +2071,12 @@ const _toastBox = (() => {
 function toast(msg, type, opts) {
   type = type || 'info';
   opts = opts || {};
+  // 实现 v1.6 T13：DND 抑制——ok/info 非关键提示在窗口失焦时入通知中心不弹窗
+  // （opts.force 可强制弹，如更新提示等长流程；warn/err 永不被抑制）
+  if (!opts.force && DND_SUPPRESS_TYPES.indexOf(type) !== -1 && dndSuppressActive()) {
+    if (typeof notifyPush === 'function') notifyPush(msg, type);
+    return null;
+  }
   const box = _toastBox();
   // v4：队列溢出优先让最旧的走退场动画（无 close 句柄才直接移除）
   while (box.children.length >= 5) {
@@ -2686,6 +2921,8 @@ async function renderAuditList() {
  * 设置页「MCP 服务器」区块：列表（状态灯/传输/工具数/开关/编辑/删除/测试连接）、
  * 添加编辑表单（stdio: command+args+env；HTTP: url+headers）、逐工具档位覆盖、
  * 导入 Claude 配置模态、instructions 展示（仅展示，不注入系统提示）。
+ * 实现 v1.6 T12：服务器详情页「资源」tab（与工具 tab 并列）——resources/list
+ * 列表渲染、text/blob 读取展开、资源订阅（resourceSubs）勾选即存。
  * 静态 DOM 仅 4 个 id（mcpServerList/mcpAddBtn/mcpImportBtn/mcpRefreshBtn）+ mcp-* class，
  * 其余全部动态模态创建（复用 18-toast 的 _modalRoot）；错误走 toast。
  * 调 mcp_test_server/mcp_call_tool 一律传 timeoutMs=90000（后端 60s + 拉起 + 余量）。
@@ -2697,6 +2934,8 @@ const MCP_TIER_NAMES = { always: '每次确认', session: '会话内首次确认
 const MCP_STATUS_NAMES = {
   ok: '已连接', error: '错误', stale: '待刷新', disabled: '未启用', untested: '未测试'
 };
+// 实现 v1.6 T12：text 类资源预览截断保护（超过该长度只展示头部并提示，防巨文撑爆弹层）
+const MCP_RES_PREVIEW_MAX = 20000;
 
 /** 加载服务器列表（面板打开/刷新时调用；纯本地读取零网络）。 */
 async function loadMcpServers() {
@@ -2896,27 +3135,54 @@ async function mcpOpenDetail(name) {
     '<div class="modal-mask"></div>' +
     '<div class="modal-card" role="dialog" aria-modal="true">' +
     '  <div class="modal-title"></div>' +
-    '  <div class="modal-body"></div>' +
+    '  <div class="modal-body">' +
+    // 实现 v1.6 T12：详情页双 tab（工具 / 资源）；新 id 全唯一，UI 契约只增不改
+    '    <div class="mcp-tabs" role="tablist">' +
+    '      <button type="button" class="mcp-tab on" id="mcpTabTools" role="tab">工具与档位</button>' +
+    '      <button type="button" class="mcp-tab" id="mcpTabRes" role="tab">资源</button>' +
+    '    </div>' +
+    '    <div id="mcpPaneTools" role="tabpanel"></div>' +
+    '    <div id="mcpPaneRes" role="tabpanel" style="display:none"></div>' +
+    '  </div>' +
     '  <div class="modal-btns">' +
     '    <button class="modal-btn modal-test">测试连接</button>' +
     '    <button class="modal-btn modal-ok primary">关闭</button>' +
     '  </div></div>';
   m.querySelector('.modal-title').textContent = 'MCP 服务器 · ' + name;
-  const body = m.querySelector('.modal-body');
+  const toolsPane = m.querySelector('#mcpPaneTools');
+  const resPane = m.querySelector('#mcpPaneRes');
+  // tab 切换：工具页（原内容）↔ 资源页（打开时拉 resources/list）
+  const mcpShowTab = (which) => {
+    const tabTools = m.querySelector('#mcpTabTools');
+    const tabRes = m.querySelector('#mcpTabRes');
+    tabTools.classList.toggle('on', which === 'tools');
+    tabRes.classList.toggle('on', which === 'res');
+    toolsPane.style.display = which === 'tools' ? '' : 'none';
+    resPane.style.display = which === 'res' ? '' : 'none';
+  };
+  m.querySelector('#mcpTabTools').onclick = () => mcpShowTab('tools');
+  let mcpResLoaded = false;   // 每次打开详情只拉一次资源列表（切 tab 不重复请求）
+  m.querySelector('#mcpTabRes').onclick = () => {
+    mcpShowTab('res');
+    if (mcpResLoaded) return;
+    mcpResLoaded = true;
+    const subs = (d.config && d.config.resourceSubs) || [];
+    mcpResOpen(name, resPane, subs);
+  };
   const info = document.createElement('div');
   info.className = 'set-hint';
   info.textContent = '状态：' + (MCP_STATUS_NAMES[d.status] || d.status) +
     ' · 传输：' + (d.transport === 'http' ? 'HTTP' : 'stdio') +
     (d.server_info && d.server_info.name ? ' · 服务器：' + d.server_info.name : '') +
     (d.last_error ? ' · ' + d.last_error : '');
-  body.appendChild(info);
+  toolsPane.appendChild(info);
   if (d.decrypt_failed && d.decrypt_failed.length) {
     const warn = document.createElement('div');
     warn.className = 'set-hint';
     warn.style.color = 'var(--warn)';
     warn.textContent = '以下密钥解密失败（可能更换了机器或 Windows 用户），请重新填写：' +
       d.decrypt_failed.join('、');
-    body.appendChild(warn);
+    toolsPane.appendChild(warn);
   }
   if (d.instructions) {
     const ins = document.createElement('div');
@@ -2932,13 +3198,13 @@ async function mcpOpenDetail(name) {
     note.className = 'set-hint';
     note.textContent = '（仅展示，不会注入系统提示）';
     ins.appendChild(t); ins.appendChild(c); ins.appendChild(note);
-    body.appendChild(ins);
+    toolsPane.appendChild(ins);
   }
   const toolsTitle = document.createElement('div');
   toolsTitle.style.fontWeight = '600';
   toolsTitle.style.margin = '10px 0 4px';
   toolsTitle.textContent = '工具与档位（' + (d.tools || []).length + '）';
-  body.appendChild(toolsTitle);
+  toolsPane.appendChild(toolsTitle);
   const list = document.createElement('div');
   list.className = 'mcp-tool-list';
   (d.tools || []).forEach(t => {
@@ -2972,7 +3238,7 @@ async function mcpOpenDetail(name) {
     empty.textContent = '尚未缓存工具列表——点「测试连接」拉取。';
     list.appendChild(empty);
   }
-  body.appendChild(list);
+  toolsPane.appendChild(list);
   const done = () => _closeModal();
   m.querySelector('.modal-ok').onclick = done;
   m.querySelector('.modal-mask').onclick = done;
@@ -2986,6 +3252,182 @@ async function mcpSetToolTier(server, tool, tier) {
     else toast(server + ' · ' + tool + ' 档位已设为「' + MCP_TIER_NAMES[tier] + '」', 'ok');
   } catch (e) {
     toast('档位保存失败：' + (e.message || e), 'err');
+  }
+}
+
+/* ---- 资源 tab（实现 v1.6 T12）----
+ * 打开时调 mcp_list_resources 渲染（uri + name + mimeType）；
+ * 每条资源可「读取」（text 类展开 + 截断保护；blob 类给落盘提示与打开目录）；
+ * 订阅 checkbox 变更即调 mcp_save_subscriptions 持久化 resourceSubs。
+ */
+let mcpResSubs = [];      // 当前 tab 的订阅 uri 列表（checkbox 唯一真相源）
+let mcpResBusyUri = '';   // 正在读取的 uri（读取中禁用按钮，防连点并发）
+
+/** 小工具：建元素（tag/类名/文本一次性到位）。 */
+function mcpResEl(tag, cls, text) {
+  const el = document.createElement(tag);
+  if (cls) el.className = cls;
+  if (text != null) el.textContent = text;
+  return el;
+}
+
+/** 顶部说明行：「已订阅 N 个资源将注入对话上下文」。 */
+function mcpResRenderSubCount(box) {
+  box.textContent = '已订阅 ' + mcpResSubs.length + ' 个资源将注入对话上下文';
+}
+
+/** 在 row 的 children 里找已存在的输出容器（桩/真实 DOM 通用，不依赖 querySelector）。 */
+function mcpResFindOut(row) {
+  for (let i = 0; i < row.children.length; i++) {
+    const c = row.children[i];
+    if (c && c.className && String(c.className).indexOf('mcp-res-out') >= 0) return c;
+  }
+  return null;
+}
+
+/** 打开/刷新资源 tab：拉列表 → 渲染；supported=false 给人话提示（非错误红）。 */
+async function mcpResOpen(server, pane, subs) {
+  pane.innerHTML = '';
+  mcpResSubs = Array.isArray(subs) ? subs.filter(u => typeof u === 'string' && u.trim()) : [];
+  const loading = mcpResEl('div', 'set-hint', '正在读取资源列表 …');
+  pane.appendChild(loading);
+  let d = null;
+  try {
+    d = JSON.parse(await callApi('mcp_list_resources', [server])) || {};
+  } catch (e) {
+    pane.innerHTML = '';
+    const err = mcpResEl('div', 'set-hint', '资源列表读取失败：' + (e.message || e) +
+      '（后端可能为旧版，请重新打包）');
+    err.style.color = 'var(--err)';
+    pane.appendChild(err);
+    return;
+  }
+  if (d.error) {
+    pane.innerHTML = '';
+    const err = mcpResEl('div', 'set-hint', '资源列表读取失败：' + d.error);
+    err.style.color = 'var(--err)';
+    pane.appendChild(err);
+    return;
+  }
+  pane.innerHTML = '';
+  if (d.supported === false) {
+    // -32601 降级：服务器不提供 resources 是合法形态，人话提示而非错误态
+    pane.appendChild(mcpResEl('div', 'set-hint',
+      '该服务器不支持 resources（没有可订阅的资源），不影响工具使用。'));
+    return;
+  }
+  const countBox = mcpResEl('div', 'set-hint');
+  countBox.style.margin = '8px 0 0';
+  mcpResRenderSubCount(countBox);
+  pane.appendChild(countBox);
+  const resources = (d.resources || []).filter(r => r && typeof r.uri === 'string');
+  if (!resources.length) {
+    pane.appendChild(mcpResEl('div', 'set-hint', '该服务器未提供资源。'));
+    return;
+  }
+  const box = mcpResEl('div', 'mcp-res-list');
+  resources.forEach(r => box.appendChild(mcpResRow(server, r, countBox)));
+  pane.appendChild(box);
+}
+
+/** 单资源行：订阅勾选 + uri/name/mimeType + 读取按钮。 */
+function mcpResRow(server, r, countBox) {
+  const row = mcpResEl('div', 'mcp-res-row');
+  const cb = document.createElement('input');
+  cb.type = 'checkbox';
+  cb.checked = mcpResSubs.indexOf(r.uri) >= 0;
+  cb.title = '订阅后该资源将注入对话上下文';
+  cb.onchange = () => mcpResToggleSub(server, r.uri, cb.checked, cb, countBox);
+  const main = mcpResEl('div', 'mcp-main');
+  const nm = mcpResEl('div', 'mcp-tool-name', r.name || r.uri);
+  const meta = mcpResEl('div', 'mcp-tool-desc', r.uri + (r.mimeType ? ' · ' + r.mimeType : ''));
+  main.appendChild(nm);
+  main.appendChild(meta);
+  const btn = mcpResEl('button', 'modal-btn', '读取');
+  btn.onclick = () => mcpResRead(server, r, btn, row);
+  row.appendChild(cb);
+  row.appendChild(main);
+  row.appendChild(btn);
+  return row;
+}
+
+/** 读取资源：text 类直接展开（截断保护）；blob 类显示落盘提示 + 打开目录。 */
+async function mcpResRead(server, r, btn, row) {
+  if (mcpResBusyUri && mcpResBusyUri === r.uri) return;   // 防连点：同资源在途忽略
+  mcpResBusyUri = r.uri;
+  btn.disabled = true;
+  const label = btn.textContent;
+  btn.textContent = '读取中…';
+  try {
+    const raw = await callApi('mcp_read_resource', [server, r.uri], MCP_PANEL_TIMEOUT_MS);
+    const d = JSON.parse(raw) || {};
+    if (d.error) throw new Error(d.error);
+    const out = mcpResFindOut(row) || mcpResEl('div', 'mcp-res-out');
+    out.innerHTML = '';
+    if (d.blob_cached || d.cache_id) {
+      // blob 类：后端已 base64 解码并落盘 toolcache（对话内可 read_more 分段取）
+      out.appendChild(mcpResEl('div', 'mcp-res-blob',
+        '已保存至工具缓存（id ' + (d.cache_id || '?') + '，' + (d.blob_bytes || 0) + ' 字节）'));
+      out.appendChild(mcpResEl('div', 'set-hint',
+        d.hint || '完整内容可在对话中通过 read_more 分段读取。'));
+      const openBtn = mcpResEl('button', 'modal-btn mcp-res-open', '打开目录');
+      openBtn.onclick = () => mcpResOpenToolcache();
+      out.appendChild(openBtn);
+    } else {
+      const text = String(d.text == null ? '' : d.text);
+      out.appendChild(mcpResEl('div', 'mcp-res-text',
+        text.length > MCP_RES_PREVIEW_MAX
+          ? text.slice(0, MCP_RES_PREVIEW_MAX) + '\n…（内容过长已截断，完整内容可在对话中读取）'
+          : (text || '（空内容）')));
+    }
+    row.appendChild(out);
+  } catch (e) {
+    toast('资源读取失败：' + (e.message || e), 'err');
+    const out = mcpResFindOut(row) || mcpResEl('div', 'mcp-res-out');
+    out.innerHTML = '';
+    const err = mcpResEl('div', 'set-hint', '读取失败：' + (e.message || e));
+    err.style.color = 'var(--err)';
+    out.appendChild(err);
+    row.appendChild(out);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = label;
+    mcpResBusyUri = '';
+  }
+}
+
+/** 打开工具缓存目录（%USERPROFILE%\.glm-chat\toolcache；run_command shell 展开环境变量）。 */
+async function mcpResOpenToolcache() {
+  try {
+    const r = JSON.parse(await callApi('run_command',
+      ['explorer "%USERPROFILE%\\.glm-chat\\toolcache"'])) || {};
+    if (r.error) { toast('打开目录失败：' + r.error, 'err'); return; }
+    if (r.skipped) { toast('刚刚已打开过目录：' + (r.info || ''), 'warn'); return; }
+    toast('已打开工具缓存目录', 'ok');
+  } catch (e) {
+    toast('打开目录失败：' + (e.message || e), 'err');
+  }
+}
+
+/** 订阅勾选变更：先改本地真相源 + 计数行，再持久化；失败回弹 checkbox 与计数。 */
+async function mcpResToggleSub(server, uri, on, cb, countBox) {
+  const i = mcpResSubs.indexOf(uri);
+  if (on && i < 0) mcpResSubs.push(uri);
+  if (!on && i >= 0) mcpResSubs.splice(i, 1);
+  mcpResRenderSubCount(countBox);
+  try {
+    const r = JSON.parse(await callApi('mcp_save_subscriptions',
+      [server, JSON.stringify(mcpResSubs)])) || {};
+    if (r.error) throw new Error(r.error);
+    toast(on ? ('已订阅 ' + uri) : ('已取消订阅 ' + uri), 'ok');
+  } catch (e) {
+    // 回滚：后端没存上，前端视觉与落盘保持一致
+    const j = mcpResSubs.indexOf(uri);
+    if (on && j >= 0) mcpResSubs.splice(j, 1);
+    if (!on && j < 0) mcpResSubs.push(uri);
+    if (cb) cb.checked = !on;
+    mcpResRenderSubCount(countBox);
+    toast('订阅保存失败：' + (e.message || e), 'err');
   }
 }
 
@@ -3710,15 +4152,24 @@ async function localProbeNow() {
 }
 
 /* ---- A3：补拉模型清单（探测过期时用；返回 {id, ctx_window, tool_capable, estimated}） ---- */
+// 实现 v1.6 W33：last-wins 序号——多服务器探测/探测途中改 Base URL 时，旧 base 的
+// 清单回来不得覆盖新 base 的清单/缓存/下拉（原无序号：并发或乱序返回即错配）
+let _localLoadSeq = 0;
 async function localLoadModels(baseUrl) {
   const baseInp = localEl('localBaseUrl', 'providerBase');
   const base = (baseUrl || (baseInp || {}).value || '').trim();
   if (!base) { toast('请先填写 Base URL', 'warn'); return; }
+  const seq = ++_localLoadSeq;
   const btn = localEl('localModelsBtn', 'cmIdentifyBtn');
   if (btn) { btn.disabled = true; btn.textContent = '拉取中…'; }
   try {
     /* 本地端点免 Key（云端清单鉴权走 36-connect 的识别通道带 Key） */
     const r = JSON.parse(await callApi('local_models', [base]));
+    // 实现 v1.6 W33：序号陈旧（已发起更新的加载）或 Base URL 已被切走 → 丢弃结果，
+    // 不清空缓存/不改下拉（防错配：旧服务器清单覆盖新服务器状态）
+    if (seq !== _localLoadSeq) return;
+    const curBase = ((localEl('localBaseUrl', 'providerBase') || {}).value || '').trim();
+    if (curBase && curBase !== base) return;
     if (!r.ok) { toast('获取模型清单失败：' + (r.error || ''), 'err'); return; }
     const models = r.models || [];
     localMetaCache = {};
@@ -3945,6 +4396,22 @@ const PRESETS = {
       { id: 'qwen-turbo', text: 'qwen-turbo（轻量）' }
     ]
   },
+  // 实现 v1.6 T1：GitHub Models 免费层接入。端点外部核实（2026-10，方案 §9）：
+  // https://models.github.ai/inference（OpenAI 兼容 chat/completions；旧 Azure
+  // 推理端点已弃用，不得回流）。模型 ID 为 provider/model 格式（裸名校验
+  // 失败）；鉴权走 provider 既有键位（apiKey，不新增 config 键）；价格表置零。
+  'github-models': {
+    name: 'GitHub Models', base_url: 'https://models.github.ai/inference',
+    key_required: true, glm_capable: false, local: false, free_tier: true,
+    catalog: true,          // 实现 v1.6 T2：目录探测型端点（models.github.ai/catalog/models）
+    key_hint: 'GitHub PAT（需 models:read scope）',
+    prices: { in: 0, out: 0, cache: 0 },
+    models: [
+      { id: 'openai/gpt-4o', text: 'openai/gpt-4o' },
+      { id: 'openai/gpt-4o-mini', text: 'openai/gpt-4o-mini' },
+      { id: 'deepseek-ai/DeepSeek-R1', text: 'deepseek-ai/DeepSeek-R1' }
+    ]
+  },
   ollama: {
     name: 'Ollama', base_url: 'http://localhost:11434/v1',
     key_required: false, glm_capable: false, local: true, prices: { in: 0, out: 0, cache: 0 },
@@ -4016,6 +4483,12 @@ const PROVIDER_HOT_MODELS = [
     { id: 'qwen-plus', text: 'qwen-plus（均衡）' },
     { id: 'qwen-turbo', text: 'qwen-turbo（轻量）' }
   ] },
+  // 实现 v1.6 T1：GitHub Models 目录兜底表（实时清单失败时按 host 命中）
+  { host: 'models.github.ai', models: [
+    { id: 'openai/gpt-4o', text: 'openai/gpt-4o' },
+    { id: 'openai/gpt-4o-mini', text: 'openai/gpt-4o-mini' },
+    { id: 'deepseek-ai/DeepSeek-R1', text: 'deepseek-ai/DeepSeek-R1' }
+  ] },
   { host: 'localhost', models: [
     { id: 'gpt-oss-20b', text: 'gpt-oss-20b', badge: '32k' },
     { id: 'qwen3.8-27b', text: 'qwen3.8-27b', badge: '128k' },
@@ -4028,7 +4501,7 @@ const PROVIDER_HOT_MODELS = [
   ] }
 ];
 
-const CONNECT_PRESET_ORDER = ['glm', 'deepseek', 'moonshot', 'qwen',
+const CONNECT_PRESET_ORDER = ['glm', 'deepseek', 'moonshot', 'qwen', 'github-models',
   'ollama', 'lmstudio', 'vllm', 'llamacpp', 'localai', 'custom'];
 const CONNECT_LOCAL_IDS = ['ollama', 'lmstudio', 'vllm', 'llamacpp', 'localai'];
 const CONNECT_DEBOUNCE_MS = 800;      // D2：Base URL / Key 变化后的自动识别防抖
@@ -4375,11 +4848,12 @@ function connectUpdateAdvanced() {
   show('advLocalOff', !showLocal);
 }
 
-/** 识别 / 探测按钮文案（本地系 = 探测本机；GLM = 获取模型）。 */
+/** 识别 / 探测按钮文案（本地系 = 探测本机；GLM = 获取模型；目录型 = 探测目录）。 */
 function connectIdentifyLabel(id) {
   const meta = connectPresetMeta(id || connectCurrentPreset());
   if (meta.local) return '↻ 探测本机';
   if (meta.glm_capable) return '↻ 获取模型';
+  if (meta.catalog) return '↻ 探测目录';   // 实现 v1.6 T2：GitHub Models 目录探测
   return '↻ 识别模型';
 }
 
@@ -4413,10 +4887,20 @@ function connectApplyPresetNow(key, opts) {
   const keyEl = document.getElementById('apiKey');
   if (keyEl) {
     if (opts.key !== undefined) keyEl.value = opts.key;
-    keyEl.placeholder = meta.glm_capable ? '粘贴你的智谱 API Key'
+    // 实现 v1.6 T1：GitHub Models 的 Key 文案明示 PAT 与 scope（预设 key_hint 优先）
+    keyEl.placeholder = meta.key_hint
+      || (meta.glm_capable ? '粘贴你的智谱 API Key'
       : meta.local ? '本地服务器通常无需 Key'
-      : '该服务商的 API Key（仅保存在本机）';
+      : '该服务商的 API Key（仅保存在本机）');
   }
+  // 实现 v1.6 T1：Key 标签文案 / PAT 获取指引 / 免费层常驻声明按预设显隐
+  // （新 id 全部唯一，UI 契约只增不改）
+  const keyLabel = document.getElementById('cmKeyLabel');
+  if (keyLabel) keyLabel.textContent = meta.key_hint || 'API Key（仅保存在本机）';
+  const keyHelp = document.getElementById('cmKeyHelp');
+  if (keyHelp && keyHelp.style) keyHelp.style.display = meta.free_tier ? '' : 'none';
+  const freeTier = document.getElementById('cmFreeTier');
+  if (freeTier && freeTier.style) freeTier.style.display = meta.free_tier ? '' : 'none';
   const keyRow = document.getElementById('cmKeyRow');
   if (keyRow && keyRow.style) keyRow.style.display = meta.key_required ? '' : 'none';
   const noKey = document.getElementById('cmNoKey');
@@ -4521,9 +5005,12 @@ async function connectIdentifyNow(fromClick) {
     if (seq !== connectIdentifySeq) { connectSetButtonLoading(btn, false); return; }   // last-wins
     const r = JSON.parse(raw || '{}');
     if (r && r.ok && Array.isArray(r.models) && r.models.length) {
+      // 实现 v1.6 T2：目录模型带 modalities 时进选项文案（GitHub catalog 富元数据；
+      // 其他端点无该字段 → 文案不变，零行为差异）
       models = r.models.map(m => ({
         id: String(m.id || ''),
-        text: String(m.id || ''),
+        text: String(m.id || '') + (Array.isArray(m.modalities) && m.modalities.length
+          ? '（' + m.modalities.join('/') + '）' : ''),
         badge: connectCtxBadge(m)
       })).filter(m => m.id);
     } else {
@@ -4542,6 +5029,13 @@ async function connectIdentifyNow(fromClick) {
   if (models.length) {
     connectFillModels(models, { auto: !!meta.glm_capable,
                                 group: hot ? '内置热门模型' : '识别结果' });
+    if (hot && reason) {
+      // 实现 v1.6 T2：识别失败但热门表兜底 → 失败原因人话透传（不阻塞面板），
+      // 兜底加载提示照旧（旧行为只 toast「已加载 N 个模型」，401 等原因被吞）
+      const failMsg = (meta.glm_capable ? '获取模型失败：' : '识别失败：') + reason;
+      toast(failMsg + '（已用内置热门模型兜底，可手动输入模型名）', 'warn',
+            { detail: 'GET ' + base + '/models\n' + (reason || '空响应') });
+    }
     toast((hot ? '已加载 ' : '已识别 ') + models.length + ' 个模型', 'ok');
     return;
   }
@@ -5195,6 +5689,185 @@ async function wsQuickUnbind() {
   wsQuickRefresh();
 }
 
+/* ===== 39-sandbox.js ===== */
+/* ================= 命令沙箱设置面板 + 状态灯（v1.6 T6） =================
+ * 接线既有 js_api（v1.6 后端已交付，_V12_EXTRA 隐身，契约零变更）：
+ *   sandbox_get_config / sandbox_save_config / sandbox_status
+ * 配置落 ~/.glm-chat/sandbox.json（独立文件，不碰 config.json——契约红线）；
+ * 档位保存后后端读盘生效（limits_for 每命令现读，本模块只负责 UI→api 通路）。
+ *
+ * 面板能力（方案 §3 T6 验收）：开关 / 三命令类别档位下拉 / 两档限制编辑
+ * （内存 MB · 进程数 · CPU 秒 · UI 级别）/ 状态灯（可用性 + 启用态）/
+ * 累计统计（jobs_created/runs_sandboxed/runs_failed_closed）/ 重置默认。
+ * 非 Windows 明示「不可用」而非空白（status.available=false 分支）。
+ */
+
+const SANDBOX_CLASSES = ['run_command', 'run_powershell', 'run_admin_command'];
+const SANDBOX_PROFILES = ['off', 'standard', 'strict'];
+const SANDBOX_LIMIT_PROFILES = ['standard', 'strict'];
+const SANDBOX_UI_LEVELS = ['none', 'basic', 'strict'];
+
+/* 与后端 sandbox_service.DEFAULT_CONFIG 同口径（前端「重置默认」用；
+ * 后端仍是权威源——保存经后端校验落盘，本常量只用于 UI 重建）。 */
+const SANDBOX_DEFAULT = {
+  enabled: true,
+  command_profiles: {
+    run_command: 'standard',
+    run_powershell: 'standard',
+    run_admin_command: 'off'
+  },
+  limits: {
+    standard: { memory_mb: 1024, max_processes: 16, cpu_seconds: 120, ui_restrict: 'basic' },
+    strict: { memory_mb: 512, max_processes: 8, cpu_seconds: 60, ui_restrict: 'strict' }
+  }
+};
+
+let sandboxCfg = null;   // 最近一次 get_config 快照（保存时读-改-写，未取到的键不丢）
+
+/** 启动/进入设置时加载：配置回填 + 状态灯 + 统计。失败不阻塞其他模块。 */
+async function loadSandboxPanel() {
+  try {
+    const raw = await callApi('sandbox_get_config', []);
+    sandboxCfg = JSON.parse(raw || '{}');
+  } catch (e) {
+    sandboxCfg = null;
+  }
+  renderSandboxSettings();
+  refreshSandboxStatus();
+}
+
+function _sbEl(id) { return document.getElementById(id); }
+function _sbSet(id, v) { const el = _sbEl(id); if (el) el.value = v; }
+function _sbShow(id, on) { const el = _sbEl(id); if (el && el.style) el.style.display = on ? '' : 'none'; }
+
+/** 配置 → 表单回填（缺键回落默认值，兼容旧 exe 无响应场景）。 */
+function renderSandboxSettings() {
+  const cfg = sandboxCfg && typeof sandboxCfg === 'object' ? sandboxCfg : SANDBOX_DEFAULT;
+  const en = _sbEl('sandboxEnabled');
+  if (en) en.checked = !!cfg.enabled;
+  const cp = cfg.command_profiles || SANDBOX_DEFAULT.command_profiles;
+  SANDBOX_CLASSES.forEach(cls => {
+    _sbSet('sandboxProfile' + cls, cp[cls] || 'off');
+  });
+  const lim = cfg.limits || SANDBOX_DEFAULT.limits;
+  SANDBOX_LIMIT_PROFILES.forEach(p => {
+    const L = lim[p] || SANDBOX_DEFAULT.limits[p];
+    _sbSet('sandboxLimit' + p + 'Memory', L.memory_mb);
+    _sbSet('sandboxLimit' + p + 'Processes', L.max_processes);
+    _sbSet('sandboxLimit' + p + 'Cpu', L.cpu_seconds);
+    _sbSet('sandboxLimit' + p + 'Ui', L.ui_restrict || 'none');
+  });
+  _sbShow('sandboxUnavailable', false);
+}
+
+function _sbPick(id, fallback) {
+  const el = _sbEl(id);
+  const v = el ? String(el.value || '') : '';
+  return v || fallback;
+}
+
+function _sbNum(id, fallback) {
+  const el = _sbEl(id);
+  const n = el ? parseInt(el.value, 10) : NaN;
+  return isNaN(n) ? fallback : n;
+}
+
+/** 表单 → 配置（读-改-写：以 get_config 快照为底，未在面板出现的键原样带回）。 */
+async function saveSandboxSettings() {
+  const next = JSON.parse(JSON.stringify(sandboxCfg || SANDBOX_DEFAULT));
+  const en = _sbEl('sandboxEnabled');
+  next.enabled = !!(en && en.checked);
+  next.command_profiles = {};
+  SANDBOX_CLASSES.forEach(cls => {
+    next.command_profiles[cls] = _sbPick('sandboxProfile' + cls, 'off');
+  });
+  next.limits = next.limits || {};
+  SANDBOX_LIMIT_PROFILES.forEach(p => {
+    const cur = next.limits[p] || SANDBOX_DEFAULT.limits[p];
+    next.limits[p] = {
+      memory_mb: _sbNum('sandboxLimit' + p + 'Memory', cur.memory_mb),
+      max_processes: _sbNum('sandboxLimit' + p + 'Processes', cur.max_processes),
+      cpu_seconds: _sbNum('sandboxLimit' + p + 'Cpu', cur.cpu_seconds),
+      ui_restrict: _sbPick('sandboxLimit' + p + 'Ui', cur.ui_restrict || 'none')
+    };
+  });
+  try {
+    const r = JSON.parse(await callApi('sandbox_save_config', [JSON.stringify(next)]) || '{}');
+    if (r && r.error) { toast('沙箱配置保存失败: ' + r.error, 'err'); return; }
+    sandboxCfg = next;
+    toast('沙箱配置已保存（下一条命令按新档位生效）', 'ok');
+    refreshSandboxStatus();
+  } catch (e) {
+    toast('沙箱配置保存失败: ' + (e && e.message ? e.message : e), 'err');
+  }
+}
+
+/** 重置默认（二次确认 → 保存默认结构 → 回填 + 刷新状态）。 */
+async function sandboxResetDefaults() {
+  const r = await uiConfirm({
+    title: '重置沙箱默认', body: '将恢复默认档位与限制（run_command/run_powershell=standard，run_admin_command=off）。\n不影响已保存的其他配置。',
+    danger: false, okText: '恢复默认'
+  });
+  if (!r.ok) return;
+  try {
+    const rr = JSON.parse(await callApi('sandbox_save_config', [JSON.stringify(SANDBOX_DEFAULT)]) || '{}');
+    if (rr && rr.error) { toast('重置失败: ' + rr.error, 'err'); return; }
+    sandboxCfg = JSON.parse(JSON.stringify(SANDBOX_DEFAULT));
+    renderSandboxSettings();
+    toast('已恢复沙箱默认配置', 'ok');
+    refreshSandboxStatus();
+  } catch (e) {
+    toast('重置失败: ' + (e && e.message ? e.message : e), 'err');
+  }
+}
+
+/** 状态灯 + 累计统计（status：available/platform/enabled/command_profiles/stats）。 */
+async function refreshSandboxStatus() {
+  const light = _sbEl('sandboxStatusLight');
+  const text = _sbEl('sandboxStatusText');
+  const stats = _sbEl('sandboxStats');
+  let st = null;
+  try {
+    st = JSON.parse(await callApi('sandbox_status', []) || '{}');
+  } catch (e) {
+    st = null;
+  }
+  if (!st) {
+    if (text) text.textContent = '状态获取失败（后端无响应）';
+    if (stats) stats.textContent = '';
+    _sbShow('sandboxUnavailable', true);
+    return;
+  }
+  const avail = !!st.available;
+  const on = avail && !!st.enabled;
+  if (light) {
+    light.classList.toggle('ok', on);
+    light.classList.toggle('warn', avail && !st.enabled);
+    light.classList.toggle('off', !avail);
+  }
+  if (text) {
+    if (!avail) {
+      // 非 Windows：明示不可用而非空白（T6 验收）
+      text.textContent = '当前平台（' + (st.platform || 'unknown') +
+        '）不支持 Job Object 沙箱——命令将直接执行，无资源限制';
+    } else if (!st.enabled) {
+      text.textContent = '沙箱总开关已关闭——全部命令直接执行，无资源限制';
+    } else {
+      const cps = st.command_profiles || {};
+      const managed = Object.keys(cps).filter(k => cps[k] && cps[k] !== 'off');
+      text.textContent = '沙箱已启用——在管命令类别：' +
+        (managed.length ? managed.join('、') : '无（所有类别均为 off）');
+    }
+  }
+  if (stats) {
+    const s = st.stats || {};
+    stats.textContent = '累计：创建 Job ' + (s.jobs_created || 0) +
+      ' · 沙箱执行 ' + (s.runs_sandboxed || 0) +
+      ' · fail-closed 拒绝 ' + (s.runs_failed_closed || 0);
+  }
+  _sbShow('sandboxUnavailable', !avail);
+}
+
 /* ===== 40-auto-compact.js ===== */
 /* ================= A6 自动 compact ================= */
 
@@ -5299,6 +5972,184 @@ async function maybeAutoCompact(s) {   // 修复 ㊸：传会话对象（原传�
     return false;   // 修复 建议㉞（二轮）：compactHistory 缺失不得假成功（原无条件 return true，调用方以为已压缩）
   }
   return true;
+}
+
+/* ===== 41-nav.js ===== */
+/* ================= v1.6 T11 左侧主导航 + T13 通知中心 =================
+ * 布局重构·直切（用户裁决②）：新导航为单一入口；原「设置」大按钮与
+ * 33-set-nav 锚点 DOM 保留不删（契约红线），老入口行为不变（打开同一
+ * 设置浮层）——肌肉记忆不断流。
+ *
+ * 五个分区（复用既有面板/浮层 DOM，不新建面板容器）：
+ *   chat     对话面板（switchPanel 既有路由）
+ *   settings 设置浮层（settingsPanel，toggleSettings 既有开关）
+ *   audit    审计查看器（28-audit-viewer 既有 openAuditViewer）
+ *   search   会话搜索（32-session-search 既有 openSessionSearch）
+ *   sandbox  设置浮层 + 滚动定位沙箱区块（39-sandbox 既有控件）
+ * 通知中心（T13）：DND 抑制的 toast 入列；红点数 + 弹层列表；聚焦清零。
+ */
+
+const NAV_ZONES = ['chat', 'settings', 'audit', 'search', 'sandbox'];
+let navZone = 'chat';
+
+/** HTML 转义（50-markdown 的 escapeHtml 在同脚本作用域；typeof 守卫保 vm 沙箱可测）。 */
+function _navEsc(s) {
+  const t = String(s == null ? '' : s);
+  if (typeof escapeHtml === 'function') return escapeHtml(t);
+  return t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
+}
+
+/** 分区切换（导航唯一入口；onclick 直接绑 navSwitch('<zone>')）。 */
+function navSwitch(zone) {
+  if (NAV_ZONES.indexOf(zone) === -1) zone = 'chat';
+  navZone = zone;
+  navHighlight(zone);
+  navHideNotify();
+  if (zone === 'chat') {
+    if (typeof switchPanel === 'function') switchPanel('chat');
+    navUpdateEmptyGuide();   // 回对话面板时刷新空态引导（配 Key 后自动隐藏）
+    return;
+  }
+  // 设置/审计/沙箱均以对话面板为承载（浮层/滚动），搜索是独立浮层
+  if (typeof switchPanel === 'function') switchPanel('chat');
+  if (zone === 'settings' || zone === 'sandbox') {
+    const sp = document.getElementById('settingsPanel');
+    if (sp && !sp.classList.contains('show') && typeof toggleSettings === 'function') toggleSettings();
+    if (zone === 'sandbox') {
+      // 等浮层展开后滚动到沙箱区块（set-nav 锚点滚动同款体验）
+      setTimeout(() => {
+        const b = document.getElementById('sandboxBlock');
+        if (b && b.scrollIntoView) b.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }, 80);
+    }
+  } else if (zone === 'audit') {
+    if (typeof openAuditViewer === 'function') openAuditViewer();
+  } else if (zone === 'search') {
+    if (typeof openSessionSearch === 'function') openSessionSearch();
+  }
+}
+
+/** 导航高亮（只动新导航按钮，不动既有 rail-btn）。 */
+function navHighlight(zone) {
+  NAV_ZONES.forEach(z => {
+    const btn = document.getElementById('navBtn' + z[0].toUpperCase() + z.slice(1));
+    if (btn && btn.classList) btn.classList.toggle('on', z === zone);
+  });
+}
+
+/** 首次启动引导（一次性 toast；localStorage 标记，不污染 config.json）。 */
+function navFirstRunGuide() {
+  let seen = false;
+  try { seen = localStorage.getItem('glm_nav_guide_v16') === '1'; } catch (e) { /* 无存储环境直接展示 */ }
+  if (seen) return;
+  try { localStorage.setItem('glm_nav_guide_v16', '1'); } catch (e) {}
+  if (typeof toast === 'function') {
+    toast('新左侧导航已上线：对话 / 设置 / 审计 / 会话搜索 / 沙箱；原设置入口已并入「设置」', 'ok', { stay: true });
+  }
+}
+
+/** 空态三步引导：未配 Key 且当前会话为空 → 显示（选来源→填 Key→发问）。 */
+function navUpdateEmptyGuide() {
+  const guide = document.getElementById('emptyGuide');
+  if (!guide || !guide.style) return;
+  let hasKey = false;
+  try { hasKey = !!(document.getElementById('apiKey') || {}).value; } catch (e) {}
+  let empty = true;
+  try {
+    const s = (typeof getCurrentSession === 'function') ? getCurrentSession() : null;
+    empty = !s || !s.messages || s.messages.length === 0;
+  } catch (e) { empty = true; }
+  guide.style.display = (!hasKey && empty) ? 'flex' : 'none';
+}
+
+function navGuidePickSource() {
+  navSwitch('settings');
+}
+
+function navGuideFillKey() {
+  navSwitch('settings');
+  setTimeout(() => {
+    const el = document.getElementById('providerPreset');
+    if (el && el.focus) { try { el.focus(); } catch (e) {} }
+  }, 100);
+}
+
+/** 会话头部状态区重组：模型徽标 / 缓存命中 / 沙箱态一屏可达（异步取沙箱状态）。 */
+async function navRenderHeaderStatus() {
+  const zone = document.getElementById('headerStatusZone');
+  if (!zone) return;
+  let model = '—';
+  try { model = (document.getElementById('brandModel') || {}).textContent || '—'; } catch (e) {}
+  const hit = (typeof window.__hitRate === 'number') ? window.__hitRate : 0;
+  let sbTxt = '沙箱未知', sbCls = 'warn';
+  try {
+    const st = JSON.parse(await callApi('sandbox_status', []) || '{}');
+    if (st && st.available === false) { sbTxt = '沙箱不可用'; sbCls = 'off'; }
+    else if (st && st.enabled) { sbTxt = '沙箱开'; sbCls = 'ok'; }
+    else if (st) { sbTxt = '沙箱关'; sbCls = 'warn'; }
+  } catch (e) { /* 后端不可用时保持未知态 */ }
+  zone.innerHTML =
+    '<span class="hs-chip" title="当前模型">' + _navEsc(model) + '</span>' +
+    '<span class="hs-chip" title="上轮缓存命中率">缓存 ' + hit + '%</span>' +
+    '<span class="hs-chip" title="命令沙箱状态"><span class="hs-dot ' + sbCls + '"></span>' + sbTxt + '</span>';
+}
+
+/* ---- T13 通知中心 ---- */
+
+/** 渲染通知中心（徽标 + 列表；数据 _notifyItems 由 18-toast 的 notifyPush 维护）。 */
+function navRenderNotify() {
+  const badge = document.getElementById('navNotifyBadge');
+  const list = document.getElementById('notifyList');
+  const cnt = document.getElementById('notifyCount');
+  const n = (typeof _notifyItems !== 'undefined') ? _notifyItems.length : 0;
+  if (badge) { badge.style.display = n ? '' : 'none'; badge.textContent = String(n); }
+  if (cnt) cnt.textContent = n ? (n + ' 条') : '';
+  if (list) {
+    if (!n) { list.innerHTML = '<div class="notify-empty">暂无通知</div>'; return; }
+    list.innerHTML = _notifyItems.map(it =>
+      '<div class="notify-item"><span class="nt-time">' + navNotifyTime(it.at) + '</span>' +
+      _navEsc(it.msg || '') + '</div>').join('');
+  }
+}
+
+function navNotifyTime(ts) {
+  const d = new Date(ts || Date.now());
+  const h = ('0' + d.getHours()).slice(-2), m = ('0' + d.getMinutes()).slice(-2);
+  return h + ':' + m;
+}
+
+function navToggleNotify() {
+  const pop = document.getElementById('notifyPop');
+  if (!pop || !pop.style) return;
+  pop.style.display = (pop.style.display === 'none' || !pop.style.display) ? '' : 'none';
+}
+
+function navHideNotify() {
+  const pop = document.getElementById('notifyPop');
+  if (pop && pop.style) pop.style.display = 'none';
+}
+
+/** 聚焦时红点清零（条目保留在列表里可回看）。 */
+function navClearNotifyBadge() {
+  const badge = document.getElementById('navNotifyBadge');
+  if (badge && badge.style) badge.style.display = 'none';
+}
+
+function navClearNotify() {
+  if (typeof _notifyItems !== 'undefined') _notifyItems = [];
+  navRenderNotify();
+}
+
+/** 启动挂接（110-boot 调用）：引导 + 空态 + 头部状态区 + 通知中心。 */
+function navInit() {
+  navFirstRunGuide();
+  navUpdateEmptyGuide();
+  navRenderHeaderStatus();
+  navRenderNotify();
+  window.addEventListener('focus', () => navClearNotifyBadge());
+  document.addEventListener('visibilitychange', () => {
+    try { if (!document.hidden) navClearNotifyBadge(); } catch (e) {}
+  });
 }
 
 /* ===== 45-request-debounce.js ===== */
@@ -5503,13 +6354,17 @@ function addMsgActions(contentEl, text, onlyCopy) {
 }
 
 /* ===== 55-tool-route.js ===== */
+/* 实现 v1.6 T5②：EFFICIENCY_PROMPT 增补两条——GitHub Models/免费层限额策略
+ * （RPM/RPD 敏感：合并轮次、禁全库扫描）+ MCP 工具铁律（只信最新一条结果）。 */
 const EFFICIENCY_PROMPT = `【执行铁律——每条都是为了省 token, 逐条硬性执行】
 【读】附件标注"已完整注入"的文件禁止 read_file; 其他文件用 read_file 一次读全(上限2万行/24万字符), 仅当返回带 hint 才按 offset 续读。文件原文一旦进入上下文就保留到会话结束, 严禁重读/复查/跳读确认。严禁用 run_command/run_powershell(type/Get-Content/ReadAllText) 绕路读文件——read_file 一次读全且结果永久保留在上下文，绕路读到的反而被截断。
 【答】一条消息里的多个问题合并为一轮处理, 一次性输出全部结果; 工具调用轮次禁止输出任何文字; 最终回复只给结果本身, 不复述任务、不写开场白和总结、不贴大段原文(引用写"文件:行号"), 未改动的代码禁止重复输出。
 【改】只改用户指定的文件, 一律 search_replace 打补丁, old 必须与原文逐字符一致(含缩进), 拿不准先 read_file 对应片段再改, 避免试错重试; 无明确要求禁止新建任何文件, 确需新建时 write_file 一次写全。
 【轮】读类工具能并行就在同一条消息并行发起(写类除外, 串行等上一个返回); 能一轮完成绝不拆多轮; 信息不足时把全部疑问合并成一条一次问清, 禁止挤牙膏式追问。
 【验】验证用一条命令+明确判据, 禁止开放式全库扫描; 改完只报一行结论。
-【截图】截图画面自动附在下一轮输入, 无需描述; 返回"与上次一致"直接沿用上次分析。`;
+【截图】截图画面自动附在下一轮输入, 无需描述; 返回"与上次一致"直接沿用上次分析。
+【源】GitHub Models 免费层限额敏感(约 15 RPM/150 RPD): 读类能并行就并行、合并轮次, 禁全库扫描式验证; 429 时按人话提示等待, 禁止原命令重试轰炸。
+【MCP】工具结果只信最新一条: 同名工具重复调用以最后一次返回为准, 旧结果过期不引用; 参数不得臆造, 缺参先问清再调。`;
 
 /* ========== 工具精准路由：按问题域筛选，不全量下发 ========== */
 const TOOL_DOMAINS = {
@@ -5583,6 +6438,20 @@ function routeTools(text, hasAttach, recentTools, recentResult) {
 /* ===== 60-agent-loop.js ===== */
 /* ================= Agent 主循环 ================= */
 
+/* 实现 v1.6 T10③：流式速度文本（tokens/s）。
+ * 有 usage（completion_tokens）→ 精确值；无 usage（本地/Ollama 常见）→ 按字符
+ * 估算（/1.8，与生成中 token 预估同口径）并在数字旁标「估」。
+ * 纯函数（无 DOM 依赖）——vm 单模块沙箱可直接抽取测试。 */
+function streamSpeedText(totalChars, elapsedMs, completionTokens) {
+  const secs = (Number(elapsedMs) || 0) / 1000;
+  if (secs < 0.5) return '';
+  if (completionTokens && completionTokens > 0) {
+    return '⚡ ' + (completionTokens / secs).toFixed(1) + ' tok/s';
+  }
+  const est = Math.ceil((Number(totalChars) || 0) / 1.8);
+  return '⚡ ' + (est / secs).toFixed(1) + ' tok/s（估）';
+}
+
 /* 修复 S3（三轮）：暂停/中止后把悬挂 tool_calls 配平——assistant.tool_calls 与 tool
  * 消息必须一一对应，否则会话被毒化、后续每轮 HTTP 400。暂停 break（工具批未跑完）
  * 与 AbortError 两条路径共用本函数（原只在 AbortError 分支内联处理）。 */
@@ -5623,6 +6492,7 @@ async function runAgentLoop(s, apiKey) {
       try { if (typeof toast === 'function') toast('正在停止…（当前工具执行完即停）', 'warn'); } catch (e) {}
     };
     document.getElementById('streamBar').classList.add('on');
+    { const _sp0 = document.getElementById('streamSpeed'); if (_sp0) _sp0.textContent = ''; }   // 实现 v1.6 T10③：每轮开始清空上轮速度
     aiContent = addMessage('assistant', '');
     aiContent.innerHTML = '<div class="md-body"><div class="typing-dots"><span></span><span></span><span></span></div></div>';
     const mdBody = aiContent.querySelector('.md-body');
@@ -5809,6 +6679,12 @@ async function runAgentLoop(s, apiKey) {
         const beSys = await callApi('build_system_prompt', []);
         sysContent = EFFICIENCY_PROMPT + '\n\n' + (beSys ? JSON.parse(beSys) : '') + (sysPrompt ? '\n\n用户附加: ' + sysPrompt : '');
       } catch (e) { /* 系统提示词失败用前端默认 */ }
+      // 实现 v1.6 T5④：本地模式段——「上下文有限」提示（本地模型窗口小，
+      // 防长程任务里模型误判可无限重读/堆叠上下文）
+      if (typeof localState !== 'undefined' && localState.mode) {
+        sysContent += '\n\n【本地模式】上下文窗口有限：长任务分步进行，每步先小结再继续；' +
+          '已读文件与工具结果保留在上下文内，禁止反复重读确认。';
+      }
       // 修复 HF-1（v1.6）：system 归一化——历史里可能有末尾追加的【工作日志】system
       // （100-send.js），直接拼 [system, ...slimMsgs] 会得到 [system, user, system]，
       // Qwen/Ollama 的 Jinja 模板直接 raise「System message must be at the beginning」→ 500。
@@ -5881,9 +6757,17 @@ async function runAgentLoop(s, apiKey) {
       }
       if (!resp.ok) {
         const errText = await resp.text().catch(() => '');
+        // 实现 v1.6 T3：429 响应头快照（GitHub 免费层 RPM/RPD 区分；取不到头时兜底通用文案）
+        let hdrMap = null;
+        try {
+          if (resp.headers && typeof resp.headers.forEach === 'function') {
+            hdrMap = {};
+            resp.headers.forEach((v, k) => { hdrMap[k] = v; });
+          }
+        } catch (e) { hdrMap = null; }
         // v1.2 R5：错误码人话映射（1113/401/429…），裸错误码不再直达用户
         // 修复 B4（v1.5）：local 模式走本地错误分类口径（503 loading/404 模型引导/401 免 Key）
-        throw new Error(humanizeApiError(`HTTP ${resp.status}: ${errText}`, typeof localState !== 'undefined' && localState.mode));
+        throw new Error(humanizeApiError(`HTTP ${resp.status}: ${errText}`, typeof localState !== 'undefined' && localState.mode, hdrMap));
       }
       const reader = resp.body.getReader();
       const decoder = new TextDecoder();
@@ -5910,6 +6794,16 @@ async function runAgentLoop(s, apiKey) {
         }, 1000);
       }
       const _clearWaitTimer = () => { if (_localWaitTimer) { clearInterval(_localWaitTimer); _localWaitTimer = null; } };
+      /* 实现 v1.6 T10③：流式 tokens/s 速度（首字节起算；读循环内 500ms 节流刷新，
+         流末有 usage 用精确 completion_tokens 收口，无 usage 保持字符估算） */
+      let _speedT0 = 0, _speedLastPaint = 0;
+      const _paintStreamSpeed = (completionTokens) => {
+        const el = document.getElementById('streamSpeed');
+        if (!el || !_speedT0) return;
+        const txt = streamSpeedText(fullContent.length + fullReasoning.length,
+          Date.now() - _speedT0, completionTokens);
+        if (txt) el.textContent = txt;
+      };
       let fullContent = '';
       let fullReasoning = '';
       const toolCallMap = {};
@@ -5976,17 +6870,20 @@ async function runAgentLoop(s, apiKey) {
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
-        if (_firstChunk) { _firstChunk = false; _clearWaitTimer(); }   // 修复 B3：首字节到达，清等待态
+        if (_firstChunk) { _firstChunk = false; _clearWaitTimer(); _speedT0 = Date.now(); }   // 修复 B3：首字节到达，清等待态；实现 v1.6 T10③：速度计时起点
         _lastChunkAt = Date.now();
         pending += decoder.decode(value, { stream: true });
         const lines = pending.split('\n');
         pending = lines.pop() || '';
         for (const line of lines) handleSseLine(line);
+        // 实现 v1.6 T10③：节流刷新速度显示（500ms 一轮，避免每 chunk 写 DOM）
+        if (_speedT0 && Date.now() - _speedLastPaint > 500) { _speedLastPaint = Date.now(); _paintStreamSpeed(0); }
       }
       pending += decoder.decode();
       for (const line of (pending ? [pending] : [])) handleSseLine(line);
       pending = '';
       _clearWaitTimer();   // 修复 B3：流正常结束清理等待态计时器
+      if (_speedT0) _paintStreamSpeed(usage ? usage.completion_tokens : 0);   // 实现 v1.6 T10③：usage 精确值收口
 
       const toolCalls = Object.values(toolCallMap);
       const assistantMsg = { role: 'assistant', content: fullContent || null };
@@ -6556,21 +7453,28 @@ async function loadSessions() {
   // 修复 W30：双源按 updatedAt 合并——原「后端优先、失败回退本地」在后端写失败时会静默丢新会话
   let backend = [];
   let local = [];
+  let backendOk = false;   // 实现 v1.6 W27：后端读取成败标志——墓碑清理只在读成功后进行
   try {
     if (window.pywebview && window.pywebview.api) {
       backend = normalizeSessions(await callApi('get_sessions', []));
+      backendOk = true;
     }
   } catch (e) {}
   try { local = normalizeSessions(localStorage.getItem('glm_sessions')); } catch (e) {}
   // 修复 W24（二轮）：删除墓碑——后端写失败时下次启动合并会把已删会话复活；
   // 墓碑记录在 localStorage（本地删除即生效，不依赖后端成功），合并时过滤；
   // 后端列表已不含的 id 出棺（防墓碑无限膨胀）
+  // 修复 W27（v1.6）：原无脑按 backendIds 过滤墓碑——后端读取失败（异常/无
+  // pywebview）时 backendIds 恒空 → 墓碑被清空 → 已删对话在下次成功读取时
+  // 复活。仅在 backendOk 时执行出棺。
   let tomb = [];
   try { tomb = JSON.parse(localStorage.getItem('glm_deleted_ids') || '[]'); } catch (e) { tomb = []; }
   const tombSet = new Set(tomb.filter(x => x && typeof x === 'string'));
-  const backendIds = new Set(backend.map(s => s.id));
-  const keptTomb = tomb.filter(id => backendIds.has(id));
-  try { localStorage.setItem('glm_deleted_ids', JSON.stringify(keptTomb)); } catch (e) {}
+  if (backendOk) {
+    const backendIds = new Set(backend.map(s => s.id));
+    const keptTomb = tomb.filter(id => backendIds.has(id));
+    try { localStorage.setItem('glm_deleted_ids', JSON.stringify(keptTomb)); } catch (e) {}
+  }
   const byId = new Map();
   const put = (list) => list.forEach(s => {
     if (tombSet.has(s.id)) return;   // 修复 W24：墓碑中的 id 不参与合并
@@ -6970,8 +7874,48 @@ const ERROR_HUMANIZE_LOCAL = [
   [/\b429\b/i, '本地服务器限流：稍等重试；持续出现请检查并发设置。'],
 ];
 
-function humanizeApiError(msg, isLocal) {
+/* 实现 v1.6 T3：GitHub Models 免费层 429 人话映射（外部核实 2026-10，方案 §9：
+ * GitHub 用响应头区分「请求频率(RPM)」与「每日配额(RPD)」）。从响应头解析
+ * （x-ratelimit-remaining / retry-after 等，键名容忍大小写与别名）；
+ * 解析失败返回 null → 调用方回落通用 429 文案（T14 验收两分支 100% 覆盖）。 */
+const GITHUB_429_RPM_TEXT =
+  '请求频率超限（GitHub 免费层约 15 RPM）：已到每分钟请求上限。\n可行操作：① 等待约 1 分钟窗口重置后重试；' +
+  '② 合并工具调用轮次、读类并行发起，减少请求数；③ 高频使用请切换 DeepSeek/GLM 付费层。';
+const GITHUB_429_RPD_TEXT =
+  '每日配额耗尽（GitHub 免费层约 150 RPD）：今日免费额度已用完。\n可行操作：① 等待次日（UTC 0 点）额度重置；' +
+  '② 切换 DeepSeek/GLM 付费层继续。';
+
+/** 429 响应头 → RPM/RPD 人话（无法区分时返回 null，走通用文案）。 */
+function humanizeGithub429(headers) {
+  if (!headers || typeof headers !== 'object') return null;
+  const flat = {};
+  try {
+    Object.keys(headers).forEach(k => { flat[String(k).toLowerCase()] = String(headers[k]); });
+  } catch (e) { return null; }
+  let rpmHit = false, rpdHit = false, retryAfter = 0;
+  Object.keys(flat).forEach(k => {
+    const v = parseInt(flat[k], 10);
+    if (/retry-after/.test(k) && v > 0) { retryAfter = v; return; }
+    if (!/remaining/.test(k)) return;
+    // 语义判据（按外部源描述实现 + 容错）：键名含 day/daily/rpd → 日额度；
+    // 含 min/request/rpm 或裸 remaining → 每分钟频率；仅 remaining==0 判超限。
+    if (!(v === 0)) return;
+    if (/day|daily|rpd/.test(k)) rpdHit = true;
+    else if (/min|request|rpm/.test(k) || k === 'x-ratelimit-remaining') rpmHit = true;
+  });
+  const wait = retryAfter > 0 ? '\n（服务端 retry-after: ' + retryAfter + ' 秒）' : '';
+  if (rpdHit) return GITHUB_429_RPD_TEXT + wait;
+  if (rpmHit) return GITHUB_429_RPM_TEXT + wait;
+  return null;
+}
+
+function humanizeApiError(msg, isLocal, headers) {
   const raw = String(msg || '');
+  // 实现 v1.6 T3：429 且带响应头 → 先试 GitHub 频率/日额分支（云端路径；local 表优先）
+  if (!isLocal && (/\b429\b/.test(raw) || /rate.?limit/i.test(raw))) {
+    const gh = humanizeGithub429(headers);
+    if (gh) return gh + '\n\n（原始错误：' + raw.slice(0, 300) + '）';
+  }
   const table = isLocal ? ERROR_HUMANIZE_LOCAL : ERROR_HUMANIZE;
   for (const [pat, text] of table) {
     if (pat.test(raw)) return text + '\n\n（原始错误：' + raw.slice(0, 300) + '）';
@@ -7513,6 +8457,13 @@ async function continueInNewSession() {
   const apiKey = effectiveApiKey();
   if (!apiKey) { toast('请先设置 API Key', 'warn'); document.getElementById('settingsPanel').classList.add('show'); return; }
   if (btn) btn.textContent = '⏳ 总结中…';
+  // 实现 v1.6 W28：生成中 compactNow 会静默跳过压缩（isStreaming 早退），原流程
+  // 仍继续 newSession() → 用户在新会话丢失全部上下文且无感知。生成中直接中止并明示。
+  if (isStreaming) {
+    toast('AI 正在生成中，稍后再「新对话继续」（避免未压缩就开新会话丢失上下文）', 'warn');
+    if (btn) btn.textContent = '⇥ 新对话继续';
+    return;
+  }
   try { await compactNow(s, apiKey, { quiet: false }); }
   catch (e) {
     // 修复 W25（二轮）：压缩失败不再静默吞——否则用户在新会话丢失全部上下文且无察觉
@@ -8147,7 +9098,9 @@ async function compactNow(s, apiKey, opts = {}) {
       model: _cmpModel, max_tokens: 600,
       // 修复 HF-1（v1.6）排查记录：压缩请求当前只发一条 user（无 system），
       // 形态上不可能触发 Qwen 模板的 500；归一化在下方以 typeof 守卫接线（未来防呆）。
-      messages: [{ role: 'user', content: '把以下人机协作历史压缩成 ≤200 字工作纪要，必须保留: 任务目标、涉及文件路径、已做改动、未完成事项、关键结论。直接输出: \n\n' + dump }]
+      // 实现 v1.6 T5③：压缩提示词增「保留工具调用序列」要求（原只保留文件路径，
+      // 恢复后续跑时丢失「调过什么工具、参数是什么」的脉络）
+      messages: [{ role: 'user', content: '把以下人机协作历史压缩成 ≤200 字工作纪要，必须保留: 任务目标、涉及文件路径、已做改动、未完成事项、关键结论、工具调用序列(工具名与关键参数摘要)。直接输出: \n\n' + dump }]
     };
     // 修复 HF-1（v1.6 收口，QA 复验建议）：未来防呆——若压缩提示词哪天改成
     // [system 摘要规范, user 历史]，本地 Ollama/Qwen 会立刻 500（system 必须在最前且只一条）。
@@ -8208,40 +9161,45 @@ async function compactHistory(s) {
   }
   for (let i = 0; i < lastUserIdx; i++) {
     const m = s.messages[i];
-    if (m.role === 'tool' && typeof m.content === 'string' && m.content.length > 500 && !m._compacted && m.__tool !== 'read_file' && m.__tool !== 'read_more') {
-      m.content = summarizeToolResult(m.content) || (m.content.slice(0, 300) + '…(已压缩)');
-      m._compacted = true; changed = true;
-    }
-    if ((m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string'
-        && m.content.length > 1500 && !m._compacted
-        && !(m.role === 'user' && m.content.includes('已完整注入'))) {   // 注入的附件全文也不截
-      m.content = m.content.slice(0, 1500) + '…(旧对话已压缩)';
-      m._compacted = true; changed = true;
-    }
-    if (Array.isArray(m.content)) {
-      const replaced = m.content.map(p => {
-        if (p.type === 'image_url') return { type: 'text', text: '[图片]' };
-        if (p.type === 'video_url') return { type: 'text', text: '[视频]' };
-        if (p.type === 'text' && p.text && p.text.length > 1500)
-          return { type: 'text', text: p.text.slice(0, 1500) + '…(已压缩)' };
-        return p;
-      });
-      if (JSON.stringify(replaced) !== JSON.stringify(m.content)) { m.content = replaced; changed = true; }
-    }
-    if (m.tool_calls) {
-      const mapped = m.tool_calls.map(tc => {
-        try {
-          const a = JSON.parse(tc.function.arguments || '{}');
-          let inner = false;
-          for (const k of Object.keys(a)) {
-            if (typeof a[k] === 'string' && a[k].length > 300) { a[k] = a[k].slice(0, 300) + '…(已截断)'; inner = true; }
-          }
-          if (inner) return { ...tc, function: { ...tc.function, arguments: JSON.stringify(a) } };
-          return tc;
-        } catch (e) { return tc; }
-      });
-      if (JSON.stringify(mapped) !== JSON.stringify(m.tool_calls)) { m.tool_calls = mapped; changed = true; }
-    }
+    // 实现 v1.6 W30：逐消息防护——原循环体无 try/catch，单条坏消息（如
+    // content 为不可序列化的特殊对象、访问器抛错）会中断整个 compactHistory，
+    // 异常沿 Agent 轮次上抛终止整轮。坏消息跳过并继续，压缩尽力而为。
+    try {
+      if (m.role === 'tool' && typeof m.content === 'string' && m.content.length > 500 && !m._compacted && m.__tool !== 'read_file' && m.__tool !== 'read_more') {
+        m.content = summarizeToolResult(m.content) || (m.content.slice(0, 300) + '…(已压缩)');
+        m._compacted = true; changed = true;
+      }
+      if ((m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string'
+          && m.content.length > 1500 && !m._compacted
+          && !(m.role === 'user' && m.content.includes('已完整注入'))) {   // 注入的附件全文也不截
+        m.content = m.content.slice(0, 1500) + '…(旧对话已压缩)';
+        m._compacted = true; changed = true;
+      }
+      if (Array.isArray(m.content)) {
+        const replaced = m.content.map(p => {
+          if (p.type === 'image_url') return { type: 'text', text: '[图片]' };
+          if (p.type === 'video_url') return { type: 'text', text: '[视频]' };
+          if (p.type === 'text' && p.text && p.text.length > 1500)
+            return { type: 'text', text: p.text.slice(0, 1500) + '…(已压缩)' };
+          return p;
+        });
+        if (JSON.stringify(replaced) !== JSON.stringify(m.content)) { m.content = replaced; changed = true; }
+      }
+      if (m.tool_calls) {
+        const mapped = m.tool_calls.map(tc => {
+          try {
+            const a = JSON.parse(tc.function.arguments || '{}');
+            let inner = false;
+            for (const k of Object.keys(a)) {
+              if (typeof a[k] === 'string' && a[k].length > 300) { a[k] = a[k].slice(0, 300) + '…(已截断)'; inner = true; }
+            }
+            if (inner) return { ...tc, function: { ...tc.function, arguments: JSON.stringify(a) } };
+            return tc;
+          } catch (e) { return tc; }
+        });
+        if (JSON.stringify(mapped) !== JSON.stringify(m.tool_calls)) { m.tool_calls = mapped; changed = true; }
+      }
+    } catch (e) { /* 实现 v1.6 W30：单条坏消息跳过，不中断整轮压缩 */ }
   }
   if (changed) saveSessions();  // 后台异步保存，不阻塞压缩流程
 }
@@ -8624,6 +9582,11 @@ async function loadAll() {
   try { connectLoadFromConfig(cfg); } catch (e) { console.warn('连接与模型回填失败', e); }
   try { loadLocalUI(cfg); } catch (e) {}   // v1.5 本地专属项（ctx 覆盖 / 工具调用；local_* 键回填）
   try { await loadGuardConfig(); } catch (e) {}
+  // 实现 v1.6 T6：沙箱设置面板 + 状态灯（加载配置/状态；失败不阻塞启动）
+  try { await loadSandboxPanel(); } catch (e) {}
+  // 实现 v1.6 T11/T13：左侧主导航引导 + 空态引导 + 头部状态区 + 通知中心 + DND 回填
+  try { loadDndSetting(); } catch (e) {}
+  try { navInit(); } catch (e) {}
   document.getElementById('searchEngineWrap').style.display = cfg.enable_search ? 'flex' : 'none';
   updateLabels();
   CS.syncAll();

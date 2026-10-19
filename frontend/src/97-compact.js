@@ -141,7 +141,9 @@ async function compactNow(s, apiKey, opts = {}) {
       model: _cmpModel, max_tokens: 600,
       // 修复 HF-1（v1.6）排查记录：压缩请求当前只发一条 user（无 system），
       // 形态上不可能触发 Qwen 模板的 500；归一化在下方以 typeof 守卫接线（未来防呆）。
-      messages: [{ role: 'user', content: '把以下人机协作历史压缩成 ≤200 字工作纪要，必须保留: 任务目标、涉及文件路径、已做改动、未完成事项、关键结论。直接输出: \n\n' + dump }]
+      // 实现 v1.6 T5③：压缩提示词增「保留工具调用序列」要求（原只保留文件路径，
+      // 恢复后续跑时丢失「调过什么工具、参数是什么」的脉络）
+      messages: [{ role: 'user', content: '把以下人机协作历史压缩成 ≤200 字工作纪要，必须保留: 任务目标、涉及文件路径、已做改动、未完成事项、关键结论、工具调用序列(工具名与关键参数摘要)。直接输出: \n\n' + dump }]
     };
     // 修复 HF-1（v1.6 收口，QA 复验建议）：未来防呆——若压缩提示词哪天改成
     // [system 摘要规范, user 历史]，本地 Ollama/Qwen 会立刻 500（system 必须在最前且只一条）。
@@ -202,40 +204,45 @@ async function compactHistory(s) {
   }
   for (let i = 0; i < lastUserIdx; i++) {
     const m = s.messages[i];
-    if (m.role === 'tool' && typeof m.content === 'string' && m.content.length > 500 && !m._compacted && m.__tool !== 'read_file' && m.__tool !== 'read_more') {
-      m.content = summarizeToolResult(m.content) || (m.content.slice(0, 300) + '…(已压缩)');
-      m._compacted = true; changed = true;
-    }
-    if ((m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string'
-        && m.content.length > 1500 && !m._compacted
-        && !(m.role === 'user' && m.content.includes('已完整注入'))) {   // 注入的附件全文也不截
-      m.content = m.content.slice(0, 1500) + '…(旧对话已压缩)';
-      m._compacted = true; changed = true;
-    }
-    if (Array.isArray(m.content)) {
-      const replaced = m.content.map(p => {
-        if (p.type === 'image_url') return { type: 'text', text: '[图片]' };
-        if (p.type === 'video_url') return { type: 'text', text: '[视频]' };
-        if (p.type === 'text' && p.text && p.text.length > 1500)
-          return { type: 'text', text: p.text.slice(0, 1500) + '…(已压缩)' };
-        return p;
-      });
-      if (JSON.stringify(replaced) !== JSON.stringify(m.content)) { m.content = replaced; changed = true; }
-    }
-    if (m.tool_calls) {
-      const mapped = m.tool_calls.map(tc => {
-        try {
-          const a = JSON.parse(tc.function.arguments || '{}');
-          let inner = false;
-          for (const k of Object.keys(a)) {
-            if (typeof a[k] === 'string' && a[k].length > 300) { a[k] = a[k].slice(0, 300) + '…(已截断)'; inner = true; }
-          }
-          if (inner) return { ...tc, function: { ...tc.function, arguments: JSON.stringify(a) } };
-          return tc;
-        } catch (e) { return tc; }
-      });
-      if (JSON.stringify(mapped) !== JSON.stringify(m.tool_calls)) { m.tool_calls = mapped; changed = true; }
-    }
+    // 实现 v1.6 W30：逐消息防护——原循环体无 try/catch，单条坏消息（如
+    // content 为不可序列化的特殊对象、访问器抛错）会中断整个 compactHistory，
+    // 异常沿 Agent 轮次上抛终止整轮。坏消息跳过并继续，压缩尽力而为。
+    try {
+      if (m.role === 'tool' && typeof m.content === 'string' && m.content.length > 500 && !m._compacted && m.__tool !== 'read_file' && m.__tool !== 'read_more') {
+        m.content = summarizeToolResult(m.content) || (m.content.slice(0, 300) + '…(已压缩)');
+        m._compacted = true; changed = true;
+      }
+      if ((m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string'
+          && m.content.length > 1500 && !m._compacted
+          && !(m.role === 'user' && m.content.includes('已完整注入'))) {   // 注入的附件全文也不截
+        m.content = m.content.slice(0, 1500) + '…(旧对话已压缩)';
+        m._compacted = true; changed = true;
+      }
+      if (Array.isArray(m.content)) {
+        const replaced = m.content.map(p => {
+          if (p.type === 'image_url') return { type: 'text', text: '[图片]' };
+          if (p.type === 'video_url') return { type: 'text', text: '[视频]' };
+          if (p.type === 'text' && p.text && p.text.length > 1500)
+            return { type: 'text', text: p.text.slice(0, 1500) + '…(已压缩)' };
+          return p;
+        });
+        if (JSON.stringify(replaced) !== JSON.stringify(m.content)) { m.content = replaced; changed = true; }
+      }
+      if (m.tool_calls) {
+        const mapped = m.tool_calls.map(tc => {
+          try {
+            const a = JSON.parse(tc.function.arguments || '{}');
+            let inner = false;
+            for (const k of Object.keys(a)) {
+              if (typeof a[k] === 'string' && a[k].length > 300) { a[k] = a[k].slice(0, 300) + '…(已截断)'; inner = true; }
+            }
+            if (inner) return { ...tc, function: { ...tc.function, arguments: JSON.stringify(a) } };
+            return tc;
+          } catch (e) { return tc; }
+        });
+        if (JSON.stringify(mapped) !== JSON.stringify(m.tool_calls)) { m.tool_calls = mapped; changed = true; }
+      }
+    } catch (e) { /* 实现 v1.6 W30：单条坏消息跳过，不中断整轮压缩 */ }
   }
   if (changed) saveSessions();  // 后台异步保存，不阻塞压缩流程
 }

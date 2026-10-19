@@ -6,6 +6,13 @@ async function continueInNewSession() {
   const apiKey = effectiveApiKey();
   if (!apiKey) { toast('请先设置 API Key', 'warn'); document.getElementById('settingsPanel').classList.add('show'); return; }
   if (btn) btn.textContent = '⏳ 总结中…';
+  // 实现 v1.6 W28：生成中 compactNow 会静默跳过压缩（isStreaming 早退），原流程
+  // 仍继续 newSession() → 用户在新会话丢失全部上下文且无感知。生成中直接中止并明示。
+  if (isStreaming) {
+    toast('AI 正在生成中，稍后再「新对话继续」（避免未压缩就开新会话丢失上下文）', 'warn');
+    if (btn) btn.textContent = '⇥ 新对话继续';
+    return;
+  }
   try { await compactNow(s, apiKey, { quiet: false }); }
   catch (e) {
     // 修复 W25（二轮）：压缩失败不再静默吞——否则用户在新会话丢失全部上下文且无察觉

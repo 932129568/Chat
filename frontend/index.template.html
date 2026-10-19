@@ -453,6 +453,43 @@ body.dark .eff-tag-s{background:var(--ok-bg);color:var(--ok);}
   white-space:nowrap;}
 .set-nav-btn:hover{border-color:var(--primary);color:var(--primary);}
 .set-nav-btn.on{background:var(--primary);border-color:var(--primary);color:#fff;}
+/* 实现 v1.6 T6：沙箱状态灯（纯新增类） */
+.sb-light{display:inline-block;width:10px;height:10px;border-radius:50%;flex-shrink:0;background:var(--text-2);}
+.sb-light.ok{background:var(--ok);}
+.sb-light.warn{background:var(--warn);}
+.sb-light.off{background:var(--err);}
+/* 实现 v1.6 T11：左侧主导航 + T13 通知中心（纯新增） */
+.main-nav{width:132px;flex-shrink:0;display:flex;flex-direction:column;gap:2px;padding:10px 8px;
+  border-right:1px solid var(--glass-border);background:var(--sidebar-bg);position:relative;overflow:visible;}
+.mn-title{font-size:11px;color:var(--text-3);padding:2px 8px 8px;font-weight:600;}
+.mn-btn{display:flex;align-items:center;gap:8px;width:100%;height:34px;padding:0 10px;border:none;
+  background:transparent;border-radius:var(--radius-md);color:var(--text-2);font-size:13px;cursor:pointer;text-align:left;}
+.mn-btn:hover{background:var(--hover);color:var(--text);}
+.mn-btn.on{background:var(--primary-soft);color:var(--primary);font-weight:600;}
+.mn-spacer{flex:1;}
+.mn-badge{min-width:16px;height:16px;border-radius:var(--radius-full);background:var(--err);color:#fff;
+  font-size:10px;display:inline-flex;align-items:center;justify-content:center;padding:0 4px;margin-left:auto;}
+.notify-pop{position:absolute;left:calc(100% + 6px);bottom:8px;width:264px;max-height:340px;overflow:auto;z-index:80;
+  background:var(--card-bg);border:1px solid var(--border);border-radius:var(--radius-md);box-shadow:var(--shadow-lg);padding:8px;}
+.notify-head{font-size:12px;font-weight:600;color:var(--text-2);padding:2px 4px 8px;display:flex;justify-content:space-between;}
+.notify-item{font-size:12px;padding:6px 8px;border-radius:var(--radius-sm);background:var(--chip-bg);margin-bottom:4px;color:var(--text);line-height:1.5;}
+.notify-item .nt-time{color:var(--text-3);font-size:10px;margin-right:6px;}
+.notify-empty{font-size:12px;color:var(--text-3);padding:10px 6px;}
+/* 实现 v1.6 T11：空态三步引导 + 会话头部状态区（纯新增） */
+.empty-guide{margin-top:14px;display:none;flex-direction:column;gap:8px;text-align:left;max-width:340px;}
+.eg-step{display:flex;align-items:center;gap:10px;font-size:13px;color:var(--text-2);
+  background:var(--card-bg);border:1px solid var(--border);border-radius:var(--radius-md);padding:8px 12px;}
+.eg-step b{width:20px;height:20px;border-radius:50%;background:var(--primary);color:#fff;
+  display:inline-flex;align-items:center;justify-content:center;font-size:11px;flex-shrink:0;}
+.eg-step button{margin-left:auto;flex-shrink:0;}
+.eg-step button:disabled{opacity:.5;cursor:default;}
+.header-status{display:flex;align-items:center;gap:6px;margin-left:10px;font-size:11px;color:var(--text-2);min-width:0;overflow:hidden;}
+.hs-chip{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:var(--radius-full);
+  background:var(--chip-bg);white-space:nowrap;max-width:150px;overflow:hidden;text-overflow:ellipsis;}
+.hs-dot{width:7px;height:7px;border-radius:50%;background:var(--text-2);flex-shrink:0;}
+.hs-dot.ok{background:var(--ok);}
+.hs-dot.warn{background:var(--warn);}
+.hs-dot.off{background:var(--err);}
 .set-title{font-size:12px;font-weight:700;color:var(--text);margin-bottom:12px;
   padding-bottom:9px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:7px;
   letter-spacing:.02em;}
@@ -917,6 +954,20 @@ body.fx-off .panel,body.fx-off .message,body.fx-off .settings-panel.show{animati
 .mcp-tool-desc{font-size:11.5px;color:var(--text-2);margin-top:2px;line-height:1.5;}
 .mcp-kv{width:100%;margin-top:4px;padding:8px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--main-bg);color:var(--text);font-size:12px;font-family:var(--font-mono,ui-monospace,Consolas,monospace);resize:vertical;}
 .mcp-instructions{margin-top:10px;padding:10px 12px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--main-bg);}
+/* 实现 v1.6 T12：MCP 详情页 工具/资源 双 tab + 资源行（纯新增） */
+.mcp-tabs{display:flex;gap:6px;margin-top:10px;border-bottom:1px solid var(--border);}
+.mcp-tab{appearance:none;border:1px solid transparent;background:transparent;color:var(--text-2);font-size:12.5px;font-family:inherit;padding:6px 14px;border-radius:var(--radius-sm) var(--radius-sm) 0 0;cursor:pointer;}
+.mcp-tab:hover{color:var(--text);}
+.mcp-tab.on{background:var(--main-bg);border-color:var(--border);color:var(--text);font-weight:600;margin-bottom:-1px;}
+.mcp-res-list{max-height:min(40vh,340px);overflow:auto;margin-top:8px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--main-bg);}
+.mcp-res-row{display:flex;gap:10px;align-items:flex-start;padding:8px 12px;border-bottom:1px solid var(--border);flex-wrap:wrap;}
+.mcp-res-row:last-child{border-bottom:none;}
+.mcp-res-row input[type=checkbox]{flex:0 0 auto;margin-top:3px;}
+.mcp-res-row .modal-btn{flex:0 0 auto;}
+.mcp-res-out{flex:1 0 100%;margin-top:6px;padding:8px 10px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--surface-2);}
+.mcp-res-text{font-size:12px;color:var(--text);white-space:pre-wrap;word-break:break-all;line-height:1.6;max-height:220px;overflow:auto;font-family:var(--font-mono,ui-monospace,Consolas,monospace);}
+.mcp-res-blob{font-size:12.5px;color:var(--text);font-weight:600;}
+.mcp-res-open{margin-top:6px;}
 /* ================= v4「连接与模型」合并块（完全单端点 · cm-* / 纯新增） =================
  * 一个区块一条纵向流：预设 → Base URL → Key → 模型 → 测试连接（+「高级」折叠）。
  * 显隐规则由 36-connect.js 按预设写入（connectUpdateAdvanced）；本段只负责布局与观感。
@@ -993,6 +1044,25 @@ body.fx-off .panel,body.fx-off .message,body.fx-off .settings-panel.show{animati
   <button class="rail-btn" id="themeBtn" data-tip="切换深色/浅色" onclick="toggleTheme()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M20 14.5A8.5 8.5 0 1 1 9.5 4a7 7 0 0 0 10.5 10.5z"/></svg></button>
 </nav>
 
+<!-- 实现 v1.6 T11：左侧主导航（对话/设置/审计/会话搜索/沙箱 + T13 通知中心）。
+     纯新增元素（flex 布局自然参与，不影响既有三栏）；新 id 全部唯一。
+     直切口径：本导航为单一入口，原设置大按钮/33-set-nav 锚点 DOM 保留不删。 -->
+<nav class="main-nav" id="mainNav" aria-label="分区导航">
+  <div class="mn-title">分区</div>
+  <button class="mn-btn on" id="navBtnChat" onclick="navSwitch('chat')">💬 对话</button>
+  <button class="mn-btn" id="navBtnSettings" onclick="navSwitch('settings')">⚙️ 设置</button>
+  <button class="mn-btn" id="navBtnAudit" onclick="navSwitch('audit')">🛡️ 审计</button>
+  <button class="mn-btn" id="navBtnSearch" onclick="navSwitch('search')">⌕ 会话搜索</button>
+  <button class="mn-btn" id="navBtnSandbox" onclick="navSwitch('sandbox')">📦 沙箱</button>
+  <div class="mn-spacer"></div>
+  <button class="mn-btn" id="navBtnNotify" onclick="navToggleNotify()">🔔 通知<span class="mn-badge" id="navNotifyBadge" style="display:none;">0</span></button>
+  <div class="notify-pop" id="notifyPop" style="display:none;">
+    <div class="notify-head"><span>通知中心</span><span id="notifyCount"></span></div>
+    <div class="notify-list" id="notifyList"></div>
+    <button type="button" class="mn-btn" id="notifyClearBtn" onclick="navClearNotify()">清空通知</button>
+  </div>
+</nav>
+
 <aside class="sidebar" id="sidebar">
   <div class="sidebar-brand">
     <div class="brand-logo">G</div>
@@ -1022,6 +1092,8 @@ body.fx-off .panel,body.fx-off .message,body.fx-off .settings-panel.show{animati
     <div class="header-left">
       <button class="icon-btn" onclick="toggleSidebar()" title="折叠/展开侧栏">☰</button>
       <div class="header-title" id="headerTitle">glm-5.3-flash</div>
+      <!-- 实现 v1.6 T11：会话头部状态区重组（模型徽标/缓存命中/沙箱态一屏可达；纯新增容器） -->
+      <div class="header-status" id="headerStatusZone"></div>
       <div class="header-badge">多模态 Agent</div>
     </div>
     <div class="header-right">
@@ -1056,6 +1128,7 @@ body.fx-off .panel,body.fx-off .message,body.fx-off .settings-panel.show{animati
                   <option value="deepseek">DeepSeek</option>
                   <option value="moonshot">Moonshot</option>
                   <option value="qwen">通义千问</option>
+                  <option value="github-models">GitHub Models（免费层）</option>
                   <option value="ollama">Ollama</option>
                   <option value="lmstudio">LM Studio</option>
                   <option value="vllm">vLLM</option>
@@ -1069,10 +1142,17 @@ body.fx-off .panel,body.fx-off .message,body.fx-off .settings-panel.show{animati
               <input type="text" id="providerBase" placeholder="https://open.bigmodel.cn/api/paas/v4" autocomplete="off" spellcheck="false">
 
               <div id="cmKeyRow">
-                <label for="apiKey">API Key（仅保存在本机）</label>
+                <label for="apiKey" id="cmKeyLabel">API Key（仅保存在本机）</label>
                 <input type="password" id="apiKey" placeholder="粘贴你的智谱 API Key">
+                <!-- 实现 v1.6 T1：GitHub PAT 获取指引（仅 GitHub Models 预设显示） -->
+                <div class="set-hint" id="cmKeyHelp" style="display:none;margin:4px 0 0;">
+                  在 <a href="https://github.com/settings/tokens" target="_blank">GitHub 设置 → 开发者设置 → Tokens</a>
+                  创建 PAT（classic 或 fine-grained 勾选 <code>models:read</code> scope）后粘贴即可。
+                </div>
               </div>
               <div class="local-badge cm-chip" id="cmNoKey" style="display:none;">ℹ 本地服务器通常无需 Key（免 Key · 零费用）</div>
+              <!-- 实现 v1.6 T1：免费层常驻声明（用户裁决①：个人自用算支持范围，明示限制） -->
+              <div class="local-badge cm-chip" id="cmFreeTier" style="display:none;">免费层仅限个人非商业使用，禁止生产使用；高频使用请切换 DeepSeek/GLM 付费层</div>
 
               <label for="modelSelect">模型</label>
               <div class="cm-row">
@@ -1268,6 +1348,18 @@ body.fx-off .panel,body.fx-off .message,body.fx-off .settings-panel.show{animati
             </div>
           </div>
 
+          <!-- 实现 v1.6 T13：免打扰（DND）设置项（独立开关，localStorage 持久，不污染 config.json） -->
+          <div class="set-block" id="dndBlock">
+            <div class="set-title">免打扰（DND）</div>
+            <label class="check-row" for="dndEnabled" style="margin-bottom:4px;">
+              <input type="checkbox" id="dndEnabled" onchange="saveDndSetting()"> 窗口失焦时免打扰
+            </label>
+            <div class="set-hint" style="margin-top:6px;">
+              开启后，窗口失焦或最小化时抑制非关键提示（成功 / 信息类）；警告与错误仍会弹出。<br>
+              被抑制的提示进入左侧导航「🔔 通知」中心（带红点数）；窗口重新聚焦时红点自动清零。
+            </div>
+          </div>
+
           <div class="set-block">
             <div class="set-title">MCP 服务器（v1.3）</div>
             <div class="set-hint" style="margin:2px 0 8px;">
@@ -1282,6 +1374,94 @@ body.fx-off .panel,body.fx-off .message,body.fx-off .settings-panel.show{animati
             </div>
             <div class="mcp-list" id="mcpServerList"></div>
           </div>
+
+          <!-- 实现 v1.6 T6：命令沙箱设置面板 + 状态灯（纯新增区块；新 id 全部唯一，
+               接线既有 js_api sandbox_get_config/sandbox_save_config/sandbox_status） -->
+          <div class="set-block" id="sandboxBlock">
+            <div class="set-title">命令沙箱（v1.6）</div>
+            <div class="set-hint" style="margin:2px 0 8px;">
+              Windows Job Object 进程隔离：每次命令一个独立 Job，收编整棵进程树，句柄关闭即清剿（防孤儿）。<br>
+              诚实边界：<b>网络不隔离、文件系统仅应用层校验</b>——沙箱不是绝对安全，敏感操作仍会先确认。
+            </div>
+            <label class="check-row" for="sandboxEnabled" style="margin-bottom:10px;">
+              <input type="checkbox" id="sandboxEnabled"> 启用命令沙箱（关闭后全部命令直接执行）
+            </label>
+            <div class="provider-row" style="align-items:center;gap:8px;">
+              <span class="sb-light" id="sandboxStatusLight"></span>
+              <span id="sandboxStatusText" style="font-size:12px;color:var(--text-2);">读取状态中…</span>
+              <button type="button" class="modal-btn" id="sandboxRefreshBtn" onclick="refreshSandboxStatus()">↻ 刷新状态</button>
+            </div>
+            <div class="set-hint" id="sandboxUnavailable" style="display:none;color:var(--warn);">
+              当前系统不支持 Job Object（非 Windows 或句柄创建失败）：沙箱不可用，命令将直接执行。
+            </div>
+            <div class="set-hint" id="sandboxStats" style="margin:2px 0 10px;"></div>
+
+            <label>命令类别档位</label>
+            <div class="provider-row">
+              <span style="width:150px;font-size:12px;color:var(--text-2);flex-shrink:0;">run_command</span>
+              <div style="width:170px;">
+                <select id="sandboxProfilerun_command">
+                  <option value="off">off（不沙箱）</option>
+                  <option value="standard" selected>standard（1024MB · 16 进程）</option>
+                  <option value="strict">strict（512MB · 8 进程）</option>
+                </select>
+              </div>
+            </div>
+            <div class="provider-row">
+              <span style="width:150px;font-size:12px;color:var(--text-2);flex-shrink:0;">run_powershell</span>
+              <div style="width:170px;">
+                <select id="sandboxProfilerun_powershell">
+                  <option value="off">off（不沙箱）</option>
+                  <option value="standard" selected>standard（1024MB · 16 进程）</option>
+                  <option value="strict">strict（512MB · 8 进程）</option>
+                </select>
+              </div>
+            </div>
+            <div class="provider-row">
+              <span style="width:150px;font-size:12px;color:var(--text-2);flex-shrink:0;">run_admin_command</span>
+              <div style="width:170px;">
+                <select id="sandboxProfilerun_admin_command">
+                  <option value="off" selected>off（恒不沙箱：提权子进程无法收编）</option>
+                  <option value="standard">standard（1024MB · 16 进程）</option>
+                  <option value="strict">strict（512MB · 8 进程）</option>
+                </select>
+              </div>
+            </div>
+
+            <label style="margin-top:12px;">standard 档限制</label>
+            <div class="provider-row">
+              <input type="number" id="sandboxLimitstandardMemory" min="64" max="100000" step="64" title="内存上限（MB）" style="width:110px;">
+              <input type="number" id="sandboxLimitstandardProcesses" min="1" max="100" title="活跃进程数上限" style="width:110px;">
+              <input type="number" id="sandboxLimitstandardCpu" min="1" max="100000" title="CPU 时间上限（秒）" style="width:110px;">
+              <div style="width:130px;">
+                <select id="sandboxLimitstandardUi" title="UI 限制级别">
+                  <option value="none">UI：不限制</option>
+                  <option value="basic" selected>UI：basic（桌面/关机）</option>
+                  <option value="strict">UI：strict（+全局原子/句柄）</option>
+                </select>
+              </div>
+            </div>
+            <label style="margin-top:10px;">strict 档限制</label>
+            <div class="provider-row">
+              <input type="number" id="sandboxLimitstrictMemory" min="64" max="100000" step="64" title="内存上限（MB）" style="width:110px;">
+              <input type="number" id="sandboxLimitstrictProcesses" min="1" max="100" title="活跃进程数上限" style="width:110px;">
+              <input type="number" id="sandboxLimitstrictCpu" min="1" max="100000" title="CPU 时间上限（秒）" style="width:110px;">
+              <div style="width:130px;">
+                <select id="sandboxLimitstrictUi" title="UI 限制级别">
+                  <option value="none">UI：不限制</option>
+                  <option value="basic">UI：basic（桌面/关机）</option>
+                  <option value="strict" selected>UI：strict（+全局原子/句柄）</option>
+                </select>
+              </div>
+            </div>
+            <div class="set-hint" style="margin-top:6px;">
+              输入顺序：内存（MB）/ 进程数 / CPU 秒；strict 的 UI=strict 可能破坏部分运行时，按需开启。
+            </div>
+            <div class="provider-row" style="margin-top:10px;">
+              <button type="button" class="modal-btn primary" id="sandboxSaveBtn" onclick="saveSandboxSettings()">保存档位</button>
+              <button type="button" class="modal-btn" id="sandboxResetBtn" onclick="sandboxResetDefaults()">重置默认</button>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -1290,6 +1470,12 @@ body.fx-off .panel,body.fx-off .message,body.fx-off .settings-panel.show{animati
           <div class="empty-icon">✦</div>
           <h2>开始和 Harbor 聊天</h2>
           <p>支持文字、图片、视频、文本文件 · 历史记录自动保存</p>
+          <!-- 实现 v1.6 T11：未配 Key 时的三步空态引导（纯新增；按钮跳导航对应位） -->
+          <div class="empty-guide" id="emptyGuide">
+            <div class="eg-step"><b>1</b>选来源<button type="button" class="modal-btn" onclick="navGuidePickSource()">去选择 →</button></div>
+            <div class="eg-step"><b>2</b>填 Key<button type="button" class="modal-btn" onclick="navGuideFillKey()">去填写 →</button></div>
+            <div class="eg-step"><b>3</b>发问<button type="button" class="modal-btn" disabled>在下方输入框</button></div>
+          </div>
         </div>
       </div>
 
@@ -1334,6 +1520,8 @@ body.fx-off .panel,body.fx-off .message,body.fx-off .settings-panel.show{animati
             <span>Enter 发送 · Shift+Enter 换行</span>
             <span id="costEstimate"></span>
             <span id="liveTokenStat">当前对话: 0 tokens</span>
+            <!-- 实现 v1.6 T10③：流式期 tokens/s 速度显示（无 usage 按字符估算标「估」） -->
+            <span id="streamSpeed"></span>
             <button id="continueNewBtn" title="总结当前对话后开新会话继续" onclick="continueInNewSession()">⇥ 新对话继续</button>
           </div>
         </div>

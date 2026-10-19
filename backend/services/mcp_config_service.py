@@ -260,6 +260,14 @@ class McpConfigService:
             record['enabled'] = enabled
             if overrides_absent and isinstance(existing.get('tierOverrides'), dict):
                 record['tierOverrides'] = existing['tierOverrides']   # 修复 S16：保留既有档位覆盖
+            # 实现 v1.6 T12：资源订阅（mcp_servers.json 新可选键 resourceSubs；Claude
+            # 兼容结构忽略未知键）——未携带时保留既有订阅，显式携带则校验后入库
+            subs = cfg.get('resourceSubs') if isinstance(cfg, dict) else None
+            if subs is None and isinstance(existing.get('resourceSubs'), list):
+                record['resourceSubs'] = existing['resourceSubs']
+            elif isinstance(subs, list):
+                record['resourceSubs'] = [str(u)[:500] for u in subs
+                                          if isinstance(u, str) and u.strip()][:100]
             # 字段级加密：env 值 / header 值（键名明文；非 Windows 明文容忍）
             plain_keys = []
             if 'env' in record:

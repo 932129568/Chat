@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Harbor v1.6.0「开放版」迭代方案 · 深度检索报告 2026-10-19</title>
+<style>
+  :root { --ink:#1a2332; --sub:#5b6b7f; --line:#e3e9f0; --bg:#f7f9fb; --card:#ffffff;
+          --blue:#1f6feb; --blue-bg:#eaf2ff; --green:#1a7f37; --green-bg:#eaf6ec;
+          --amber:#9a6700; --amber-bg:#fff8e6; --red:#cf222e; --red-bg:#ffebe9;
+          --purple:#8250df; --purple-bg:#f5efff; }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body { font-family:"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+         background:var(--bg); color:var(--ink); line-height:1.65; font-size:14.5px; }
+  .wrap { max-width:980px; margin:0 auto; padding:32px 28px 64px; }
+  header { border-bottom:3px solid var(--blue); padding-bottom:18px; margin-bottom:26px; }
+  header .kicker { color:var(--blue); font-weight:600; font-size:13px; letter-spacing:.08em; }
+  header h1 { font-size:25px; margin:6px 0 8px; }
+  header .meta { color:var(--sub); font-size:13px; }
+  header .meta b { color:var(--ink); }
+  h2 { font-size:18.5px; margin:34px 0 12px; padding-left:10px; border-left:4px solid var(--blue); }
+  h3 { font-size:15.5px; margin:20px 0 8px; }
+  p { margin:8px 0; }
+  .tldr { background:var(--blue-bg); border:1px solid #c7ddfd; border-radius:10px;
+          padding:16px 18px; margin:16px 0; }
+  .tldr b { color:var(--blue); }
+  table { width:100%; border-collapse:collapse; margin:12px 0; background:var(--card);
+          border-radius:8px; overflow:hidden; box-shadow:0 0 0 1px var(--line); font-size:13.2px; }
+  th { background:#eef3f9; text-align:left; padding:8px 10px; border-bottom:2px solid var(--line);
+       white-space:nowrap; }
+  td { padding:8px 10px; border-bottom:1px solid var(--line); vertical-align:top; }
+  tr:last-child td { border-bottom:none; }
+  .tag { display:inline-block; padding:1px 8px; border-radius:10px; font-size:12px; font-weight:600;
+         white-space:nowrap; }
+  .p0 { background:var(--red-bg); color:var(--red); }
+  .p1 { background:var(--amber-bg); color:var(--amber); }
+  .p2 { background:var(--purple-bg); color:var(--purple); }
+  .ok { background:var(--green-bg); color:var(--green); }
+  .flow { background:#0f1622; color:#d6e2f0; border-radius:10px; padding:16px 18px;
+          font-family:Consolas,"Cascadia Code",monospace; font-size:12.3px; line-height:1.55;
+          overflow-x:auto; white-space:pre; margin:12px 0; }
+  .flow .hl { color:#7ee787; }
+  .note { background:var(--amber-bg); border:1px solid #f0dfa8; border-radius:8px;
+          padding:12px 14px; margin:12px 0; font-size:13.3px; }
+  .ext { background:var(--green-bg); border:1px solid #bfe3c8; border-radius:8px;
+          padding:12px 14px; margin:12px 0; font-size:13.3px; }
+  ul,ol { margin:8px 0 8px 22px; }
+  li { margin:4px 0; }
+  code { background:#eef2f7; border-radius:4px; padding:1px 5px; font-size:12.6px;
+         font-family:Consolas,monospace; }
+  .src { color:var(--sub); font-size:12.4px; }
+  .cols { display:grid; grid-template-columns:1fr 1fr; gap:14px; }
+  @media (max-width:760px){ .cols{grid-template-columns:1fr;} }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:14px 16px; }
+  .card h4 { font-size:14px; margin-bottom:6px; }
+  footer { margin-top:40px; padding-top:14px; border-top:1px solid var(--line);
+           color:var(--sub); font-size:12.5px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <div class="kicker">DEEP-RESEARCH · 迭代规划报告</div>
+  <h1>Harbor v1.6.0「开放版」迭代方案</h1>
+  <div class="meta">
+    <b>日期</b> 2026-10-19 ｜ <b>基线</b> v1.5.0（561 passed）+ 沙箱核心（584 passed）｜
+    <b>总盘子</b> 26–28 人日 ｜ <b>单人</b> 5–6 周 / <b>2 人并行</b> 3.5–4 周<br>
+    输入：交接文档 handover-2026-10-19.md · KNOWN_ISSUES.md · 代码库实测 · 外部检索（GitHub Models）
+  </div>
+</header>
+
+<div class="tldr">
+  <b>TL;DR</b> — v1.6.0 把 Harbor 从「本地优先单机客户端」推进到「<b>多云来源 + 可治理执行</b>」：
+  新增 GitHub Models 免费层接入、DeepSeek 能力校准、五处提示词体系更新、页面信息架构重构，
+  并收尾沙箱模块（UI + 真机冒烟）与三轮审查遗留的 Agent 问题。<br>
+  <b>三个关键判断</b>：① 用户点名的「DeepSeek」<b>已经实现</b>（v1.5 preset 完备），本版做实测校准；
+  真正的接入工作量在 <b>GitHub Models 免费层</b>（端点/鉴权/限额已外部核实）；
+  ② 沙箱后端已交付但<b>无 UI 即无治理</b>，设置面板接线是 P0；③ 布局重构是最大单项（约 5 人日），UI 契约只增不改。
+</div>
+
+<h2>1. 六大领域 → 工作流映射</h2>
+<table>
+  <tr><th style="width:34%">用户领域</th><th style="width:9%">归入</th><th>关键事实（实测/外部核实）</th></tr>
+  <tr><td>① 扩展本地大模型接入（DeepSeek + GitHub FreeToken）</td><td><b>M1</b></td>
+      <td>DeepSeek preset <span class="tag ok">已完备</span>（36-connect.js：api.deepseek.com/v1 + v4.1-256k/v4.1 + 价格 + 256k ctx 徽标）[内]；GitHub Models = 新接入 [外]（源：https://github.blog/ai-and-ml/llms/solving-the-inference-problem-for-open-source-ai-projects-with-github-models/）</td></tr>
+  <tr><td>② 更新大模型提示词</td><td><b>M1</b></td>
+      <td>五处提示词源已定位：build_system_prompt / EFFICIENCY_PROMPT / compact 提示 / 本地模式段 / MCP instructions [内]</td></tr>
+  <tr><td>③ 优化本地大模型适配与运行表现</td><td><b>M3</b></td>
+      <td>v1.5 已交付：并行探测 / 清单+ctx 元数据 / 免 Key 测试 / 工具能力三态 / 系统消息归一 / 400 双降级链；缺口见 §4 [内]</td></tr>
+  <tr><td>④ 重构页面布局</td><td><b>M3</b></td>
+      <td>现状：chat 面板 + 设置浮层（10+ block + 锚点导航）+ 工作区快捷条 + 审计查看器 + 会话搜索 [内]</td></tr>
+  <tr><td>⑤ 调研 Agent 现有问题与能力缺口</td><td><b>M2</b></td>
+      <td>三轮审查遗留 W21–W26 连接池族 + W27/28/30/33 边界；KNOWN_ISSUES 相关 6 项 [内]</td></tr>
+  <tr><td>⑥ 调研可新增功能 + 遗留补全</td><td><b>M4</b></td>
+      <td>候选：MCP resources/prompts、OAuth、遥测、DND、多模态、真机冒烟、WebDAV 真实联调 [内]</td></tr>
+</table>
+
+<h2>2. M1 · 模型来源扩展与提示词体系（6 人日）</h2>
+<table>
+  <tr><th style="width:6%">#</th><th style="width:44%">任务</th><th style="width:7%">优先级</th><th style="width:8%">工作量</th><th>验收标准</th></tr>
+  <tr><td>T1</td><td><b>GitHub Models 预设接入</b>：base_url=https://models.github.ai/inference；Key 文案改「GitHub PAT（models:read）」+ 获取指引；价格置零 + 「免费层」徽标</td><td><span class="tag p0">P0</span></td><td>1.5</td><td>预设自动填充端点；非法 Key 的 401 人话含 scope 检查指引</td></tr>
+  <tr><td>T2</td><td><b>GitHub 模型目录探测</b>：GET /catalog/models（模型 ID 为 <code>provider/model</code> 格式，裸名校验失败 [外]（源：https://toolchew.com/en/review-github-models-2026））；解析 name/ctx/modalities</td><td><span class="tag p0">P0</span></td><td>1.0</td><td>目录进模型下拉（带 ctx 徽标）；接口失败降级手输 + 明确错误</td></tr>
+  <tr><td>T3</td><td><b>免费层限额人话映射</b>：429 header 区分「请求频率 vs 每日配额」[外]（源：https://toolchew.com/en/review-github-models-2026）；面板常驻「免费层禁止生产使用」声明 [外]（源：https://toolchew.com/en/review-github-models-2026）</td><td><span class="tag p0">P0</span></td><td>0.5</td><td>429 人话说明 RPM/日额及恢复时间；限制声明可见</td></tr>
+  <tr><td>T4</td><td><b>DeepSeek 实测校准</b>：真机联调 v4.1-256k 工具调用兼容性 + 价格表校准；结论入交付报告</td><td><span class="tag p0">P0</span></td><td>1.0</td><td>基准链②工具调用全成功且计费正确；不达预期记录降级路径</td></tr>
+  <tr><td>T5</td><td><b>提示词体系更新</b>（五处）：① 系统提示增「沙箱告知段」② EFFICIENCY_PROMPT 补免费层限额策略 + MCP 铁律 ③ compact 提示增「保留工具调用序列」④ 本地模式段 ⑤ MCP instructions 维持不注入</td><td><span class="tag p0">P0</span></td><td>2.0</td><td>build_system_prompt 不在逐字节比对清单（安全）；三基准链质量不降（人工 checklist）</td></tr>
+</table>
+<div class="note"><b>接口要点</b>：零新 js_api（T2 优先扩展既有 local_models 语义；差异大则新增 github_models() 进 _V12_EXTRA）；
+价格按 v1.2 模型名解析机制，免费层 0 价短路；build_system_prompt 改动沿用 v1.3.2 INTENTIONAL_DELTAS 白名单先例。</div>
+
+<h2>3. M2 · 沙箱收尾与 Agent 遗留（6 人日）</h2>
+<table>
+  <tr><th style="width:6%">#</th><th style="width:44%">任务</th><th style="width:7%">优先级</th><th style="width:8%">工作量</th><th>验收标准</th></tr>
+  <tr><td>T6</td><td><b>沙箱设置面板 + 状态灯</b>（新模块 39-sandbox.js + 模板纯新增）：开关 / 三命令类别档位 / 限制编辑 / 状态灯 + 统计 / 重置默认</td><td><span class="tag p0">P0</span></td><td>2.0</td><td>档位可改可存；改后下条命令生效；非 Windows 明示不可用</td></tr>
+  <tr><td>T7</td><td><b>W21–W26 连接池族边界修复</b>（三轮审查遗留：stale 300s 重 List 竞态窗口等）</td><td><span class="tag p0">P0</span></td><td>2.5</td><td>构造竞态时序（桩）无双弹/无状态错乱；每项回归测试</td></tr>
+  <tr><td>T8</td><td><b>W27/W28/W30/W33 边界项</b>（find size 参数、工具描述引号转义口径等）</td><td><span class="tag p1">P1</span></td><td>1.0</td><td>逐项修复 + 口径统一注明</td></tr>
+  <tr><td>T9</td><td><b>沙箱真机冒烟</b>（六步）：echo 正常 → 超时清剿 → fail-closed → 审计可见 → 切档生效 → 非 Win 降级提示</td><td><span class="tag p0">P0</span></td><td>0.5</td><td>六步全过并归档；任一步失败打回不改版</td></tr>
+</table>
+
+<h2>4. M3 · 本地模型优化与布局重构（7.5 人日）</h2>
+<table>
+  <tr><th style="width:6%">#</th><th style="width:44%">任务</th><th style="width:7%">优先级</th><th style="width:8%">工作量</th><th>验收标准</th></tr>
+  <tr><td>T10</td><td><b>本地运行优化补齐</b>：① Ollama 503「model is loading」指数退避（2/4/8s，上限 120s）② 首 token 慢推理等待态（&gt;5s 每秒可见）③ tokens/s 速度显示 ④ /api/tags 元数据 UI 真机验证（销 KNOWN_ISSUES #2）</td><td><span class="tag p1">P1</span></td><td>2.5</td><td>冷启动 503 自动重试有进度；首 token 等待可见；#2 转 🟢</td></tr>
+  <tr><td>T11</td><td><b>页面布局重构</b>：① 左侧导航栏（对话/设置/审计/搜索/沙箱，面板制）② 设置浮层保留兼容（双轨一版）③ 会话头部状态区重组（模型徽标/花费/沙箱态/缓存率一屏可达）④ 空态三步引导</td><td><span class="tag p1">P1</span></td><td>5.0</td><td>check_contract PASS（40 id/13 onclick/43 callApi/39 类/21 变量零改动）；老入口双轨期可达；空态有引导</td></tr>
+</table>
+
+<h2>5. M4 · 新功能落地与遗留补全（7–9 人日）</h2>
+<table>
+  <tr><th style="width:6%">#</th><th style="width:44%">任务</th><th style="width:7%">优先级</th><th style="width:8%">工作量</th><th>验收标准</th></tr>
+  <tr><td>T12</td><td><b>MCP resources 能力接入</b>（v1.3 Non-goal 重启）：resources/list + read（text 优先，blob 落盘 toolcache）；服务器详情「资源」tab + 订阅注入；审计沿用；注解不可信原则沿用</td><td><span class="tag p1">P1</span></td><td>4.0</td><td>订阅资源进上下文 + 有审计；超限截断可 read_more；无新 js_api 或全隐身</td></tr>
+  <tr><td>T13</td><td><b>遥测最小版 vs DND（二选一）</b>：遥测=匿名本地指标聚合导出（默认关 + 合规说明）；DND=失焦非关键 toast 抑制 + 通知中心</td><td><span class="tag p2">P2</span></td><td>1.0</td><td>遥测可一键清空、导出件无身份信息；DND 不丢通知</td></tr>
+  <tr><td>T14</td><td><b>回归与发布门</b>：pytest（584 不降 + 新增）+ 契约差分 + UI 契约 + 构建幂等 + 基准链复跑（token 再 -15%）</td><td><span class="tag p0">P0</span></td><td>2.0</td><td>五门全过；基准归档 deliverables/metrics/</td></tr>
+  <tr><td>T15</td><td><b>遗留补全结论</b>：OAuth / 多模态 / WebDAV 真实联调 / 杀软误报说明 / 代码签名——逐项「排期 or 明确不做+理由」</td><td><span class="tag p2">P2</span></td><td>0.5</td><td>结论入 roadmap 更新</td></tr>
+</table>
+
+<h2>6. 里程碑与依赖</h2>
+<div class="flow">W1      W2      W3      W4      W5
+├─ <span class="hl">M1 模型与提示词</span> ──────────────┤
+       T1→T2→T3（GitHub 链）
+       T4（DeepSeek 实测，可并行）
+       T5（提示词，沙箱后端✓已具备）
+              ├─ <span class="hl">M2 沙箱收尾 + Agent 遗留</span> ──────┤
+                    T6（沙箱 UI）→ T9（冒烟）
+                    T7（W21-26）→ T12 前置
+                    T8（边界项）
+                           ├─ <span class="hl">M3 优化 + 布局</span> ──────────┤
+                                 T10（本地优化）
+                                 T11（布局重构，依赖 T6）
+                                        ├─ <span class="hl">M4 新功能 + 发布</span> ──────────┤
+                                              T12（MCP resources）
+                                              T13（遥测/DND，Q3 裁决）
+                                              T14（回归发布）
+                                              T15（遗留结论）</div>
+<p><b>关键路径</b>：T6 → T11 → T14。<b>并行</b>：T4 与 T1–T3（前者需目标机联网）；T7 与 T10。
+<b>降级规则</b>：P2（T13/T15）整体顺延 v1.6.1；T11 可拆「导航先行、状态区后随」；
+<b>T1–T3 / T6 / T9 / T14 不可裁剪</b>（用户点名 / 安全治理 / 质量门）。</p>
+
+<h2>7. 量化目标与测试验证</h2>
+<table>
+  <tr><th style="width:26%">目标</th><th style="width:20%">基线</th><th style="width:22%">目标值</th><th>验证方式</th></tr>
+  <tr><td>同任务链总 token</td><td>v1.4（-25% 后）</td><td>再 -15%</td><td>3 条标准链前后对比（目标机执行，协议就绪）</td></tr>
+  <tr><td>GitHub Models 429 人话覆盖</td><td>无（新接入）</td><td>100%（频率/日额两分支）</td><td>单测 mock 两种 429 响应头</td></tr>
+  <tr><td>沙箱治理可见性</td><td>后端已交付</td><td>面板全量可配 + 统计可见</td><td>T6 验收 + UI 契约</td></tr>
+  <tr><td>Agent 遗留</td><td>W21–W33 共 9 项</td><td>清 7 项（留 2 项低危）</td><td>逐项回归测试</td></tr>
+  <tr><td>MCP resources</td><td>未实现</td><td>text 类全链路 + 订阅注入</td><td>打桩服务器（test_v13_mcp 模式延展）</td></tr>
+  <tr><td>真机冒烟</td><td>从未做（#1）</td><td>沙箱六步 + Ollama 对话 + 搜索跳转 + midx 对齐</td><td>目标机清单</td></tr>
+</table>
+
+<h2>8. 待确认问题（产品负责人裁决）</h2>
+<ol>
+  <li><b>GitHub Models 定位</b>：免费层「明确禁止生产使用」[外]（源：https://toolchew.com/en/review-github-models-2026）——终端用户用免费层跑自己的活儿是否在支持范围？建议接入但明示限制，高频用户引导切付费层。</li>
+  <li><b>布局双轨期</b>：新导航与旧设置浮层并存一版（+0.5 人日）还是直接切换（老入口断流一版）？建议双轨一版。</li>
+  <li><b>P2 二选一</b>：遥测最小版（数据治理叙事 + 合规成本）vs DND（轻量体验）——本版只做一个，另一个入 v1.6.1。</li>
+</ol>
+
+<h2>9. 外部检索结论（GitHub Models，2026-10-19）</h2>
+<div class="ext">
+  <b>[外] 已核实</b>（逐条附来源 URL）：
+  <ul>
+    <li>端点 <code>https://models.github.ai/inference</code>（OpenAI 兼容 chat/completions）；旧 Azure 端点 <code>models.inference.ai.azure.com</code> <b>已弃用</b> —— https://toolchew.com/en/review-github-models-2026 ；https://github.blog/ai-and-ml/llms/solving-the-inference-problem-for-open-source-ai-projects-with-github-models/</li>
+    <li>鉴权：GitHub PAT（classic 或 fine-grained <code>models:read</code> scope）作 Bearer token；Actions 可用内置 GITHUB_TOKEN —— https://github.blog/ai-and-ml/llms/solving-the-inference-problem-for-open-source-ai-projects-with-github-models/ ；https://getfreeai.net/zh-cn/providers/github-models</li>
+    <li>模型 ID 为 <code>provider/model</code> 格式（如 <code>openai/gpt-4o</code>），裸名报校验错误 —— https://toolchew.com/en/review-github-models-2026</li>
+    <li>目录接口 <code>GET https://models.github.ai/catalog/models</code>（含 modalities 元数据） —— https://toolchew.com/en/review-github-models-2026</li>
+    <li>免费层限额：低档约 15 RPM/150 RPD、高档约 10 RPM/50 RPD；429 header 区分频率与日额度；<b>免费层明确禁止生产使用</b> —— https://toolchew.com/en/review-github-models-2026 ；https://prismix.dev/guides/github-models-guide</li>
+    <li>目录含 DeepSeek-R1（DeepSeek 也可经 GitHub 免费层到达） —— https://github.blog/ai-and-ml/llms/solving-the-inference-problem-for-open-source-ai-projects-with-github-models/ ；https://devpress.csdn.net/v1/article/detail/149930086</li>
+  </ul>
+  <b>研究方法与缺口</b>：外部检索 1 轮（关键词「GitHub Models free tier inference API endpoint authentication」），命中 5 个独立来源（官方博客 1 + 第三方评测/指南 4），结论均双源交叉；
+  <b>[⚠ 未覆盖]</b>：本环境无外网无法直连实测——限额数字为 2026-10 外部源快照，实施 T2/T3 时需目标机用真实 PAT 复核目录结构与限额 header；若接口已变更，T2 降级为手输模型名 + T3 保留通用 429 人话。
+</div>
+
+<h2>10. 假设与来源索引</h2>
+<div class="cols">
+  <div class="card"><h4>假设</h4>
+    <ul>
+      <li>工作量基于 v1.5.0 模块化结构与 584 测试网既有 velocity；布局重构遇意外契约回归最坏 +1.5 人日（缓冲在 T11）</li>
+      <li>GitHub Models 可用性/限额以外部源为准，接口变动由 T2 降级路径兜底</li>
+      <li>沙箱后端 2026-10-19 已交付（584 passed），本方案视为既有资产</li>
+      <li>「token 再 -15%」为合力目标，单项归因不做硬承诺（防为数字牺牲质量）</li>
+    </ul>
+  </div>
+  <div class="card"><h4>来源</h4>
+    <ul>
+      <li><b>[内]</b> handover-2026-10-19.md、KNOWN_ISSUES.md、sandbox-architecture-2026-10-19.md、36-connect.js、34-local-model.js、roadmap-local-llm-mcp-2026-10-17.md、tests/（584 基线）</li>
+      <li><b>[外]</b> github.blog（GitHub Models 官方）：https://github.blog/ai-and-ml/llms/solving-the-inference-problem-for-open-source-ai-projects-with-github-models/ ；toolchew.com（2026 评测）：https://toolchew.com/en/review-github-models-2026 ；prismix.dev（指南）：https://prismix.dev/guides/github-models-guide ；devpress.csdn.net（中文编译）：https://devpress.csdn.net/v1/article/detail/149930086 ；getfreeai.net（PAT 教程）：https://getfreeai.net/zh-cn/providers/github-models</li>
+    </ul>
+  </div>
+</div>
+
+<footer>
+  Harbor v1.6.0「开放版」迭代方案 · 深度检索报告 · 2026-10-19 · 由产品通基于交接文档、代码库实测与外部检索编制；
+  内外来源分别标注，未覆盖项已如实声明。重要决策请由产品负责人审定。
+</footer>
+
+</div>
+</body>
+</html>
