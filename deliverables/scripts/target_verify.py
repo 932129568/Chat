@@ -18,11 +18,32 @@
      token 统计 vs 基线文件，算达成率
 
 用法：
-  python target_verify.py --deepseek-key sk-xxx --github-pat ghp_xxx \
-      --ollama-url http://localhost:11434 --baseline baseline.json \
-      --output deliverables/metrics/target-verify-2026-10-19.md
+  # PowerShell（推荐：凭证进 JSON 配置文件，一条命令、无续行符、无反斜杠转义坑）
+  notepad verify.json          # 按下面模板填凭证
+  python deliverables/scripts/target_verify.py --config verify.json
 
-任一项失败不影响其他项；未提供对应凭证的项记 SKIP。报告落盘 --output。
+  verify.json 模板：
+  {
+    "deepseek_key": "sk-xxx",
+    "github_pat": "ghp_xxx",
+    "ollama_url": "http://localhost:11434",
+    "bench_base": "https://api.deepseek.com/v1",
+    "bench_key": "sk-xxx",
+    "bench_model": "deepseek-v4.1",
+    "baseline": "baseline.json",
+    "output": "deliverables/metrics/target-verify-2026-10-19.md"
+  }
+
+  # 或纯参数式（PowerShell 续行用反引号 `，路径用正斜杠 /）
+  python deliverables/scripts/target_verify.py `
+    --deepseek-key sk-xxx --github-pat ghp_xxx `
+    --ollama-url http://localhost:11434 `
+    --bench-base https://api.deepseek.com/v1 --bench-key sk-xxx `
+    --baseline baseline.json `
+    --output deliverables/metrics/target-verify-2026-10-19.md
+
+  # cmd.exe 续行用 ^；Git Bash 才用 \
+  # 任一项失败不影响其他项；未提供对应凭证的项记 SKIP。报告落盘 --output。
 """
 
 import argparse
@@ -268,18 +289,70 @@ def run_benchmark(base, key, model, baseline):
     return r
 
 
+PS_USAGE = """\
+PowerShell 用法（本脚本为 Windows 用户设计，凭证建议进 JSON 配置文件）：
+
+  1) 创建 verify.json（内容见脚本头部 docstring 模板），例如：
+     notepad verify.json
+  2) 一条命令运行（无反斜杠转义坑、无续行符）：
+     python deliverables/scripts/target_verify.py --config verify.json
+
+  参数式（PowerShell 续行符是反引号 `，不是 bash 的反斜杠 \\）：
+     python deliverables/scripts/target_verify.py `
+       --deepseek-key sk-xxx --github-pat ghp_xxx `
+       --ollama-url http://localhost:11434
+
+  cmd.exe 续行符是 ^；只有 Git Bash 才用 \\。
+"""
+
+
 def main():
-    ap = argparse.ArgumentParser(description='Harbor v1.6 遗留项目标机一键验证')
+    ap = argparse.ArgumentParser(
+        description='Harbor v1.6 遗留项目标机一键验证',
+        epilog=PS_USAGE,
+        formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument('--config', default='',
+                    help='凭证 JSON 文件路径（键名同参数名：deepseek_key/github_pat/'
+                         'ollama_url/bench_base/bench_key/bench_model/baseline/output）；'
+                         '命令行参数可覆盖其中任一键')
     ap.add_argument('--deepseek-key', default='')
     ap.add_argument('--github-pat', default='')
     ap.add_argument('--ollama-url', default='')
     ap.add_argument('--bench-base', default='', help='基准链端点（如 https://api.deepseek.com/v1）')
     ap.add_argument('--bench-key', default='')
-    ap.add_argument('--bench-model', default='deepseek-v4.1')
+    ap.add_argument('--bench-model', default='')
     ap.add_argument('--baseline', default='', help='基线 JSON（{"chains":{...}}）')
     ap.add_argument('--output', default='deliverables/metrics/target-verify-%s.md'
                     % datetime.date.today().isoformat())
     args = ap.parse_args()
+
+    # --config：凭证进 JSON，命令行为空时从配置取（命令行显式传入的优先）
+    cfg = {}
+    if args.config:
+        try:
+            with open(args.config, 'r', encoding='utf-8') as f:
+                cfg = json.load(f) or {}
+        except Exception as e:
+            print('读取 --config 失败: %s\n' % e)
+            print(PS_USAGE)
+            return 2
+        if not isinstance(cfg, dict):
+            print('--config 顶层必须是 JSON 对象\n')
+            print(PS_USAGE)
+            return 2
+    for key in ('deepseek_key', 'github_pat', 'ollama_url', 'bench_base',
+                'bench_key', 'bench_model', 'baseline', 'output'):
+        cli_val = getattr(args, key, '') or ''
+        if not cli_val and cfg.get(key):
+            setattr(args, key, cfg[key])
+
+    # 无任何输入（无 config 无参数）→ 打印 PowerShell 友好用法，不静默失败
+    if not any([args.config, args.deepseek_key, args.github_pat, args.ollama_url,
+                args.bench_base]):
+        print(PS_USAGE)
+        return 0
+    if args.bench_base and not args.bench_model:
+        args.bench_model = 'deepseek-v4.1'   # 兜底与 preset 对齐
 
     results = [
         verify_deepseek(args.deepseek_key),

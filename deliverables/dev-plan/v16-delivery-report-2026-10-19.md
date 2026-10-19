@@ -86,16 +86,27 @@
 因 §A 的中间设备反证，`github_catalog_models` 改为双路径：先 `/catalog/models`（外部源格式），失败 fallback `{inference_base}/models`（OpenAI 标准清单），双败才降级（前端热门兜底+手输）。真实 PAT 场景多一条路；fallback 保留裸名（宽松，有胜于无）。
 
 ### D. L3 目标机一键验证（`deliverables/scripts/target_verify.py`，零依赖）
-一条命令完成全部遗留验证并出 md 报告：
-```bash
-python deliverables/scripts/target_verify.py \
-  --deepseek-key sk-xxx --github-pat ghp_xxx \
-  --ollama-url http://localhost:11434 \
-  --bench-base https://api.deepseek.com/v1 --bench-key sk-xxx \
-  --baseline baseline.json \
-  --output deliverables/metrics/target-verify-<date>.md
+一条命令完成全部遗留验证并出 md 报告。**PowerShell 用户（Windows 默认 shell）推荐 config 模式**——bash 续行符 `\` 在 PowerShell 非法且反斜杠路径会被转义，凭证进 JSON 可彻底规避：
+
+```powershell
+# 1) 创建 verify.json（模板见脚本 docstring 头部）
+notepad verify.json
+# 2) 一条命令（无续行、无反斜杠坑）
+python deliverables/scripts/target_verify.py --config verify.json
 ```
-覆盖：① DeepSeek 工具调用校准+计费对算（T4 销项）② GitHub 双路径目录真实结构打印+429 header 形态（T2/T3 校准回填）③ Ollama tags/show/generate（KNOWN_ISSUES #2 销项）④ 3 条基准链 token 统计 vs 基线算 -15% 达成率。已本机自测（无参全 SKIP；假 key 正确走真实 API 取证）。
+
+参数式（PowerShell 续行符是反引号 `` ` ``，不是 bash 的 `\`）：
+
+```powershell
+python deliverables/scripts/target_verify.py `
+  --deepseek-key sk-xxx --github-pat ghp_xxx `
+  --ollama-url http://localhost:11434 `
+  --bench-base https://api.deepseek.com/v1 --bench-key sk-xxx `
+  --baseline baseline.json `
+  --output deliverables/metrics/target-verify-2026-10-19.md
+```
+
+覆盖：① DeepSeek 工具调用校准+计费对算（T4 销项）② GitHub 双路径目录真实结构打印+429 header 形态（T2/T3 校准回填）③ Ollama tags/show/generate（KNOWN_ISSUES #2 销项）④ 3 条基准链 token 统计 vs 基线算 -15% 达成率。已本机自测（无参打印 PowerShell 用法 rc=0；config 模式跑通；坏 config rc=2 带用法）。
 
 ### E. 遗留项状态更新
 
