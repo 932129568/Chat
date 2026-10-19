@@ -18,11 +18,15 @@
      token 统计 vs 基线文件，算达成率
 
 用法：
-  # PowerShell（推荐：凭证进 JSON 配置文件，一条命令、无续行符、无反斜杠转义坑）
-  notepad verify.json          # 按下面模板填凭证
+  # 零 shell 语法三步走（PowerShell 用户强烈推荐——不用手写 JSON、不用续行符）：
+  #   ① 脚本自动生成配置模板（已存在则拒绝覆盖，防止误覆盖你真凭证）
+  python deliverables/scripts/target_verify.py --init-config
+  #   ② 记事本打开，把 sk-xxx / ghp_xxx 换成真凭证，保存关闭
+  notepad verify.json
+  #   ③ 一条命令运行
   python deliverables/scripts/target_verify.py --config verify.json
 
-  verify.json 模板：
+  verify.json 键名（与参数一一对应；留空/删掉的项自动 SKIP）：
   {
     "deepseek_key": "sk-xxx",
     "github_pat": "ghp_xxx",
@@ -34,13 +38,10 @@
     "output": "deliverables/metrics/target-verify-2026-10-19.md"
   }
 
-  # 或纯参数式（PowerShell 续行用反引号 `，路径用正斜杠 /）
+  # 参数式（PowerShell 续行用反引号 `，路径用正斜杠 /）
   python deliverables/scripts/target_verify.py `
-    --deepseek-key sk-xxx --github-pat ghp_xxx `
-    --ollama-url http://localhost:11434 `
-    --bench-base https://api.deepseek.com/v1 --bench-key sk-xxx `
-    --baseline baseline.json `
-    --output deliverables/metrics/target-verify-2026-10-19.md
+    --deepseek-key sk-xxx --github-pat ghp-xxx `
+    --ollama-url http://localhost:11434
 
   # cmd.exe 续行用 ^；Git Bash 才用 \
   # 任一项失败不影响其他项；未提供对应凭证的项记 SKIP。报告落盘 --output。
@@ -186,8 +187,12 @@ def verify_github(pat):
     r['lines'].append('POST /inference/chat/completions → HTTP %s' % st)
     rl = {k: v for k, v in hd.items() if 'ratelimit' in k or 'retry' in k}
     r['lines'].append('限流相关响应头: %s' % (json.dumps(rl) if rl else '（本次未返回，触发 429 时复查）'))
-    if st == 200:
+    if st == 200 and isinstance(body, dict):
         r['lines'].append('chat 可用；usage: %s' % json.dumps(body.get('usage', {}))[:150])
+    elif st == 200:
+        # 200 但非 JSON（中间网络设备返回纯文本 OK 的已知形态）——如实记录
+        r['lines'].append('chat 返回 200 但非 JSON 响应体（%r）——疑似中间网络设备拦截，'
+                          '该环境无法完成 GitHub 真机验证' % (str(body)[:60],))
     else:
         r['lines'].append('chat 响应: %s' % json.dumps(body, ensure_ascii=False)[:250])
     if r['status'] != 'PASS':
@@ -290,20 +295,51 @@ def run_benchmark(base, key, model, baseline):
 
 
 PS_USAGE = """\
-PowerShell 用法（本脚本为 Windows 用户设计，凭证建议进 JSON 配置文件）：
+零 shell 语法三步走（PowerShell 用户推荐）：
 
-  1) 创建 verify.json（内容见脚本头部 docstring 模板），例如：
+  1) 脚本自动生成配置模板（已存在则拒绝覆盖）：
+     python deliverables/scripts/target_verify.py --init-config
+  2) 记事本打开，把 sk-xxx / ghp-xxx 换成真凭证，保存关闭：
      notepad verify.json
-  2) 一条命令运行（无反斜杠转义坑、无续行符）：
+  3) 一条命令运行（无续行、无反斜杠坑）：
      python deliverables/scripts/target_verify.py --config verify.json
 
   参数式（PowerShell 续行符是反引号 `，不是 bash 的反斜杠 \\）：
      python deliverables/scripts/target_verify.py `
-       --deepseek-key sk-xxx --github-pat ghp_xxx `
+       --deepseek-key sk-xxx --github-pat ghp-xxx `
        --ollama-url http://localhost:11434
 
   cmd.exe 续行符是 ^；只有 Git Bash 才用 \\。
 """
+
+CONFIG_TEMPLATE = {
+    'deepseek_key': 'sk-xxx',
+    'github_pat': 'ghp-xxx',
+    'ollama_url': 'http://localhost:11434',
+    'bench_base': 'https://api.deepseek.com/v1',
+    'bench_key': 'sk-xxx',
+    'bench_model': 'deepseek-v4.1',
+    'baseline': 'baseline.json',
+    'output': 'deliverables/metrics/target-verify-2026-10-19.md',
+}
+
+
+def init_config(path):
+    """--init-config：生成配置模板（已存在拒绝覆盖，防误覆盖真凭证）。"""
+    if os.path.exists(path):
+        print('配置文件已存在: %s' % path)
+        print('（为防止覆盖你的真实凭证，请手动编辑该文件；如确要重新生成，先删除它）')
+        return 1
+    with open(path, 'w', encoding='utf-8') as f:
+        json.dump(CONFIG_TEMPLATE, f, indent=2, ensure_ascii=False)
+        f.write('\n')
+    print('已生成配置模板: %s' % os.path.abspath(path))
+    print('下一步：用记事本打开，把 sk-xxx / ghp-xxx 换成真凭证后保存：')
+    print('  notepad %s' % path)
+    print('然后运行：')
+    print('  python %s --config %s' % (os.path.relpath(__file__, os.getcwd())
+                                       if __file__.startswith(os.getcwd()) else __file__, path))
+    return 0
 
 
 def main():
@@ -311,6 +347,9 @@ def main():
         description='Harbor v1.6 遗留项目标机一键验证',
         epilog=PS_USAGE,
         formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument('--init-config', nargs='?', const='verify.json', default='',
+                    metavar='PATH',
+                    help='生成配置模板 JSON（默认 verify.json；已存在则拒绝覆盖）后退出')
     ap.add_argument('--config', default='',
                     help='凭证 JSON 文件路径（键名同参数名：deepseek_key/github_pat/'
                          'ollama_url/bench_base/bench_key/bench_model/baseline/output）；'
@@ -325,6 +364,10 @@ def main():
     ap.add_argument('--output', default='deliverables/metrics/target-verify-%s.md'
                     % datetime.date.today().isoformat())
     args = ap.parse_args()
+
+    # --init-config：生成模板后即退出（零 shell 语法入口的第一步）
+    if args.init_config:
+        return init_config(args.init_config)
 
     # --config：凭证进 JSON，命令行为空时从配置取（命令行显式传入的优先）
     cfg = {}
