@@ -25,6 +25,15 @@ Windows SmartScreen 对「无 Authenticode 签名 + 无下载信誉」的 exe �
 
 ## 3. 签名命令（Windows SDK signtool）
 
+> **本机自签实测记录（2026-10-19，签名流程已验证）**：本机 signtool（Windows SDK
+> 10.0.26100.0）在位；用自签名证书对 Harbor.exe **临时副本**跑过下方双签命令——
+> `sign` 0 warning 0 error、**RFC3161 时间戳成功嵌入**（digicert TSA 可达）、
+> 签名后 PyInstaller onefile 归档仍完整可读（体积 +7.5KB 证书链）。
+> 唯一失败点：自签证书 `verify /pa` 报「chain terminated in a root」、
+> `Get-AuthenticodeSignature` Status=UnknownError——**这就是自签对 SmartScreen
+> 无效的硬证据**（链不完整连本地校验都过不了，更无信誉）。真证书（CA 链完整）
+> 到手后，下方命令**原样可用**，只需换 pfx 与密码。
+
 先确认工具在位（Win10/11 装过 Windows SDK 或有 Visual Studio 即有）：
 
 ```powershell
