@@ -459,8 +459,13 @@ body.dark .eff-tag-s{background:var(--ok-bg);color:var(--ok);}
 .sb-light.warn{background:var(--warn);}
 .sb-light.off{background:var(--err);}
 /* 实现 v1.6 T11：左侧主导航 + T13 通知中心（纯新增） */
+/* v4 修复「侧栏折叠只缩一半」：侧栏折叠时 margin-left 左滑会盖住分区导航
+   （.sidebar 有 backdrop-filter 层叠上下文 + z-index:10；.main-nav 原为 z-auto，
+   paint 在侧栏之下 → 折叠后侧栏残影盖住分区导航，看起来只缩了一半）。
+   给 .main-nav 明确 z-index:15（压过侧栏的 10、低于 rail 的 20），
+   折叠侧栏被 rail+分区导航完全遮盖 → 真正完全收起。 */
 .main-nav{width:132px;flex-shrink:0;display:flex;flex-direction:column;gap:2px;padding:10px 8px;
-  border-right:1px solid var(--glass-border);background:var(--sidebar-bg);position:relative;overflow:visible;}
+  border-right:1px solid var(--glass-border);background:var(--sidebar-bg);position:relative;overflow:visible;z-index:15;}
 .mn-title{font-size:11px;color:var(--text-3);padding:2px 8px 8px;font-weight:600;}
 .mn-btn{display:flex;align-items:center;gap:8px;width:100%;height:34px;padding:0 10px;border:none;
   background:transparent;border-radius:var(--radius-md);color:var(--text-2);font-size:13px;cursor:pointer;text-align:left;}
@@ -1665,6 +1670,10 @@ body.fx-off .panel,body.fx-off .message,body.fx-off .settings-panel.show{animati
             <div><label>管理员命令（UAC）</label><select id="guard_run_admin_command" onchange="saveGuardSettings()">
               <option value="always" selected>每次确认</option><option value="list">仅保护名单</option><option value="session">会话内首次确认</option><option value="off">不拦截</option>
             </select></div>
+            <!-- 修复 H8（四轮）：open_app 护栏档位 UI（后端 W9 已在矩阵，原前端无档位出口只能手改 guard.json） -->
+            <div><label>打开应用/链接</label><select id="guard_open_app" onchange="saveGuardSettings()">
+              <option value="always" selected>每次确认</option><option value="session">会话内首次确认</option><option value="off">不拦截</option>
+            </select></div>
           </div>
           <label style="margin-top:12px;font-weight:400;color:var(--text-2);">保护名单 · 路径（每行一条，支持通配，如 C:\Users\*\Documents\**）</label>
           <textarea class="guard-txt" id="guardProtectPaths" rows="2" placeholder="C:\Users\*\Documents\**" onchange="saveGuardSettings()"></textarea>
@@ -1692,7 +1701,7 @@ body.fx-off .panel,body.fx-off .message,body.fx-off .settings-panel.show{animati
 <script>
 /* 修复 ㊷（三轮）：APP_VERSION 由 build.js 从 VERSION 文件注入（原前端永无定义，
    导出 MD 页脚恒显硬编码 '1.4'）。占位符仅允许出现 1 次，build 校验。 */
-const APP_VERSION = '1.5.0';
+const APP_VERSION = '1.6.0';
 /* ===== 00-motion.js ===== */
 /* ================= v4 动效常量表（CSS 变量为单一事实源） =================
  * 来源：deliverables/design/v4 设计令牌文档（彩格调）附录 A。
@@ -2386,11 +2395,14 @@ async function executeToolRaw(name, args) {
     if (name === 'run_admin_command') {
       /* 修复 S5/W8（三轮）：① timeout 参数接线（原只传 cmd，后端 timeout 是死参数）；
        * ② 前端 150s 超时与后端人审口径对齐——人审是 MessageBox 无限期阻塞，前端超时后
-       *    模型若重试会排队等第二个确认框（二次提权执行）。超时返回不可重试语义。 */
+       *    模型若重试会排队等第二个确认框（二次提权执行）。超时返回不可重试语义。
+       * 修复 H1（四轮）：后端签名为 (cmd, token, timeout)——原 withToken([cmd, timeout], token)
+       * 把 timeout 放在 token 位、token 落在 timeout 位，提档后管理员命令必被拦、
+       * timeout 接线失效。改为显式三参 [cmd, token, timeout] 对齐后端形参序。 */
       try {
         const _c = pickCmd(args);
         if (!_c.trim()) return rejectEmptyCmd();   // 修复 ②（三轮）：空命令不送执行
-        return await callApi('run_admin_command', withToken([_c, pickTimeout(args)], guardToken), 150000);
+        return await callApi('run_admin_command', [_c, guardToken, pickTimeout(args)], 150000);
       } catch (e) {
         const msg = String((e && e.message) || e);
         if (/timeout|超时|Timeout/i.test(msg)) {
@@ -2400,14 +2412,19 @@ async function executeToolRaw(name, args) {
       }
     }
     if (name === 'read_more')         return await callApi('read_more', [args.cache_id, args.offset || 0, args.limit || 2000]);
-    if (name === 'open_app')          return await callApi('open_app', [pickPath(args)]);
+    // 修复 H8（四轮）：open_app 后端已纳入护栏矩阵（W9），前端补 token 透传——
+    // 原不携带 token，guard.json 提档后 enforce_exec 必拒且无 UI 确认路径（提档即砖）。
+    if (name === 'open_app')          return await callApi('open_app', withToken([pickPath(args)], guardToken));
     if (name === 'open_url')          return await callApi('open_url', [args.url]);
     if (name === 'clipboard_read')    return await callApi('get_clipboard', withToken([], guardToken));
     if (name === 'clipboard_write')   return await callApi('set_clipboard', withToken([args.text || ''], guardToken));
     if (name === 'list_processes')    return await callApi('list_processes', [args.keyword || null]);
     if (name === 'kill_process')      return await callApi('kill_process', withToken([args.pid || null, args.name || null], guardToken));
     if (name === 'take_screenshot') {
-      const res = await callApi('take_screenshot', withToken([args.left || null, args.top || null, args.width || null, args.height || null], guardToken));
+      // 修复 H9（四轮）：区域参数 0 值不吞——`args.left || null` 把合法坐标 0 变 null，
+      // 后端判定区域参数缺失走整屏，区域截图静默丢失（后端 R6 修复被前端抵消）。
+      const _pickCoord = (v) => (v != null ? v : null);
+      const res = await callApi('take_screenshot', withToken([_pickCoord(args.left), _pickCoord(args.top), _pickCoord(args.width), _pickCoord(args.height)], guardToken));
       try {
         const data = JSON.parse(res);
         if (data.dataUrl) {
@@ -2465,12 +2482,14 @@ const GUARD_OP_MAP = {
   take_screenshot: 'take_screenshot',
   run_command: 'run_command',
   run_powershell: 'run_powershell',
-  run_admin_command: 'run_admin_command'
+  run_admin_command: 'run_admin_command',
+  open_app: 'open_app'   // 修复 H8（四轮）：后端 W9 已纳入护栏矩阵，前端补映射——原缺位致提档即砖
 };
 const GUARD_OP_LABEL = {
   delete_path: '删除文件/目录', kill_process: '结束进程',
   clipboard_write: '写入剪贴板', clipboard_read: '读取剪贴板', take_screenshot: '屏幕截图',
-  run_command: '执行命令', run_powershell: '执行 PowerShell', run_admin_command: '管理员命令'
+  run_command: '执行命令', run_powershell: '执行 PowerShell', run_admin_command: '管理员命令',
+  open_app: '打开应用/链接'
 };
 const GUARD_RUN_OPS = ['run_command', 'run_powershell', 'run_admin_command'];
 
@@ -2481,7 +2500,13 @@ async function _guardDetailOf(op, args) {
   if (op === 'delete_path') d.path = args.path || args.file_path || args.filename || args.file || args.target || args.src || '';
   if (op === 'kill_process') { d.pid = args.pid != null ? args.pid : ''; d.name = args.name || ''; }
   if (op === 'clipboard_write') { d.len = (args.text || '').length; d.head = (args.text || '').slice(0, 40); }
-  if (GUARD_RUN_OPS.includes(op)) d.cmd = String(args.cmd != null ? args.cmd : (args.command || ''));   // 与 executeToolRaw 的取值口径一致
+  // 修复 M3（四轮）：cmd 取值与执行层 pickCmd 完全同口径——原对 cmd=''/'  ' 空白串
+  // 不回退 command，确认框可显示空命令而实际执行 args.command（token 摘要也与实参脱钩）
+  if (GUARD_RUN_OPS.includes(op)) {
+    const _c = (args.cmd != null) ? String(args.cmd) : '';
+    d.cmd = _c.trim() ? _c : String(args.command || '');
+  }
+  if (op === 'open_app') d.path = String(args.path || args.file_path || args.filename || args.target || '').trim();
   return d;
 }
 
@@ -2514,6 +2539,9 @@ async function _guardDescribe(op, args) {
   if (op === 'run_admin_command')
     return { title: '确认管理员命令', body: 'AI 请求以管理员权限执行：\n' + String(d.cmd || '').slice(0, 400) +
       '\n该命令将以系统管理员权限运行，风险较高。', danger: true };
+  if (op === 'open_app')   // 修复 H8（四轮）：确认文案（原走兜底「确认操作」）
+    return { title: '确认打开', body: 'AI 请求打开：\n' + String(d.path || '').slice(0, 300) +
+      '\n将使用系统默认程序打开（bat/cmd 脚本会弹出控制台窗口）。', danger: true };
   return { title: '确认操作', body: op, danger: false };
 }
 
@@ -2641,7 +2669,8 @@ function renderGuardSettings() {
   const ops = [
     ['delete_path', '删除文件/目录'], ['kill_process', '结束进程'],
     ['clipboard_write', '写剪贴板'], ['clipboard_read', '读剪贴板'], ['take_screenshot', '截屏'],
-    ['run_command', '执行命令'], ['run_powershell', 'PowerShell'], ['run_admin_command', '管理员命令']
+    ['run_command', '执行命令'], ['run_powershell', 'PowerShell'], ['run_admin_command', '管理员命令'],
+    ['open_app', '打开应用/链接']   // 修复 H8（四轮）：档位 UI 补行
   ];
   const tierName = { always: '每次确认', list: '仅保护名单', session: '会话内首次确认', off: '不拦截' };
   ops.forEach(([op, label]) => {
