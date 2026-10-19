@@ -84,6 +84,7 @@ async function wsQuickRefresh() {
   if (effTag && effPath) {
     try {
       const eff = JSON.parse(await callApi('get_effective_ws', []) || '{}');
+      if (seq !== _wsqSeq) return;   // 修复（四轮）：第二个 await 后复检——期间切换工作区时旧响应不得覆写
       effTag.textContent = eff.source === 'session' ? '会话' : eff.source === 'global' ? '全局' : '未启用';
       effPath.textContent = eff.ws || '（未绑定）';
     } catch (e) {}

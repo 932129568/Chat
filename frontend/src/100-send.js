@@ -76,6 +76,7 @@ async function sendMessage() {
   const uEl = addMessage('user', displayText || '（发送附件）', displayExtra);
   if (text) addMsgActions(uEl, text, true);
   s.messages.push({ role: 'user', content: userContent });
+  if (typeof navUpdateEmptyGuide === 'function') navUpdateEmptyGuide();   // 修复（四轮）：首条消息发出后空态引导立即消失
   // 修复 UX-1/UX-3（v1.4）：live 消息也 stamp 下标（瘦身标记/搜索跳转用）。
   // dataset 防御：非 DOM 元素（测试桩/降级路径）时静默跳过，不抛错中断发送
   if (uEl && uEl.dataset) uEl.dataset.midx = s.messages.length - 1;

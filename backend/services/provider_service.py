@@ -94,7 +94,7 @@ class ProviderService:
             except urllib.error.HTTPError as e:
                 snippet = ''
                 try:
-                    snippet = e.read().decode('utf-8', 'replace')[:300]
+                    snippet = e.read(64 * 1024).decode('utf-8', 'replace')[:300]   # 修复 N20（四轮）：错误体有界读
                 except Exception:
                     pass
                 hint = humanize_http_error(e.code, snippet)

@@ -101,4 +101,8 @@ function updateBrandModel() {
   const ht = document.getElementById('headerTitle');
   if (bm) bm.textContent = txt;
   if (ht) ht.textContent = txt;
+  /* 修复（四轮）：模型切换后刷新头部状态区与空态引导（41-nav 只渲染一次会永久陈旧；
+   * 老「设置」入口配 Key 后空态引导不消失也靠这里兜底） */
+  if (typeof navRenderHeaderStatus === 'function') navRenderHeaderStatus();
+  if (typeof navUpdateEmptyGuide === 'function') navUpdateEmptyGuide();
 }

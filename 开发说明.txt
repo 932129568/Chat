@@ -45,12 +45,31 @@ pytest tests/ -q     # 契约差分测试（legacy vs 重构后逐字节一致�
 - VERSION            应用版本号单一数据源（自动更新比对用；发版时只改这个文件，勿在代码里手改版本号）
 
 ## 发版流程（v1.2 起）
-1. 改 VERSION 为目标版本号（如 1.2.3）
+1. 改 VERSION 为目标版本号（如 1.7.1）
 2. node frontend/build.js 重建前端
 3. pytest tests/ -q 全绿 + python deliverables/design/check_contract.py 通过
 4. PyInstaller 打包（VERSION 已随 datas 进包）
 5. 在更新源发布 update-manifest.json（version/url/sha256/notes）——
    注意 settings 面板「更新清单地址」：默认源为占位地址，分发前必须配置真实源
+
+## 安装器构建（v1.7 起）
+安装器复用产品自身栈（pywebview + 单文件 HTML 向导 + 原生 MessageBox 卸载确认），
+零新增工具链；本机构建环境无 tkinter，勿改回 tkinter 方案。
+
+一键构建三个 exe（应用 + 卸载器 + 安装器）：
+  python installer/build_setup.py              # 全量
+  python installer/build_setup.py --app-only   # 仅应用 exe
+
+产物（dist/）：
+  Harbor.exe                    应用本体（onefile，自动更新原地替换它）
+  Harbor-Uninstall.exe          卸载器（安装时随包进安装目录，注册表 UninstallString 指向它）
+  Harbor-Setup-<version>.exe    安装器（内嵌上面两个，双击=图形向导；/S 静默；--dir 指定目录）
+
+设计口径（外部调研）：每用户安装到 %LOCALAPPDATA%\Programs\Harbor（无 UAC、不阻碍自动更新——
+Program Files 会因权限导致自更新失败，行业同款案例）；HKCU 卸载项；用户数据 ~/.glm-chat 卸载默认保留。
+核心实现：installer/installer_core.py（可无头单测）+ installer/installer_gui.py（pywebview 向导）
++ installer/setup_main.py（入口，文件名刻意避开 main.py 防 frozen traceback linecache 撞车）。
+测试：tests/test_installer.py（核心逻辑 12 项 + 已构建 exe 的端到端静默安装/卸载）。
 
 ## v1.2「信任版」（R1–R6，2026-10-15 一次性完成三批发布内容）
 版本号：APP_VERSION = 1.2.2（自动更新比对用）；js_api 契约版本 API_VERSION='v1.0.0' 保持不变。

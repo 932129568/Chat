@@ -16,8 +16,25 @@ function shrinkAiCopy(c) {
   return c.slice(0, SHRINK_LEN.aiHead) + '\n…[旧回复已瘦身,原' + c.length + '字]…\n' +
     c.slice(-SHRINK_LEN.aiTail);
 }
+/** 剥离 __tool 内部标记（fe-H3/四轮）：豁免判定完成后调用——该字段是
+ * buildMessagesForAPI 为本模块透传的内部元数据，不得进 API 请求体
+ * （严格端点会拒未知字段）。仅对带标记的消息做浅拷贝，其余按引用原样返回。 */
+function _stripToolTags(msgs) {
+  let out = null;
+  for (let i = 0; i < msgs.length; i++) {
+    const m = msgs[i];
+    if (m && m.__tool !== undefined) {
+      if (!out) out = msgs.slice();
+      const c = Object.assign({}, m);
+      delete c.__tool;
+      out[i] = c;
+    }
+  }
+  return out || msgs;
+}
+
 function shrinkHistoryForApi(msgs) {
-  if (!Array.isArray(msgs) || msgs.length <= SHRINK.keepTail) return msgs;
+  if (!Array.isArray(msgs) || msgs.length <= SHRINK.keepTail) return _stripToolTags(msgs);
   const cut = msgs.length - SHRINK.keepTail;
   const out = msgs.slice();
   for (let i = 0; i < cut; i++) {
@@ -29,7 +46,7 @@ function shrinkHistoryForApi(msgs) {
       out[i] = Object.assign({}, m, { content: shrinkAiCopy(m.content) });
     }
   }
-  return out;
+  return _stripToolTags(out);
 }
 
 /**

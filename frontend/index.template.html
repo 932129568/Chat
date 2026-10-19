@@ -459,8 +459,13 @@ body.dark .eff-tag-s{background:var(--ok-bg);color:var(--ok);}
 .sb-light.warn{background:var(--warn);}
 .sb-light.off{background:var(--err);}
 /* 实现 v1.6 T11：左侧主导航 + T13 通知中心（纯新增） */
+/* v4 修复「侧栏折叠只缩一半」：侧栏折叠时 margin-left 左滑会盖住分区导航
+   （.sidebar 有 backdrop-filter 层叠上下文 + z-index:10；.main-nav 原为 z-auto，
+   paint 在侧栏之下 → 折叠后侧栏残影盖住分区导航，看起来只缩了一半）。
+   给 .main-nav 明确 z-index:15（压过侧栏的 10、低于 rail 的 20），
+   折叠侧栏被 rail+分区导航完全遮盖 → 真正完全收起。 */
 .main-nav{width:132px;flex-shrink:0;display:flex;flex-direction:column;gap:2px;padding:10px 8px;
-  border-right:1px solid var(--glass-border);background:var(--sidebar-bg);position:relative;overflow:visible;}
+  border-right:1px solid var(--glass-border);background:var(--sidebar-bg);position:relative;overflow:visible;z-index:15;}
 .mn-title{font-size:11px;color:var(--text-3);padding:2px 8px 8px;font-weight:600;}
 .mn-btn{display:flex;align-items:center;gap:8px;width:100%;height:34px;padding:0 10px;border:none;
   background:transparent;border-radius:var(--radius-md);color:var(--text-2);font-size:13px;cursor:pointer;text-align:left;}
@@ -644,8 +649,11 @@ body.dark .md-body :not(pre)>code{background:var(--chip-bg);color:#f87171;}
   animation:v4ToolBreathe var(--dur-breathe) ease-in-out infinite;}
 @keyframes v4ToolBreathe{0%,100%{opacity:.88}50%{opacity:1}}
 /* 修复 Bug B（2026-10-18）：flex 子项标签补 min-width:0+ellipsis，长命令/长路径不再被 overflow:hidden 无声裁切 */
-.tool-call-item>span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
-.tool-call-item .tc-dot{width:7px;height:7px;border-radius:50%;background:var(--primary);flex-shrink:0;
+/* 修复 M1（四轮）：选择器收窄到「最后一个子 span」（标签）——原 .tool-call-item>span
+   对所有直接子 span 施加 flex:1（basis:0），7px 圆点/spinner 被拉成半宽「胶囊」
+   （flex-basis:0% 使 width 失效）。圆点/加载圈显式不参与 flex 分配。 */
+.tool-call-item>span:last-child{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.tool-call-item .tc-dot{width:7px;height:7px;border-radius:50%;background:var(--primary);flex:0 0 auto;flex-shrink:0;
   transition:background-color var(--dur-comp) var(--ease-out-soft);}
 .tool-call-item.done .tc-dot{background:var(--ok);}
 .tool-call-item.fail .tc-dot{background:var(--err);}
@@ -659,7 +667,7 @@ body:not(.fx-off) .tool-call-item:not(.done):not(.fail)::after{content:"";positi
   transform:translateX(-100%);animation:toolSheen var(--dur-sheen) linear infinite;pointer-events:none;}
 @keyframes toolSheen{to{transform:translateX(100%)}}
 .tool-spinner{display:inline-block;width:11px;height:11px;border:2px solid var(--primary);
-  border-top-color:transparent;border-radius:50%;animation:spin .8s linear infinite;flex-shrink:0;}
+  border-top-color:transparent;border-radius:50%;animation:spin .8s linear infinite;flex:0 0 auto;flex-shrink:0;}
 @keyframes spin{to{transform:rotate(360deg)}}
 .toolchip{border:1px solid var(--border);border-radius:var(--radius-sm);margin:4px 0;
   background:var(--surface-2);overflow:hidden;font-size:12px;}
@@ -1664,6 +1672,10 @@ body.fx-off .panel,body.fx-off .message,body.fx-off .settings-panel.show{animati
             </select></div>
             <div><label>管理员命令（UAC）</label><select id="guard_run_admin_command" onchange="saveGuardSettings()">
               <option value="always" selected>每次确认</option><option value="list">仅保护名单</option><option value="session">会话内首次确认</option><option value="off">不拦截</option>
+            </select></div>
+            <!-- 修复 H8（四轮）：open_app 护栏档位 UI（后端 W9 已在矩阵，原前端无档位出口只能手改 guard.json） -->
+            <div><label>打开应用/链接</label><select id="guard_open_app" onchange="saveGuardSettings()">
+              <option value="always" selected>每次确认</option><option value="session">会话内首次确认</option><option value="off">不拦截</option>
             </select></div>
           </div>
           <label style="margin-top:12px;font-weight:400;color:var(--text-2);">保护名单 · 路径（每行一条，支持通配，如 C:\Users\*\Documents\**）</label>

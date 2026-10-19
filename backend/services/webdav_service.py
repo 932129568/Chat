@@ -99,12 +99,16 @@ def validate_config(cfg):
     if not remote_path.startswith('/'):
         remote_path = '/' + remote_path
     # 修复 W19（三轮）：未校验 '..' 时 `remote_path=/a/../../etc` 可服务端侧路径穿越
+    # 修复 N17（四轮）：反斜杠段（IIS 等 Windows 服务端可能归一为分隔符）与
+    # 百分号编码（服务端解码后变 '..'）同拒——纵深防御，最终约束仍在服务端
     norm_parts = []
     for seg in remote_path.split('/'):
         if seg in ('', '.'):
             continue
-        if seg == '..':
+        if seg == '..' or '\\' in seg or '..' in seg.replace('%2e', '.').replace('%2E', '.'):
             return None, '远端目录不允许包含 ".."（路径穿越风险）'
+        if '%' in seg:
+            return None, '远端目录不允许包含百分号编码（路径穿越风险）'
         norm_parts.append(seg)
     remote_path = '/' + '/'.join(norm_parts)
     record['remote_path'] = remote_path or '/'
@@ -113,6 +117,16 @@ def validate_config(cfg):
     if policy not in CONFLICT_POLICIES:
         return None, 'conflict_policy 仅支持 %s' % '/'.join(CONFLICT_POLICIES)
     record['conflict_policy'] = policy
+    # 修复 N4（四轮）：端口可解析性前置校验——原 urlsplit().port 在 _dav_request 才
+    # 触发，非法端口（https://host:abc/）保存通过、导出时 ValueError 逃逸到 js_api 桥
+    import urllib.parse as _up
+    try:
+        _u = _up.urlsplit(url)
+        _p = _u.port   # 非数字/越界端口在此抛 ValueError
+        if _p is not None and not (0 < _p < 65536):
+            raise ValueError('port out of range')
+    except ValueError as e:
+        return None, 'WebDAV 地址端口非法（%s）' % e
     return record, None
 
 
@@ -235,7 +249,12 @@ def _dav_request(record, method, rel_path, body=None, headers=None,
     u = urllib.parse.urlsplit(url)
     scheme = (u.scheme or 'https').lower()
     host = u.hostname or ''
-    port = u.port or (443 if scheme == 'https' else 80)
+    try:
+        port = u.port or (443 if scheme == 'https' else 80)
+    except ValueError as e:
+        # 修复 N4（四轮）：非法端口（如 :abc）在 urlsplit().port 抛 ValueError——
+        # 原在 try 块外无兜底，从 export 链一路逃逸到 js_api 桥
+        raise _DavError('WebDAV 地址端口非法: %s' % e)
     base_path = (u.path or '').rstrip('/')
     remote = record.get('remote_path') or '/glm-chat-backup'
     full_path = base_path + remote.rstrip('/') + '/' + str(rel_path or '').lstrip('/')
@@ -355,6 +374,17 @@ def export_backup(config_dir, record=None):
         _ensure_remote_dir(record)
     except _DavError as e:
         return {'ok': False, 'error': '远端目录创建失败: %s' % e}
+    # 修复 N4（四轮）：export 全程兜底——原仅 MKCOL 阶段捕 _DavError，上传/manifest
+    # 阶段的 _DavError 与 ValueError 一路裸奔到 js_api 桥（test/restore 均有兜底，唯独 export 没有）
+    try:
+        return _export_backup_inner(config_dir, record, plan)
+    except _DavError as e:
+        return {'ok': False, 'error': 'WebDAV 备份失败: %s' % e}
+    except Exception as e:
+        return {'ok': False, 'error': 'WebDAV 备份失败: %s' % e}
+
+
+def _export_backup_inner(config_dir, record, plan):
     uploaded = []
     for item in plan:
         if item.get('missing'):
@@ -460,12 +490,26 @@ def restore_backup(payload_json, config_dir, record=None):
                 continue                     # 非白名单路径跳过（防穿越）
             baseline_sha[rel] = it.get('sha256') or ''
             local_sha[rel] = file_sha256(os.path.join(config_dir, rel))
-            status, _, data = _dav_request(record, 'GET', rel,
-                                           timeout=120, read_cap=_DOWNLOAD_CAP)
+            status, hdrs, data = _dav_request(record, 'GET', rel,
+                                              timeout=120, read_cap=_DOWNLOAD_CAP)
             if status != 200:
                 return {'ok': False,
                         'error': '下载 %s 失败: %s' % (rel, _dav_error_text(status, data))}
-            remote_sha[rel] = hashlib.sha256(data).hexdigest()
+            # 修复 N10（四轮）：远端备份超 256MB 时下载被 read_cap 静默截断，sha 按截断
+            # 数据自对拍必过（manifest 可能来自旧版本/他机导出的超限备份）。
+            # 只检测「截断」本身（Content-Length 超限 / 读满 cap 且与基线 sha 不符）——
+            # 与基线不一致但完整下载的文件是正常冲突流（冲突分类的前提），不得误拒。
+            try:
+                _clen = int((hdrs or {}).get('content-length') or 0)
+            except Exception:
+                _clen = 0
+            _dsha = hashlib.sha256(data).hexdigest()
+            if _clen > _DOWNLOAD_CAP or (
+                    len(data) >= _DOWNLOAD_CAP and _dsha != (baseline_sha.get(rel) or '')):
+                return {'ok': False,
+                        'error': '远端文件 %s 超过 %d MB 下载上限（可能被截断），已拒绝落盘'
+                                 % (rel, _DOWNLOAD_CAP // 1024 // 1024)}
+            remote_sha[rel] = _dsha
             downloaded[rel] = data
         verdict = classify_conflicts(local_sha, remote_sha, baseline_sha)
         plan_out = []
@@ -612,7 +656,14 @@ class WebDAVService:
         conf = stored.get('config')
         if not conf:
             return None, {'ok': False, 'error': '未配置 WebDAV（设置 → 数据与备份）'}
-        return conf, None
+        # 修复 N9（四轮）：已存配置直接作为 IO record 使用原零校验——手工编辑/损坏的
+        # webdav.json 含 http 远端/内嵌凭证/带 .. 的 remote_path 时，「保存」入口的
+        # validate_config 全被绕过（使用入口裸奔）。读取路径重跑同一校验。
+        record, error = validate_config(conf)
+        if error:
+            return None, {'ok': False,
+                          'error': '已存 WebDAV 配置无效（%s），请重新保存配置' % error}
+        return record, None
 
     def test(self, cfg_json='{}'):
         record, err = self._record_for_io(cfg_json)

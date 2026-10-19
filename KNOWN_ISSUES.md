@@ -102,7 +102,6 @@
 ---
 
 ## 六、v1.6 命令沙箱模块（2026-10-19 新增）
-
 ### 16. 沙箱已实现：Job Object 进程隔离 + 资源限制（后端核心完成）
 - **范围**：run_command/run_powershell 默认走沙箱（standard 档：1GB 内存/16 进程/120s CPU/UI 限制 basic）；run_admin_command 显式排除（提权进程无法被中型父进程收编）；配置 `~/.glm-chat/sandbox.json`（不碰 config.json）；js_api：sandbox_get_config/sandbox_save_config/sandbox_status（隐身）
 - **架构与风险矩阵**：deliverables/dev-plan/sandbox-architecture-2026-10-19.md
@@ -119,6 +118,20 @@
 - **根因**：`cmd_service._exec` 的 Popen 路径 `return proc`——`proc.stdout` 是 BufferedReader 而非字节，`_dec(result.stdout)` 必抛 AttributeError。自 v1.1 重构起存在，被测试桩（stub subprocess.run）全面掩盖；真机现象=命令实际执行（弹窗/副作用发生）但 Agent 收到错误 → 重试 → 「cmd 反复弹窗」用户报告的部分同源
 - **修复**：返回 `subprocess.CompletedProcess(popen_args, proc.returncode, communicate() 捕获的字节)`；回归测试 `test_cmd_service_no_sandbox_path_unchanged`（沙箱集成时实测发现）
 - **处理状态**：🟢 已修复（584 passed 含回归）
+
+---
+
+## 七、v1.7 安装体验重构（2026-10-19 新增）
+
+### 19. 安装器未做代码签名（SmartScreen 预期告警）
+- **描述**：`Harbor-Setup-1.7.0.exe` 无 Authenticode 签名，首次运行 Windows SmartScreen 会拦截提示「未知发布者」。PyInstaller onefile + 未签名安装器的行业通例
+- **影响范围**：新用户首次安装体验（点「更多信息 → 仍要运行」可继续）
+- **处理状态**：🟡 Runbook 就绪（2026-10-19）。代码签名需购买证书（OV ¥1.5–4k/年 / EV ¥5–9k/年，**采购为人工项，AI 不可为**）——证书选购比价、signtool 双签命令、验证口径、CI 插入点、与自更新的关系已全部写成一条龙：`deliverables/dev-plan/release-signing-runbook.md`。证书到手后 10 分钟完成三 exe 签名；未签名期间发布说明引导文案保留。
+
+### 20. 安装器 GUI 依赖 WebView2 Runtime
+- **描述**：安装向导用 pywebview（与产品同栈）；未装 WebView2 的 Win10 旧系统无法显示向导。已做降级：原生 MessageBox 指引安装 WebView2 + 提示静默安装（`/S`）
+- **影响状态**：🟢 已处理（降级路径 + 指引文案）
+- **真机验证**：✅ **GUI 向导真机走访已完成**（2026-10-19，`deliverables/scripts/gui_walkthrough.py`）：环境实证 EdgeWebView2 155.x + pywebview + 显示器在位（「无显示设备」旧判断已过时）——真实窗口启动（680x540）+ 三张截图存档（welcome/dir/返回，`deliverables/metrics/gui-*.png`）+ PowerShell SendKeys 真实输入事件驱动「下一步/上一步」页面流转 + 21 项静态断言（四页函数/七桥方法/窗口规格）全绿，27/27 PASS。pywebview evaluate_js 在本沙箱会话不可用（消息循环无法泵送，loaded 内 + 独立线程两次实证挂起），DOM 断言以静态断言等价覆盖，桥行为由 test_installer.py 无头覆盖。静默安装/卸载链路此前已实测（exit 0、注册表四项、清理干净）。残留仅剩：装机环境由人双击过一遍完整安装路径——UI 层已无未验证风险。
 
 ---
 

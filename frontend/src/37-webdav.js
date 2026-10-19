@@ -59,14 +59,18 @@ if (typeof document !== 'undefined' && document.readyState === 'loading') {
 } else if (typeof document !== 'undefined') {
   loadWebdavConfigNow();
 }
-/** 保存配置（webdav.json，DPAPI 加密 password；导出/恢复前必须先保存）。 */
+/** 保存配置（webdav.json，DPAPI 加密 password；导出/恢复前必须先保存）。
+ * 修复（四轮）：返回 true/false 成败——原吞掉失败只 toast，导出/恢复会继续用
+ * 后端旧配置执行（备份传到用户以为已改掉的旧服务器）。 */
 async function saveWebdavConfigNow() {
   const btn = document.getElementById('webdavSaveBtn');
   if (btn) { btn.disabled = true; btn.textContent = '保存中…'; }
   webdavSetStatus('', true);
+  let ok = false;
   try {
     const r = JSON.parse(await callApi('webdav_save_config', [JSON.stringify(webdavCollectConfig())]));
     if (r.ok) {
+      ok = true;
       webdavMarkSnapshot();   // 修复 W35（三轮）：保存成功即刷新脏检查基线
       if (r.warning) toast(r.warning, 'warn', { stay: true });   // W17：DPAPI 兜底明文告警
       webdavSetStatus('✓ 配置已保存到本机 webdav.json（密码已加密）', true);
@@ -81,6 +85,7 @@ async function saveWebdavConfigNow() {
   } finally {
     if (btn) { btn.disabled = false; btn.textContent = '保存配置'; }
   }
+  return ok;
 }
 async function webdavTestNow() {
   const btn = document.getElementById('webdavTestBtn');
@@ -108,7 +113,7 @@ async function webdavExportNow() {
   // 没点保存时静默用旧配置（用户以为改了其实没生效）。导出前自动带上未保存改动
   try {
     if (typeof webdavFormDirty === 'function' && webdavFormDirty()) {
-      await saveWebdavConfigNow();
+      if (!(await saveWebdavConfigNow())) return;   // 修复（四轮）：保存失败即中止，不用旧配置导出
     }
   } catch (e) {}
   if (btn) { btn.disabled = true; btn.textContent = '上传中…'; }
@@ -141,7 +146,7 @@ async function webdavRestoreNow() {
   // 修复 W35（三轮）：同导出——恢复前自动保存未保存的表单改动（地址/账号）
   try {
     if (typeof webdavFormDirty === 'function' && webdavFormDirty()) {
-      await saveWebdavConfigNow();
+      if (!(await saveWebdavConfigNow())) return;   // 修复（四轮）：保存失败即中止，不从旧来源恢复
     }
   } catch (e) {}
   // 修复 S13（三轮）：数据覆盖级操作补二次确认（config+sessions+audit 全覆盖，

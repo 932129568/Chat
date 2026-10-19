@@ -2,7 +2,7 @@
 
 本地优先的 GLM AI 对话客户端 —— 单文件 HTML + pywebview 桌面壳，零第三方运行时依赖（Python stdlib only），配置与数据全部留在本机 `~/.glm-chat/`。
 
-**当前版本：v1.5.0**（应用版本见窗口标题；js_api 契约版本独立维护，恒为 v1.0.0）
+**当前版本：v1.7.0**（应用版本见窗口标题；js_api 契约版本独立维护，恒为 v1.0.0）
 
 ---
 
@@ -57,17 +57,39 @@
 - **自动更新**：检查更新 / 下载 / 备份替换 / 失败回滚
 - **v4 UI**：极光背景、crossfade 面板切换、毛玻璃、按压反馈、数字滚动
 
+### 命令沙箱（v1.6）
+- Job Object 进程隔离：命令整树收编、内存/进程数/CPU 三限、超时内核级清剿
+- 无竞业收编（挂起态 assign），KILL_ON_JOB_CLOSE 防孤儿；fail-closed 不裸跑
+
 ---
 
 ## 快速开始
 
-### 方式一：直接运行 exe（推荐）
+### 方式一：安装程序安装（推荐，v1.7 起）
+
+1. 双击 `dist/Harbor-Setup-1.7.0.exe`
+2. 向导两步：确认欢迎页 → 选择安装位置（默认 `%LOCALAPPDATA%\Programs\Harbor`，可浏览修改）
+3. 等待安装完成，可勾选「立即运行 Harbor」
+
+安装特性：**每用户安装、无需管理员权限（不弹 UAC）**；开始菜单 + 桌面快捷方式；
+可通过系统「应用与功能」或安装目录里的 `Uninstall.exe` 卸载（用户数据 `~/.glm-chat` 默认保留）。
+
+静默安装（脚本/批量场景）：
+
+```bash
+Harbor-Setup-1.7.0.exe /S                                  # 默认目录
+Harbor-Setup-1.7.0.exe /S --dir "D:\Apps\Harbor"           # 指定目录
+Harbor-Setup-1.7.0.exe --uninstall /S                      # 静默卸载（保留数据）
+Harbor-Setup-1.7.0.exe --uninstall /S --purge              # 静默卸载并删除用户数据
+```
+
+### 方式二：直接运行 exe（免安装）
 
 1. 从 `dist/` 取 `Harbor.exe`（PyInstaller onefile，约 24MB）
 2. 双击运行（需 WebView2 Runtime，Windows 11 自带）
 3. 设置 → 模型服务商 → 填入 GLM API Key
 
-### 方式二：源码运行
+### 方式三：源码运行
 
 ```bash
 # 依赖：Python 3.10+ 与 pywebview
@@ -82,6 +104,13 @@ python main.py
 pip install pyinstaller send2trash pillow
 python -m PyInstaller Harbor.spec --noconfirm
 # 产物在 dist/Harbor.exe
+```
+
+构建带安装器的完整发布包（应用 + 卸载器 + 安装器三个 exe）：
+
+```bash
+python installer/build_setup.py        # 全量：dist/Harbor.exe + Harbor-Uninstall.exe + Harbor-Setup-<version>.exe
+python installer/build_setup.py --app-only   # 仅应用 exe
 ```
 
 ---

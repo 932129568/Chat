@@ -79,11 +79,14 @@ async function executeToolRaw(name, args) {
     if (name === 'run_admin_command') {
       /* 修复 S5/W8（三轮）：① timeout 参数接线（原只传 cmd，后端 timeout 是死参数）；
        * ② 前端 150s 超时与后端人审口径对齐——人审是 MessageBox 无限期阻塞，前端超时后
-       *    模型若重试会排队等第二个确认框（二次提权执行）。超时返回不可重试语义。 */
+       *    模型若重试会排队等第二个确认框（二次提权执行）。超时返回不可重试语义。
+       * 修复 H1（四轮）：后端签名为 (cmd, token, timeout)——原 withToken([cmd, timeout], token)
+       * 把 timeout 放在 token 位、token 落在 timeout 位，提档后管理员命令必被拦、
+       * timeout 接线失效。改为显式三参 [cmd, token, timeout] 对齐后端形参序。 */
       try {
         const _c = pickCmd(args);
         if (!_c.trim()) return rejectEmptyCmd();   // 修复 ②（三轮）：空命令不送执行
-        return await callApi('run_admin_command', withToken([_c, pickTimeout(args)], guardToken), 150000);
+        return await callApi('run_admin_command', [_c, guardToken, pickTimeout(args)], 150000);
       } catch (e) {
         const msg = String((e && e.message) || e);
         if (/timeout|超时|Timeout/i.test(msg)) {
@@ -93,14 +96,19 @@ async function executeToolRaw(name, args) {
       }
     }
     if (name === 'read_more')         return await callApi('read_more', [args.cache_id, args.offset || 0, args.limit || 2000]);
-    if (name === 'open_app')          return await callApi('open_app', [pickPath(args)]);
+    // 修复 H8（四轮）：open_app 后端已纳入护栏矩阵（W9），前端补 token 透传——
+    // 原不携带 token，guard.json 提档后 enforce_exec 必拒且无 UI 确认路径（提档即砖）。
+    if (name === 'open_app')          return await callApi('open_app', withToken([pickPath(args)], guardToken));
     if (name === 'open_url')          return await callApi('open_url', [args.url]);
     if (name === 'clipboard_read')    return await callApi('get_clipboard', withToken([], guardToken));
     if (name === 'clipboard_write')   return await callApi('set_clipboard', withToken([args.text || ''], guardToken));
     if (name === 'list_processes')    return await callApi('list_processes', [args.keyword || null]);
     if (name === 'kill_process')      return await callApi('kill_process', withToken([args.pid || null, args.name || null], guardToken));
     if (name === 'take_screenshot') {
-      const res = await callApi('take_screenshot', withToken([args.left || null, args.top || null, args.width || null, args.height || null], guardToken));
+      // 修复 H9（四轮）：区域参数 0 值不吞——`args.left || null` 把合法坐标 0 变 null，
+      // 后端判定区域参数缺失走整屏，区域截图静默丢失（后端 R6 修复被前端抵消）。
+      const _pickCoord = (v) => (v != null ? v : null);
+      const res = await callApi('take_screenshot', withToken([_pickCoord(args.left), _pickCoord(args.top), _pickCoord(args.width), _pickCoord(args.height)], guardToken));
       try {
         const data = JSON.parse(res);
         if (data.dataUrl) {
