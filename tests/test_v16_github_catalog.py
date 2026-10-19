@@ -107,13 +107,18 @@ class TestGithubCatalogBackend:
             assert r['ok'] is False and needle in r['error'], (code, r)
 
     def test_catalog_malformed_and_empty(self, monkeypatch):
+        # 实现 v1.6 遗留 L2：双路径后语义升级——catalog 结构不符 → fallback
+        # {inference_base}/models；双路径皆不符 → 「可手动输入」引导（原单路径
+        # 「解析」文案已被更强的引导替代，意图不变：ok:False + 人话出路）
         _patch_urlopen(monkeypatch, data=b'<html>not json</html>')
         r = lms.models(GH_BASE, api_key='k')
-        assert r['ok'] is False and '解析' in r['error'], r
-        # 全是裸名 → 同样按「无可用模型」报错（接口可能已变更的诚实信号）
+        assert r['ok'] is False and '手动输入' in r['error'], r
+        # 裸名在 fallback 路径被保留（L2 设计：清单路径宽松，有胜于无；
+        # 严格 provider/model 过滤只作用于 catalog 主路径）——由
+        # test_v16_leftover.py::test_bare_names_kept_in_fallback 锁定
         _patch_urlopen(monkeypatch, data=json.dumps({'models': [{'id': 'gpt-4o'}]}).encode())
         r2 = lms.models(GH_BASE, api_key='k')
-        assert r2['ok'] is False and 'provider/model' in r2['error'], r2
+        assert r2['ok'] is True and r2['models'][0]['id'] == 'gpt-4o', r2
 
     def test_catalog_url_derivation(self):
         assert lms._github_catalog_url(GH_BASE) == \

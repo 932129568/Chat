@@ -65,3 +65,45 @@
 3. **GitHub Models**：真实 PAT 探测目录（provider/model 格式）、触发 429 看 RPM/RPD 人话
 4. **布局直切验收**：老用户升级后老设置按钮→新导航通路、空态三步引导、首次引导 toast
 5. **基准链复跑**：3 条标准链前后对比，记录 token 累计（-15% 目标）
+
+---
+
+## 附录：外部实测与遗留项清零（2026-10-19 晚，v1.6 遗留批次）
+
+### A. 真机网络探测取证（主理人执行）
+
+| 端点 | 探测结果 | 结论 |
+|---|---|---|
+| `models.github.ai`（GET/POST 全路径） | **全部返回 200 `OK`（text/plain 4 字节）**——含 POST chat/completions，真实 API 不可能 | **中间网络设备全量拦截**，GitHub Models 真机验证本环境不可为（外部源 §9 的目录结构描述无法在本环境采信） |
+| `api.deepseek.com/v1/chat/completions` | 真 401：`{"error":{"message":"Authentication Fails, Your api key: ****e000 is invalid (request_id: 37dfc259-...)","type":"authentication_error"}}` | **真可达**，错误体已用于校准人话映射 |
+| `open.bigmodel.cn/api/paas/v4/chat/completions` | 真 401：`{"error":{"code":"1000","message":"身份验证失败。"}}` | 真可达，中文错误体校准 |
+| Ollama localhost:11434 | 连接超时 | 本机未运行 |
+
+### B. L1 错误人话校准（真错误体 fixture）
+`76-cost-estimate.js` 新增 `humanizeAuthError`：DeepSeek「Authentication Fails」→ 人话 + `request_id` 提取（排查可定位）；GLM「身份验证失败」/code 1000 → 平台错误码人话。**仅云端路径生效**（local 模式让位本地免 Key 提示——此优先级由回归测试抓出并修正）。11 项回归测试全绿（tests/test_v16_leftover.py）。
+
+### C. L2 catalog 双路径（T2 鲁棒性）
+因 §A 的中间设备反证，`github_catalog_models` 改为双路径：先 `/catalog/models`（外部源格式），失败 fallback `{inference_base}/models`（OpenAI 标准清单），双败才降级（前端热门兜底+手输）。真实 PAT 场景多一条路；fallback 保留裸名（宽松，有胜于无）。
+
+### D. L3 目标机一键验证（`deliverables/scripts/target_verify.py`，零依赖）
+一条命令完成全部遗留验证并出 md 报告：
+```bash
+python deliverables/scripts/target_verify.py \
+  --deepseek-key sk-xxx --github-pat ghp_xxx \
+  --ollama-url http://localhost:11434 \
+  --bench-base https://api.deepseek.com/v1 --bench-key sk-xxx \
+  --baseline baseline.json \
+  --output deliverables/metrics/target-verify-<date>.md
+```
+覆盖：① DeepSeek 工具调用校准+计费对算（T4 销项）② GitHub 双路径目录真实结构打印+429 header 形态（T2/T3 校准回填）③ Ollama tags/show/generate（KNOWN_ISSUES #2 销项）④ 3 条基准链 token 统计 vs 基线算 -15% 达成率。已本机自测（无参全 SKIP；假 key 正确走真实 API 取证）。
+
+### E. 遗留项状态更新
+
+| 遗留项 | 新状态 |
+|---|---|
+| T4 DeepSeek 真机联调 | 🟡 端点连通+错误体已实证；工具调用/计费 → 目标机一键（target_verify DeepSeek 项 PASS 即销） |
+| GitHub 限额/目录实测 | 🟡 本环境被网络设备拦截不可为 → 目标机一键（脚本自动打印真实结构回填校准） |
+| Ollama /api/tags（#2） | 🟡 一键销项就绪（KNOWN_ISSUES #2 已更新） |
+| token -15% 基准链 | 🟡 基准 harness 就绪 → 目标机一键出达成率 |
+| 遥测/OAuth/多模态 | ⚫ 明确不做（v1.6.x） |
+| WebDAV 真实联调 | 排 v1.7 |
