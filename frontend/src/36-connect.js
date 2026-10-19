@@ -55,6 +55,22 @@ const PRESETS = {
       { id: 'qwen-turbo', text: 'qwen-turbo（轻量）' }
     ]
   },
+  // 实现 v1.6 T1：GitHub Models 免费层接入。端点外部核实（2026-10，方案 §9）：
+  // https://models.github.ai/inference（OpenAI 兼容 chat/completions；旧 Azure
+  // 推理端点已弃用，不得回流）。模型 ID 为 provider/model 格式（裸名校验
+  // 失败）；鉴权走 provider 既有键位（apiKey，不新增 config 键）；价格表置零。
+  'github-models': {
+    name: 'GitHub Models', base_url: 'https://models.github.ai/inference',
+    key_required: true, glm_capable: false, local: false, free_tier: true,
+    catalog: true,          // 实现 v1.6 T2：目录探测型端点（models.github.ai/catalog/models）
+    key_hint: 'GitHub PAT（需 models:read scope）',
+    prices: { in: 0, out: 0, cache: 0 },
+    models: [
+      { id: 'openai/gpt-4o', text: 'openai/gpt-4o' },
+      { id: 'openai/gpt-4o-mini', text: 'openai/gpt-4o-mini' },
+      { id: 'deepseek-ai/DeepSeek-R1', text: 'deepseek-ai/DeepSeek-R1' }
+    ]
+  },
   ollama: {
     name: 'Ollama', base_url: 'http://localhost:11434/v1',
     key_required: false, glm_capable: false, local: true, prices: { in: 0, out: 0, cache: 0 },
@@ -126,6 +142,12 @@ const PROVIDER_HOT_MODELS = [
     { id: 'qwen-plus', text: 'qwen-plus（均衡）' },
     { id: 'qwen-turbo', text: 'qwen-turbo（轻量）' }
   ] },
+  // 实现 v1.6 T1：GitHub Models 目录兜底表（实时清单失败时按 host 命中）
+  { host: 'models.github.ai', models: [
+    { id: 'openai/gpt-4o', text: 'openai/gpt-4o' },
+    { id: 'openai/gpt-4o-mini', text: 'openai/gpt-4o-mini' },
+    { id: 'deepseek-ai/DeepSeek-R1', text: 'deepseek-ai/DeepSeek-R1' }
+  ] },
   { host: 'localhost', models: [
     { id: 'gpt-oss-20b', text: 'gpt-oss-20b', badge: '32k' },
     { id: 'qwen3.8-27b', text: 'qwen3.8-27b', badge: '128k' },
@@ -138,7 +160,7 @@ const PROVIDER_HOT_MODELS = [
   ] }
 ];
 
-const CONNECT_PRESET_ORDER = ['glm', 'deepseek', 'moonshot', 'qwen',
+const CONNECT_PRESET_ORDER = ['glm', 'deepseek', 'moonshot', 'qwen', 'github-models',
   'ollama', 'lmstudio', 'vllm', 'llamacpp', 'localai', 'custom'];
 const CONNECT_LOCAL_IDS = ['ollama', 'lmstudio', 'vllm', 'llamacpp', 'localai'];
 const CONNECT_DEBOUNCE_MS = 800;      // D2：Base URL / Key 变化后的自动识别防抖
@@ -485,11 +507,12 @@ function connectUpdateAdvanced() {
   show('advLocalOff', !showLocal);
 }
 
-/** 识别 / 探测按钮文案（本地系 = 探测本机；GLM = 获取模型）。 */
+/** 识别 / 探测按钮文案（本地系 = 探测本机；GLM = 获取模型；目录型 = 探测目录）。 */
 function connectIdentifyLabel(id) {
   const meta = connectPresetMeta(id || connectCurrentPreset());
   if (meta.local) return '↻ 探测本机';
   if (meta.glm_capable) return '↻ 获取模型';
+  if (meta.catalog) return '↻ 探测目录';   // 实现 v1.6 T2：GitHub Models 目录探测
   return '↻ 识别模型';
 }
 
@@ -523,10 +546,20 @@ function connectApplyPresetNow(key, opts) {
   const keyEl = document.getElementById('apiKey');
   if (keyEl) {
     if (opts.key !== undefined) keyEl.value = opts.key;
-    keyEl.placeholder = meta.glm_capable ? '粘贴你的智谱 API Key'
+    // 实现 v1.6 T1：GitHub Models 的 Key 文案明示 PAT 与 scope（预设 key_hint 优先）
+    keyEl.placeholder = meta.key_hint
+      || (meta.glm_capable ? '粘贴你的智谱 API Key'
       : meta.local ? '本地服务器通常无需 Key'
-      : '该服务商的 API Key（仅保存在本机）';
+      : '该服务商的 API Key（仅保存在本机）');
   }
+  // 实现 v1.6 T1：Key 标签文案 / PAT 获取指引 / 免费层常驻声明按预设显隐
+  // （新 id 全部唯一，UI 契约只增不改）
+  const keyLabel = document.getElementById('cmKeyLabel');
+  if (keyLabel) keyLabel.textContent = meta.key_hint || 'API Key（仅保存在本机）';
+  const keyHelp = document.getElementById('cmKeyHelp');
+  if (keyHelp && keyHelp.style) keyHelp.style.display = meta.free_tier ? '' : 'none';
+  const freeTier = document.getElementById('cmFreeTier');
+  if (freeTier && freeTier.style) freeTier.style.display = meta.free_tier ? '' : 'none';
   const keyRow = document.getElementById('cmKeyRow');
   if (keyRow && keyRow.style) keyRow.style.display = meta.key_required ? '' : 'none';
   const noKey = document.getElementById('cmNoKey');
@@ -631,9 +664,12 @@ async function connectIdentifyNow(fromClick) {
     if (seq !== connectIdentifySeq) { connectSetButtonLoading(btn, false); return; }   // last-wins
     const r = JSON.parse(raw || '{}');
     if (r && r.ok && Array.isArray(r.models) && r.models.length) {
+      // 实现 v1.6 T2：目录模型带 modalities 时进选项文案（GitHub catalog 富元数据；
+      // 其他端点无该字段 → 文案不变，零行为差异）
       models = r.models.map(m => ({
         id: String(m.id || ''),
-        text: String(m.id || ''),
+        text: String(m.id || '') + (Array.isArray(m.modalities) && m.modalities.length
+          ? '（' + m.modalities.join('/') + '）' : ''),
         badge: connectCtxBadge(m)
       })).filter(m => m.id);
     } else {
@@ -652,6 +688,13 @@ async function connectIdentifyNow(fromClick) {
   if (models.length) {
     connectFillModels(models, { auto: !!meta.glm_capable,
                                 group: hot ? '内置热门模型' : '识别结果' });
+    if (hot && reason) {
+      // 实现 v1.6 T2：识别失败但热门表兜底 → 失败原因人话透传（不阻塞面板），
+      // 兜底加载提示照旧（旧行为只 toast「已加载 N 个模型」，401 等原因被吞）
+      const failMsg = (meta.glm_capable ? '获取模型失败：' : '识别失败：') + reason;
+      toast(failMsg + '（已用内置热门模型兜底，可手动输入模型名）', 'warn',
+            { detail: 'GET ' + base + '/models\n' + (reason || '空响应') });
+    }
     toast((hot ? '已加载 ' : '已识别 ') + models.length + ' 个模型', 'ok');
     return;
   }

@@ -19,10 +19,19 @@
     错误连接不污染池、统计）——**尚未接入 HttpTransport**，接入前其行为
     由本文件单测钉住。
 
+修复 W21（v1.6）：ConcurrencyLimiter / stale_needs_relist /
+reconnect_backoff_delays 三项原「配置键入库但无生产调用方」（max_concurrency
+等零效果）——现由 mcp_service 按每服务器 effective_pool_config 接线：
+HTTP 并行 tools/call 走 ConcurrencyLimiter；list_changed 后 300s 未刷新
+由 stale_needs_relist 触发自动重 List；404 会话重连退避序列见
+reconnect_backoff_delays（mcp_client 重连路径消费）。
+
 契约红线：stdlib only（http.client / threading / time），零第三方依赖；
 mcp_servers.json 新键全部可选带默认，老配置文件零影响。
 """
 import http.client
+import select
+import socket
 import threading
 import time
 import urllib.parse
@@ -136,6 +145,29 @@ def reconnect_backoff_delays(n=len(RECONNECT_BACKOFF), base=RECONNECT_BACKOFF[0]
 
 # ================= S1 · HTTP 连接池（最小可用内核；尚未接入 HttpTransport）=================
 
+def _conn_alive(conn):
+    """修复 W23（v1.6）：连接探活不能只查 `sock is None`——服务端已关的连接
+    sock 仍在，复用后首个请求必抛（与 S6  SSE 未排干叠加放大伪失败）。
+
+    select + MSG_PEEK 判 EOF：可读且 peek 返回 b'' → 对端已关；无挂起数据 →
+    视为存活。鸭子类型：仅对真实 socket（有 recv/fileno）做 EOF 探测，测试桩/
+    包装对象（sock 为任意非 None 对象）按旧口径视为活。任何异常按「不活」处理
+    （保守丢弃，调用方会新建）。
+    """
+    sock = getattr(conn, 'sock', None)
+    if sock is None:
+        return False
+    if not (hasattr(sock, 'recv') and hasattr(sock, 'fileno')):
+        return True
+    try:
+        readable, _w, _e = select.select([sock], [], [], 0)
+        if not readable:
+            return True
+        return bool(sock.recv(1, socket.MSG_PEEK))
+    except Exception:
+        return False
+
+
 class HttpConnectionPool:
     """per host:port 的 HTTP(S) 连接池：空闲复用 + 空闲回收 + 错误不污染池。
 
@@ -157,6 +189,7 @@ class HttpConnectionPool:
         self._max_per_host = max(1, int(max_per_host))
         self._idle = {}          # (scheme, host, port) -> [(conn, last_used_at)]
         self._lock = threading.Lock()
+        self._closed = False     # 修复 W22（v1.6）：close 后 in-flight release 不得复活 idle 条目
         self._stats = {'created': 0, 'reused': 0, 'closed': 0}
 
     @staticmethod
@@ -198,11 +231,9 @@ class HttpConnectionPool:
             bucket = self._idle.get(key) or []
             while bucket:
                 cand, _ts = bucket.pop(0)
-                # 探活：已关闭/半死的连接直接丢弃，不算 reused
-                try:
-                    if cand.sock is None:
-                        raise OSError('stale connection')
-                except Exception:
+                # 探活：修复 W23（v1.6）——半死连接（服务端已关、sock 仍在）必须
+                # 识别并丢弃，否则复用后首个请求必抛（伪失败）。
+                if not _conn_alive(cand):
                     try:
                         cand.close()
                     except Exception:
@@ -226,9 +257,21 @@ class HttpConnectionPool:
     def release(self, conn, healthy=True):
         """归还连接：healthy 且 keep_alive 且连接仍活着（sock 非 None）才回池；
         否则关闭（错误连接/半死连接不污染池）。归位 key 取 acquire 时打标；
-        无标的外来连接按 http 语义归位（测试直连场景），取不到 key 则关闭。"""
+        无标的外来连接按 http 语义归位（测试直连场景），取不到 key 则关闭。
+
+        修复 W22（v1.6）：pool.close 后 in-flight release 不得把条目放回 idle
+        （原实现 _idle 已清空但 release 仍可 append → 复活条目永不被
+        shutdown 回收 = 连接泄漏）。closed 后到达的归还一律关闭。"""
         if conn is None:
             return
+        with self._lock:
+            if self._closed:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+                self._stats['closed'] += 1
+                return
         alive = True
         try:
             alive = conn.sock is not None
@@ -276,6 +319,7 @@ class HttpConnectionPool:
 
     def close(self):
         with self._lock:
+            self._closed = True     # 修复 W22（v1.6）：先置关闭态，堵住 in-flight release 复活
             for bucket in self._idle.values():
                 for conn, _ts in bucket:
                     try:

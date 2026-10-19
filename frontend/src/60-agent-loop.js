@@ -1,5 +1,19 @@
 /* ================= Agent 主循环 ================= */
 
+/* 实现 v1.6 T10③：流式速度文本（tokens/s）。
+ * 有 usage（completion_tokens）→ 精确值；无 usage（本地/Ollama 常见）→ 按字符
+ * 估算（/1.8，与生成中 token 预估同口径）并在数字旁标「估」。
+ * 纯函数（无 DOM 依赖）——vm 单模块沙箱可直接抽取测试。 */
+function streamSpeedText(totalChars, elapsedMs, completionTokens) {
+  const secs = (Number(elapsedMs) || 0) / 1000;
+  if (secs < 0.5) return '';
+  if (completionTokens && completionTokens > 0) {
+    return '⚡ ' + (completionTokens / secs).toFixed(1) + ' tok/s';
+  }
+  const est = Math.ceil((Number(totalChars) || 0) / 1.8);
+  return '⚡ ' + (est / secs).toFixed(1) + ' tok/s（估）';
+}
+
 /* 修复 S3（三轮）：暂停/中止后把悬挂 tool_calls 配平——assistant.tool_calls 与 tool
  * 消息必须一一对应，否则会话被毒化、后续每轮 HTTP 400。暂停 break（工具批未跑完）
  * 与 AbortError 两条路径共用本函数（原只在 AbortError 分支内联处理）。 */
@@ -40,6 +54,7 @@ async function runAgentLoop(s, apiKey) {
       try { if (typeof toast === 'function') toast('正在停止…（当前工具执行完即停）', 'warn'); } catch (e) {}
     };
     document.getElementById('streamBar').classList.add('on');
+    { const _sp0 = document.getElementById('streamSpeed'); if (_sp0) _sp0.textContent = ''; }   // 实现 v1.6 T10③：每轮开始清空上轮速度
     aiContent = addMessage('assistant', '');
     aiContent.innerHTML = '<div class="md-body"><div class="typing-dots"><span></span><span></span><span></span></div></div>';
     const mdBody = aiContent.querySelector('.md-body');
@@ -226,6 +241,12 @@ async function runAgentLoop(s, apiKey) {
         const beSys = await callApi('build_system_prompt', []);
         sysContent = EFFICIENCY_PROMPT + '\n\n' + (beSys ? JSON.parse(beSys) : '') + (sysPrompt ? '\n\n用户附加: ' + sysPrompt : '');
       } catch (e) { /* 系统提示词失败用前端默认 */ }
+      // 实现 v1.6 T5④：本地模式段——「上下文有限」提示（本地模型窗口小，
+      // 防长程任务里模型误判可无限重读/堆叠上下文）
+      if (typeof localState !== 'undefined' && localState.mode) {
+        sysContent += '\n\n【本地模式】上下文窗口有限：长任务分步进行，每步先小结再继续；' +
+          '已读文件与工具结果保留在上下文内，禁止反复重读确认。';
+      }
       // 修复 HF-1（v1.6）：system 归一化——历史里可能有末尾追加的【工作日志】system
       // （100-send.js），直接拼 [system, ...slimMsgs] 会得到 [system, user, system]，
       // Qwen/Ollama 的 Jinja 模板直接 raise「System message must be at the beginning」→ 500。
@@ -298,9 +319,17 @@ async function runAgentLoop(s, apiKey) {
       }
       if (!resp.ok) {
         const errText = await resp.text().catch(() => '');
+        // 实现 v1.6 T3：429 响应头快照（GitHub 免费层 RPM/RPD 区分；取不到头时兜底通用文案）
+        let hdrMap = null;
+        try {
+          if (resp.headers && typeof resp.headers.forEach === 'function') {
+            hdrMap = {};
+            resp.headers.forEach((v, k) => { hdrMap[k] = v; });
+          }
+        } catch (e) { hdrMap = null; }
         // v1.2 R5：错误码人话映射（1113/401/429…），裸错误码不再直达用户
         // 修复 B4（v1.5）：local 模式走本地错误分类口径（503 loading/404 模型引导/401 免 Key）
-        throw new Error(humanizeApiError(`HTTP ${resp.status}: ${errText}`, typeof localState !== 'undefined' && localState.mode));
+        throw new Error(humanizeApiError(`HTTP ${resp.status}: ${errText}`, typeof localState !== 'undefined' && localState.mode, hdrMap));
       }
       const reader = resp.body.getReader();
       const decoder = new TextDecoder();
@@ -327,6 +356,16 @@ async function runAgentLoop(s, apiKey) {
         }, 1000);
       }
       const _clearWaitTimer = () => { if (_localWaitTimer) { clearInterval(_localWaitTimer); _localWaitTimer = null; } };
+      /* 实现 v1.6 T10③：流式 tokens/s 速度（首字节起算；读循环内 500ms 节流刷新，
+         流末有 usage 用精确 completion_tokens 收口，无 usage 保持字符估算） */
+      let _speedT0 = 0, _speedLastPaint = 0;
+      const _paintStreamSpeed = (completionTokens) => {
+        const el = document.getElementById('streamSpeed');
+        if (!el || !_speedT0) return;
+        const txt = streamSpeedText(fullContent.length + fullReasoning.length,
+          Date.now() - _speedT0, completionTokens);
+        if (txt) el.textContent = txt;
+      };
       let fullContent = '';
       let fullReasoning = '';
       const toolCallMap = {};
@@ -393,17 +432,20 @@ async function runAgentLoop(s, apiKey) {
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
-        if (_firstChunk) { _firstChunk = false; _clearWaitTimer(); }   // 修复 B3：首字节到达，清等待态
+        if (_firstChunk) { _firstChunk = false; _clearWaitTimer(); _speedT0 = Date.now(); }   // 修复 B3：首字节到达，清等待态；实现 v1.6 T10③：速度计时起点
         _lastChunkAt = Date.now();
         pending += decoder.decode(value, { stream: true });
         const lines = pending.split('\n');
         pending = lines.pop() || '';
         for (const line of lines) handleSseLine(line);
+        // 实现 v1.6 T10③：节流刷新速度显示（500ms 一轮，避免每 chunk 写 DOM）
+        if (_speedT0 && Date.now() - _speedLastPaint > 500) { _speedLastPaint = Date.now(); _paintStreamSpeed(0); }
       }
       pending += decoder.decode();
       for (const line of (pending ? [pending] : [])) handleSseLine(line);
       pending = '';
       _clearWaitTimer();   // 修复 B3：流正常结束清理等待态计时器
+      if (_speedT0) _paintStreamSpeed(usage ? usage.completion_tokens : 0);   // 实现 v1.6 T10③：usage 精确值收口
 
       const toolCalls = Object.values(toolCallMap);
       const assistantMsg = { role: 'assistant', content: fullContent || null };

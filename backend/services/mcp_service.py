@@ -27,7 +27,8 @@ from .mcp_client import (
     MCP_PROTOCOL_VERSION, McpClient, McpProtocolError, McpTimeoutError, McpVersionError)
 from .mcp_transport_http import HttpTransport
 from .mcp_transport_stdio import StdioTransport
-from .mcp_pool import WarmRegistry, WARM_ENTRY_IDLE_TTL
+from .mcp_pool import (WarmRegistry, WARM_ENTRY_IDLE_TTL, ConcurrencyLimiter,
+                       effective_pool_config, stale_needs_relist)
 
 IDLE_TIMEOUT = 600            # stdio 空闲回收（秒，裁决③固定不暴露 UI）
 CALL_TIMEOUT = 60             # tools/call 默认阈值（修复 F2 v1.4：可被每服务器 callTimeout 覆盖，10-300s）
@@ -45,11 +46,13 @@ def _entry_template():
     return {
         'client': None,
         'tools': [],
+        'resources': [],       # 实现 v1.6 T12：resources/list 缓存（按需刷新）
         'status': 'untested',
         'last_error': '',
         'instructions': '',
         'server_info': {},
         'last_used': 0.0,
+        'last_list_at': 0.0,      # 实现 v1.6 W21：stale 检测时间戳（300s 未刷新自动重 List）
         'lock': threading.RLock(),
     }
 
@@ -73,6 +76,12 @@ class McpService:
         # warm 独家持有，warm 600s 到期才真正关闭）+ spawn 打点（server → ms）
         self._warm = WarmRegistry()
         self._spawn_ms = {}
+        # 实现 v1.6 W21：每服务器 ConcurrencyLimiter（池配置键接入生产调用方——
+        # 原 max_concurrency 等入库但无消费方，零效果）
+        self._limiters = {}
+        # 实现 v1.6 W25：删除/停用代际计数——forget() 递增，废掉在途 _get_or_spawn
+        # 拉起的孤儿 client（原竞态：entry 已摘，spawn 出的 client 无人关闭）
+        self._gen = {}
         self._reaper_stop = threading.Event()
         self._reaper = threading.Thread(target=self._idle_loop, daemon=True,
                                         name='mcp-idle-reaper')
@@ -144,6 +153,7 @@ class McpService:
             entry['server_info'] = client.server_info
             entry['instructions'] = client.instructions
             entry['last_used'] = time.monotonic()   # 修复 ㊉：空闲计时用单调时钟
+            entry['last_list_at'] = time.monotonic()   # 实现 v1.6 W21：测试成功即非 stale
             try:
                 client.clear_list_changed()         # 修复 ⑨：list_changed 标志刷新后复位
             except Exception:
@@ -360,6 +370,15 @@ class McpService:
                     pass
             self._audit(server, tool, arguments, 'decision', decision, tier, source)
             return {'error': error}
+        # 实现 v1.6 W21：stale 300s 自动重 List（S3 规格的生产调用方）——list_changed
+        # 通知漏达/刷新失败后的兜底；refreshing 去抖防双弹，status stale→ok 由
+        # _refresh_tools 收口（无状态错乱）。
+        try:
+            if stale_needs_relist(entry.get('last_list_at')):
+                self._on_list_changed(server)
+        except Exception:
+            pass
+            return {'error': error}
         t0 = time.monotonic()
         # 修复 F2（v1.4）：每服务器 callTimeout 覆盖默认阈值（mcp_servers.json，10-300s）
         # 修复 ⑭（三轮）：cfg_ro 复用入口处已持有的解密视图 cfg——原此处再次
@@ -370,8 +389,15 @@ class McpService:
         except (TypeError, ValueError):
             _ct = CALL_TIMEOUT
         eff_timeout = min(max(_ct, CALL_TIMEOUT_MIN), CALL_TIMEOUT_MAX)
+        # 实现 v1.6 W21：HTTP 服务器并行 tools/call 走 ConcurrencyLimiter
+        # （max_concurrency 生产接线；超限排队不拒绝；stdio 天然串行不装）
+        limiter = self._limiter(server, cfg_ro)
         try:
-            result = client.call_tool(tool, arguments, eff_timeout)
+            if limiter is not None:
+                with limiter:
+                    result = client.call_tool(tool, arguments, eff_timeout)
+            else:
+                result = client.call_tool(tool, arguments, eff_timeout)
         except McpTimeoutError:
             entry['last_error'] = 'timeout'
             self._audit(server, tool, arguments, 'decision', decision, tier, source)
@@ -390,7 +416,141 @@ class McpService:
         self._audit(server, tool, arguments, 'decision', decision, tier, source)
         return rendered
 
+    # ============ v1.6 T12：MCP resources（list/read + 订阅；text 优先，blob 落盘）============
+    def list_resources(self, name):
+        """resources/list（按需拉起后调用；结果入 entry['resources']）。
+
+        服务器不支持 resources（-32601 Method not found）→ 按「无资源」返回
+        {ok, resources: [], supported: False}，不视为错误（规范：resources 是
+        可选能力）。annotations 不可信原则沿用（readOnly 注解不当免检依据）。
+        """
+        name = str(name)
+        cfg = self._cfg.get_server(name)
+        if not cfg:
+            return {'error': 'MCP 服务器 %s 不存在。' % name}
+        if not cfg.get('enabled'):
+            return {'error': 'MCP 服务器 %s 未启用。' % name}
+        entry = self._ensure_entry(name)
+        client, error = self._get_or_spawn(name, entry, cfg=cfg)
+        if error:
+            return {'error': error}
+        try:
+            resources = client.list_resources()
+        except McpProtocolError as e:
+            if getattr(e, 'code', None) == -32601:
+                with entry['lock']:
+                    entry['resources'] = []
+                return {'ok': True, 'resources': [], 'supported': False}
+            return {'error': self._protocol_error_text(e)}
+        except Exception as e:
+            return {'error': 'MCP 资源列表获取失败: %s' % e}
+        with entry['lock']:
+            entry['resources'] = resources
+        return {'ok': True, 'resources': resources, 'supported': True}
+
+    def read_resource(self, name, uri):
+        """resources/read → 渲染：text 类直接给文；blob 类（base64）解码后截断
+        落盘 toolcache（read_more 分段取）。资源注入等同工具结果 → 全程审计
+        （op=mcp_resource，T12 安全口径）。"""
+        name = str(name)
+        uri = str(uri or '').strip()
+        if not uri:
+            return {'error': '缺少资源 uri'}
+        cfg = self._cfg.get_server(name)
+        if not cfg:
+            self._audit(name, 'resources/read', {'uri': uri[:200]}, 'block', op='mcp_resource')
+            return {'error': 'MCP 服务器 %s 不存在。' % name}
+        if not cfg.get('enabled'):
+            self._audit(name, 'resources/read', {'uri': uri[:200]}, 'block', op='mcp_resource')
+            return {'error': 'MCP 服务器 %s 未启用。' % name}
+        entry = self._ensure_entry(name)
+        client, error = self._get_or_spawn(name, entry, cfg=cfg)
+        if error:
+            self._audit(name, 'resources/read', {'uri': uri[:200]}, 'decision', 'deny', op='mcp_resource')
+            return {'error': error}
+        try:
+            result = client.read_resource(uri) or {}
+        except Exception as e:
+            self._audit(name, 'resources/read', {'uri': uri[:200]}, 'decision', 'deny', op='mcp_resource')
+            return {'error': 'MCP 资源读取失败: %s' % e}
+        contents = result.get('contents') or []
+        texts, blobs = [], []
+        for c in contents:
+            if not isinstance(c, dict):
+                continue
+            if c.get('text'):
+                texts.append(str(c.get('text')))
+            elif c.get('blob'):
+                blobs.append(str(c.get('blob')))
+        self._audit(name, 'resources/read',
+                    {'uri': uri[:200], 'texts': len(texts), 'blobs': len(blobs)},
+                    'decision', 'allow', op='mcp_resource')
+        out = {'ok': True, 'uri': uri, 'text': '\n\n'.join(texts)}
+        if blobs:
+            import base64 as _b64
+            try:
+                raw = b''.join(_b64.b64decode(b) for b in blobs)
+            except Exception:
+                raw = '\n\n'.join(blobs).encode('utf-8', 'replace')
+            cid = self._toolcache.cache(raw.decode('utf-8', 'replace'))
+            out['blob_bytes'] = len(raw)
+            if cid:
+                out['blob_cached'] = True
+                out['cache_id'] = cid
+                out['hint'] = '二进制资源已落盘（id=%s），read_more 分段读取' % cid
+            else:
+                out['blob_cached'] = False
+        return out
+
+    def save_subscriptions(self, name, uris):
+        """保存资源订阅（mcp_servers.json 新可选键 resourceSubs；Claude 兼容结构
+        忽略未知键，老配置零影响）。uris 可为 JSON 数组字符串。"""
+        name = str(name)
+        cfg = self._cfg.get_server(name)
+        if not cfg:
+            return {'error': 'MCP 服务器 %s 不存在。' % name}
+        if isinstance(uris, str):
+            try:
+                uris = json.loads(uris or '[]')
+            except Exception:
+                return {'error': 'uris 需要是 JSON 数组'}
+        if not isinstance(uris, list):
+            return {'error': 'uris 需要是数组'}
+        clean = [str(u).strip()[:500] for u in uris
+                 if isinstance(u, str) and u.strip()][:100]
+        cfg = dict(cfg)
+        cfg['resourceSubs'] = clean
+        r = self._cfg.save_server(name, cfg)
+        if r and r.get('error'):
+            return {'error': r['error']}
+        self._audit(name, 'resources/subscribe', {'count': len(clean)},
+                    'decision', 'allow', op='mcp_resource')
+        return {'ok': True, 'subscribed': clean}
+
+    def subscriptions(self, name):
+        """已订阅资源 uri 列表（注入上下文时由上层消费）。"""
+        cfg = self._cfg.get_server(str(name)) or {}
+        subs = cfg.get('resourceSubs')
+        return list(subs) if isinstance(subs, list) else []
+
     # ============ 生命周期 ============
+    def _limiter(self, name, cfg):
+        """实现 v1.6 W21：每服务器 ConcurrencyLimiter（池配置键的生产调用方）。
+
+        HTTP 传输（cfg.url 非空）按 effective_pool_config(cfg.pool).max_concurrency
+        限并行（超限排队不拒绝）；stdio 单进程天然串行 → None 不装。
+        max_concurrency 变更时重建（配置热更新场景）。"""
+        if not cfg or not cfg.get('url'):
+            return None
+        pool_cfg = effective_pool_config(cfg.get('pool'))
+        want = pool_cfg.get('max_concurrency') or 4
+        with self._lock:
+            lim = self._limiters.get(name)
+            if lim is None or lim.max_concurrent != want:
+                lim = ConcurrencyLimiter(max_concurrent=want)
+                self._limiters[name] = lim
+            return lim
+
     def _ensure_entry(self, name):
         with self._lock:
             entry = self._rt.get(name)
@@ -404,6 +564,10 @@ class McpService:
         name = str(name)
         with self._lock:
             entry = self._rt.pop(name, None)
+            # 实现 v1.6 W25：代际递增——与 _get_or_spawn 的在途拉起竞态时，
+            # 拉起完成后发现代际已变 → 立即关闭新 client（防孤儿泄漏）
+            self._gen[name] = self._gen.get(name, 0) + 1
+            self._limiters.pop(name, None)
         if entry is not None:
             with entry['lock']:
                 self._close_client(entry, name)
@@ -475,7 +639,11 @@ class McpService:
         """双检锁：活客户端直接用；进程已死 → 重拉一次；无客户端 → 按需拉起。
 
         修复 ⑭（三轮）：cfg 参数——调用方（call_tool）已持解密视图时可传入复用，
-        省一次 get_server 的 deepcopy + DPAPI 解密（热路径）。"""
+        省一次 get_server 的 deepcopy + DPAPI 解密（热路径）。
+        实现 v1.6 W25：spawn 前后比对 forget() 代际——拉起期间服务器被删/停用，
+        新 client 对调用方不可达即孤儿：立即关闭并返回人话错误。
+        实现 v1.6 W24：崩溃重拉成功同样登记 warm（原只登记冷启路径）。
+        """
         entry = entry or self._ensure_entry(name)
         cfg = cfg or self._cfg.get_server(name)
         if not cfg:
@@ -483,6 +651,7 @@ class McpService:
         if not cfg.get('enabled'):
             return None, ('MCP 服务器 %s 未启用（可能已禁用或崩溃），'
                           '请先在设置中测试连接。' % name)
+        gen = self._gen.get(name, 0)
         with entry['lock']:
             client = entry.get('client')
             if client is not None:
@@ -500,10 +669,19 @@ class McpService:
                         'MCP 服务器进程已崩溃（退出码 %s），已自动重拉一次；仍失败请检查服务器后重试。%s'
                         % (rc if rc is not None else '?', error))
                     return None, entry['last_error']
+                if self._gen.get(name, 0) != gen:
+                    # 实现 v1.6 W25：拉起期间被 forget —— 关闭新 client 防孤儿
+                    try:
+                        client.close()
+                    except Exception:
+                        pass
+                    return None, ('MCP 服务器 %s 在重拉期间被删除或停用，本次调用已取消。'
+                                  % name)
                 entry['client'] = client
                 entry['status'] = 'ok'
                 entry['last_error'] = ''
                 entry['last_used'] = time.monotonic()
+                self._warm.register(name, client)   # 修复 W24（v1.6）：崩溃重拉也登记温启
                 self._relist(entry, client)
                 return client, None
             # 按需拉起
@@ -513,6 +691,14 @@ class McpService:
             if warm_client is not None:
                 try:
                     if warm_client.is_alive():
+                        if self._gen.get(name, 0) != gen:
+                            # 实现 v1.6 W25：温启采用前发现代际已变（forget 竞态）
+                            try:
+                                warm_client.close()
+                            except Exception:
+                                pass
+                            return None, ('MCP 服务器 %s 在调用前被删除或停用，本次调用已取消。'
+                                          % name)
                         entry['client'] = warm_client
                         entry['status'] = 'ok'
                         entry['last_error'] = ''
@@ -532,6 +718,14 @@ class McpService:
                 entry['status'] = 'error'
                 entry['last_error'] = error
                 return None, error
+            if self._gen.get(name, 0) != gen:
+                # 实现 v1.6 W25：冷启期间被 forget —— 关闭新 client 防孤儿
+                try:
+                    client.close()
+                except Exception:
+                    pass
+                return None, ('MCP 服务器 %s 在拉起期间被删除或停用，本次调用已取消。'
+                              % name)
             entry['client'] = client
             entry['status'] = 'ok'
             entry['last_error'] = ''
@@ -546,6 +740,7 @@ class McpService:
             entry['tools'] = client.list_tools()
             entry['server_info'] = client.server_info
             entry['instructions'] = client.instructions
+            entry['last_list_at'] = time.monotonic()   # 实现 v1.6 W21：stale 检测基线
             try:
                 client.clear_list_changed()     # 修复 ⑨：标志复位
             except Exception:
@@ -633,6 +828,7 @@ class McpService:
                 entry['tools'] = tools
                 entry['status'] = 'ok'
                 entry['last_error'] = ''
+                entry['last_list_at'] = time.monotonic()   # 实现 v1.6 W21：刷新成功即非 stale
                 try:
                     client.clear_list_changed()     # 修复 ⑨：标志复位
                 except Exception:
@@ -740,8 +936,9 @@ class McpService:
 
     # ============ 审计 ============
     def _audit(self, server, tool, arguments, action, decision=None,
-               tier='', source=''):
-        """审计 op=mcp_call；detail 键 {server, tool, args, tier, tier_source}
+               tier='', source='', op='mcp_call'):
+        """审计 op=mcp_call（v1.6 T12 起资源操作用 op=mcp_resource，可区分）；
+        detail 键 {server, tool, args, tier, tier_source}
         （禁用 path/name/head 键——避免审计查看器误渲染）。"""
         detail = {
             'server': str(server or ''),
@@ -751,9 +948,9 @@ class McpService:
             'tier_source': source or '',
         }
         try:
-            self._guard.audit('mcp_call', detail, action, decision)
+            self._guard.audit(op, detail, action, decision)
         except Exception as e:
-            self._log.warning('mcp_call 审计写入失败: %r', e)
+            self._log.warning('%s 审计写入失败: %r', op, e)
 
     @staticmethod
     def _args_summary(arguments) -> str:

@@ -2,7 +2,7 @@
 """v4「连接与模型」三块合并（完全单端点）· 前后端联调实证。
 
 覆盖设计书 deliverables/design/v4/connect-merge-design.md §8 验收标准与 §9 任务拆解：
-1. 预设表完整性（10 项）+ 条件显隐矩阵逐格断言（§5）；
+1. 预设表完整性（11 项，v1.6 T1 起含 github-models）+ 条件显隐矩阵逐格断言（§5）；
 2. 防抖 800ms 自动识别 + last-wins 竞态失效（§4.1 / §4.3）；
 3. 识别失败兜底：人话 toast + 切手动输入态，「✎ 手动输入模型名…」始终在位（§4.3）；
 4. 旧 config（只有 api_key / v1.5 本地模式）一次性 seed 迁移且幂等（§6.1 / D5）；
@@ -163,6 +163,9 @@ EXPECT = {
     'deepseek':  (False, True,  False, True,  False, '↻ 识别模型'),
     'moonshot':  (False, True,  False, True,  False, '↻ 识别模型'),
     'qwen':      (False, True,  False, True,  False, '↻ 识别模型'),
+    # 实现 v1.6 T1：GitHub Models 免费层（云端第三方语义：无推理力度、有三价置零、需 Key）
+    # 实现 v1.6 T2：目录探测型端点 → 按钮文案「探测目录」
+    'github-models': (False, True, False, True, False, '↻ 探测目录'),
     'ollama':    (False, False, True,  False, True,  '↻ 探测本机'),
     'lmstudio':  (False, False, True,  False, True,  '↻ 探测本机'),
     'vllm':      (False, False, True,  False, True,  '↻ 探测本机'),
@@ -173,14 +176,15 @@ EXPECT = {
 
 
 class TestPresetTableAndVisibility:
-    """§5 条件显隐矩阵逐格 + 10 预设完整性（D1/D3/D4）。"""
+    """§5 条件显隐矩阵逐格 + 11 预设完整性（D1/D3/D4；v1.6 T1 起 11 项）。"""
 
     def test_preset_table_ten_and_shape(self):
         r = _run_node(_JS_APPLY_ALL, 'presets')
         ids = [p['id'] for p in r['presets']]
-        assert len(ids) == 10, ids
-        assert ids == ['glm', 'deepseek', 'moonshot', 'qwen', 'ollama',
-                       'lmstudio', 'vllm', 'llamacpp', 'localai', 'custom']
+        # 实现 v1.6 T1：v4 设计 10 项 → 新增 github-models（免费层）为 11 项
+        assert len(ids) == 11, ids
+        assert ids == ['glm', 'deepseek', 'moonshot', 'qwen', 'github-models',
+                       'ollama', 'lmstudio', 'vllm', 'llamacpp', 'localai', 'custom']
         assert r['order'] == ids
         for p in r['presets']:
             assert p['name'], p['id']
@@ -197,10 +201,16 @@ class TestPresetTableAndVisibility:
             assert by_id[lid]['prices'] == {'in': 0, 'out': 0, 'cache': 0}, lid
             assert by_id[lid]['base_url'].startswith('http://localhost:'), lid
         assert by_id['custom']['base_url'] == ''
+        # 实现 v1.6 T1：GitHub Models 免费层结构（端点/零价/Key 必需/provider-model 格式）
+        gh = by_id['github-models']
+        assert gh['base_url'] == 'https://models.github.ai/inference'
+        assert gh['prices'] == {'in': 0, 'out': 0, 'cache': 0}
+        assert gh['key_required'] is True and gh['local'] is False
+        assert all('/' in m['id'] for m in gh['models']), 'GitHub 模型 ID 须 provider/model 格式'
 
     def test_visibility_matrix_cell_by_cell(self):
         r = _run_node(_JS_APPLY_ALL, 'matrix')
-        assert len(r['matrix']) == 10
+        assert len(r['matrix']) == 11   # 实现 v1.6 T1：10 → 11 预设
         for row in r['matrix']:
             exp = EXPECT[row['id']]
             assert row['reasoning'] is exp[0], '推理力度显隐错: %s' % row['id']
@@ -773,8 +783,8 @@ class TestTemplateMerge:
                      '>模型服务商（OpenAI 兼容端点）</div>',
                      '>本地模型（v1.5 · Ollama / LM Studio 等）</div>']:
             assert gone not in tpl, '合并后残留: %s' % gone
-        # 10 个预设全部在模板下拉里
-        for pid in ('glm', 'deepseek', 'moonshot', 'qwen', 'ollama',
+        # 11 个预设全部在模板下拉里（实现 v1.6 T1：+github-models）
+        for pid in ('glm', 'deepseek', 'moonshot', 'qwen', 'github-models', 'ollama',
                     'lmstudio', 'vllm', 'llamacpp', 'localai', 'custom'):
             assert '<option value="%s"' % pid in tpl, pid
 

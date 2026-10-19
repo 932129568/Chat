@@ -207,15 +207,24 @@ async function localProbeNow() {
 }
 
 /* ---- A3：补拉模型清单（探测过期时用；返回 {id, ctx_window, tool_capable, estimated}） ---- */
+// 实现 v1.6 W33：last-wins 序号——多服务器探测/探测途中改 Base URL 时，旧 base 的
+// 清单回来不得覆盖新 base 的清单/缓存/下拉（原无序号：并发或乱序返回即错配）
+let _localLoadSeq = 0;
 async function localLoadModels(baseUrl) {
   const baseInp = localEl('localBaseUrl', 'providerBase');
   const base = (baseUrl || (baseInp || {}).value || '').trim();
   if (!base) { toast('请先填写 Base URL', 'warn'); return; }
+  const seq = ++_localLoadSeq;
   const btn = localEl('localModelsBtn', 'cmIdentifyBtn');
   if (btn) { btn.disabled = true; btn.textContent = '拉取中…'; }
   try {
     /* 本地端点免 Key（云端清单鉴权走 36-connect 的识别通道带 Key） */
     const r = JSON.parse(await callApi('local_models', [base]));
+    // 实现 v1.6 W33：序号陈旧（已发起更新的加载）或 Base URL 已被切走 → 丢弃结果，
+    // 不清空缓存/不改下拉（防错配：旧服务器清单覆盖新服务器状态）
+    if (seq !== _localLoadSeq) return;
+    const curBase = ((localEl('localBaseUrl', 'providerBase') || {}).value || '').trim();
+    if (curBase && curBase !== base) return;
     if (!r.ok) { toast('获取模型清单失败：' + (r.error || ''), 'err'); return; }
     const models = r.models || [];
     localMetaCache = {};

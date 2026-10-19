@@ -29,6 +29,7 @@ from .services.mcp_config_service import McpConfigService
 from .services.mcp_service import McpService
 from .services.process_service import ProcessService
 from .services.provider_service import ProviderService
+from .services.sandbox_service import SandboxService
 from .services.screenshot_service import ScreenshotService
 from .services.toolcache_service import ToolcacheService
 from .services.update_service import UpdateService
@@ -58,6 +59,10 @@ _V12_EXTRA = frozenset({
     'webdav_get_config', 'webdav_save_config', 'webdav_test', 'webdav_export', 'webdav_restore',
     # 修复 W2（三轮）：任务开始钩子（重置后端命令去重器，与前端 per-task 生命周期对齐）
     'begin_task',
+    # v1.6 沙箱（进程隔离/资源限制；配置独立文件 sandbox.json，不碰 config.json）
+    'sandbox_get_config', 'sandbox_save_config', 'sandbox_status',
+    # v1.6 T12 MCP resources（text 优先；blob 截断落盘；订阅存 mcp_servers.json 可选键）
+    'mcp_list_resources', 'mcp_read_resource', 'mcp_save_subscriptions',
 })
 
 
@@ -85,6 +90,8 @@ class Api:
         self._local = LocalModelService()
         # v1.6 WebDAV（预留接口层：校验与冲突判定就绪，IO 为 reserved 占位）
         self._webdav = WebDAVService()
+        # v1.6 沙箱（Job Object 进程隔离 + 资源限制；fail-closed）
+        self._sandbox = SandboxService()
         # 修复 W6（二轮）：自更新强退（os._exit 绕过 atexit）前先关 MCP 子进程，防孤儿残留
         _update_mod.set_before_exit_hook(self._mcp.shutdown)
 
@@ -216,14 +223,16 @@ class Api:
         if reason:
             self._guard.audit('run_command', {'cmd': str(cmd or '')[:200]}, 'block', 'backend-enforced')
             return err(reason)
-        return self._cmds.run_command(self._runtime.get_current_sid(), cmd, timeout)
+        return self._cmds.run_command(self._runtime.get_current_sid(), cmd, timeout,
+                                      sandbox=self._sandbox.limits_for('run_command'))
 
     def run_powershell(self, cmd, timeout=60, token=None):
         reason = self._guard.enforce_exec('run_powershell', {'cmd': str(cmd or '')[:200]}, token)
         if reason:
             self._guard.audit('run_powershell', {'cmd': str(cmd or '')[:200]}, 'block', 'backend-enforced')
             return err(reason)
-        return self._cmds.run_powershell(self._runtime.get_current_sid(), cmd, timeout)
+        return self._cmds.run_powershell(self._runtime.get_current_sid(), cmd, timeout,
+                                         sandbox=self._sandbox.limits_for('run_powershell'))
 
     def run_admin_command(self, cmd, token=None, timeout=None):
         # 修复 S5/W8（三轮）：timeout 尾参接线——原签名丢 timeout（W13 二轮的「可调」
@@ -234,6 +243,18 @@ class Api:
             self._guard.audit('run_admin_command', {'cmd': str(cmd or '')[:200]}, 'block', 'backend-enforced')
             return err(reason)
         return self._cmds.run_admin_command(self._runtime.get_current_sid(), cmd, timeout)
+
+    # ============ v1.6 沙箱（_V12_EXTRA 隐身）============
+    def sandbox_get_config(self):
+        """沙箱配置：开关 + 命令类别档位 + 各档限制（sandbox.json 独立存储）。"""
+        return self._sandbox.get_config()
+
+    def sandbox_save_config(self, cfg_json):
+        return self._sandbox.save_config(cfg_json)
+
+    def sandbox_status(self):
+        """可用性（平台/创建能力）+ 启用态 + 进程级统计。"""
+        return self._sandbox.status()
 
     # ============ 剪贴板 ============
     def get_clipboard(self, token=None):
@@ -427,7 +448,15 @@ class Api:
         # 修复（2026-10-18）：工作区关闭时不得注入路径/宣称文件能力——原先无条件注入
         # effective_root，导致快捷条显示「未启用工作区」但 AI 仍答「当前工作区: C:\...」
         # 并声称能操作文件夹（工具被裁了，模型却以为有）。
-        # 注：本方法在契约 INTENTIONAL_DELTAS 白名单内，允许与 legacy 不同。
+        # 实现 v1.6 T5①：沙箱边界告知段（防 Agent 误判「沙箱=绝对安全」）。
+        # 注：本方法在契约 INTENTIONAL_DELTAS 白名单内（v1.1.1 省 token 先例 +
+        # v1.6 T5 沙箱段增量），允许与 legacy 不同；单独断言结构而非逐字节。
+        sandbox_notice = ''
+        try:
+            sandbox_notice = self._sandbox.prompt_notice() or ''
+        except Exception:
+            sandbox_notice = ''
+        tail = ('\n' + sandbox_notice) if sandbox_notice else ''
         if not self._runtime.ws_enabled_for(sid, True):
             return ok(
                 '你是 Harbor 内置编程助手。当前**未启用工作区**：不要假设或猜测任何工作区路径，'
@@ -436,7 +465,7 @@ class Api:
                 '硬规则:\n'
                 '1. 文件操作只用工具, 禁止用 Get-Content/Set-Content(后端已强制 UTF-8)。\n'
                 '2. 写文件串行: 一次一个 write_file/append_file/search_replace, 等返回成功再写下一个。\n'
-                '3. 超长命令输出会截断并给缓存 id, 需要全文用 read_more 分段取。')
+                '3. 超长命令输出会截断并给缓存 id, 需要全文用 read_more 分段取。' + tail)
         root = self._workspace.effective_root(sid)
         # v1.1.1 省 token：删掉与工具 description 重复的「系统能力」段（每轮省 ~130 字）
         return ok(
@@ -444,7 +473,7 @@ class Api:
             '硬规则:\n'
             '1. 文件操作只用工具, 禁止用 Get-Content/Set-Content(后端已强制 UTF-8)。\n'
             '2. 写文件串行: 一次一个 write_file/append_file/search_replace, 等返回成功再写下一个。\n'
-            '3. 超长命令输出会截断并给缓存 id, 需要全文用 read_more 分段取。')
+            '3. 超长命令输出会截断并给缓存 id, 需要全文用 read_more 分段取。' + tail)
 
     # ============ 工具 schema（唯一数据源 tools_schema.py）============
     def build_tools(self, role='full', include_mcp=False):
@@ -675,3 +704,28 @@ class Api:
     def mcp_shutdown(self):
         """关停全部 MCP 传输（main.py atexit 注册 + 测试用）。"""
         return ok(self._mcp.shutdown())
+
+    # ---- v1.6 T12 MCP resources（text 优先；blob 截断落盘；订阅持久化）----
+    def mcp_list_resources(self, server):
+        """resources/list：{ok, resources:[{uri,name,mimeType,...}], supported}。
+        服务器不支持资源（-32601）→ supported=False + 空列表（不算错误）。"""
+        r = self._mcp.list_resources(server)
+        if r.get('error'):
+            return err(r['error'])
+        return ok({'ok': True, 'resources': r.get('resources') or [],
+                   'supported': r.get('supported', True)})
+
+    def mcp_read_resource(self, server, uri):
+        """resources/read：text 类直接返回文本；blob 类落盘 toolcache 并给
+        cache_id（read_more 分段取）。全程审计（op=mcp_resource）。"""
+        r = self._mcp.read_resource(server, uri)
+        if r.get('error'):
+            return err(r['error'])
+        return ok(r)
+
+    def mcp_save_subscriptions(self, server, uris_json='[]'):
+        """保存资源订阅（mcp_servers.json 新可选键 resourceSubs；Claude 兼容忽略）。"""
+        r = self._mcp.save_subscriptions(server, uris_json)
+        if r.get('error'):
+            return err(r['error'])
+        return ok(r)

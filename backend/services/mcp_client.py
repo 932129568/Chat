@@ -16,6 +16,7 @@ import threading
 import time
 
 from ..logging_setup import get_logger
+from .mcp_pool import reconnect_backoff_delays
 
 MCP_PROTOCOL_VERSION = '2025-06-18'
 CLIENT_NAME = 'Harbor'
@@ -80,6 +81,7 @@ class McpClient:
         self._initialized = False
         self._closed = False
         self._reconnecting = False               # 修复 S13：HTTP 404 重连防无限递归
+        self._reconnect_attempts = 0             # 实现 v1.6 W21：404 重连退避计数（成功归零）
         self._reconnect_lock = threading.Lock()  # 修复 W17（二轮）：_reconnecting 并发无锁
         self.server_info = {}
         self.instructions = ''
@@ -163,6 +165,38 @@ class McpClient:
                              {'name': name, 'arguments': arguments or {}},
                              timeout=timeout if timeout is not None else CALL_TIMEOUT) or {}
 
+    # ============ v1.6 T12：MCP resources（text 优先；blob 落盘编排在 service 层）============
+    RESOURCE_PAGE_LIMIT = 100      # resources/list 游标翻页上限（防流氓服务器死循环）
+
+    def list_resources(self) -> list:
+        """resources/list 跟随 nextCursor 直到为空，聚合 resources[]。
+
+        每项形状（规范）：{uri, name?, title?, description?, mimeType?, size?,
+        annotations?}——annotations 不可信原则沿用（readOnly 注解不当免检依据）。
+        服务器不支持 resources（-32601）时由调用方按「无资源」处理。
+        """
+        resources = []
+        cursor = None
+        for _ in range(self.RESOURCE_PAGE_LIMIT):
+            params = {}
+            if cursor:
+                params['cursor'] = cursor
+            result = self._request('resources/list', params, timeout=LIST_TIMEOUT) or {}
+            resources.extend(result.get('resources') or [])
+            cursor = result.get('nextCursor')
+            if not cursor:
+                break
+        return resources
+
+    def read_resource(self, uri: str) -> dict:
+        """resources/read：返回 {contents: [{uri, mimeType?, text?|blob?}]}。
+
+        text 类（mimeType text/* 或 JSON）内容在 text 字段；blob 类为 base64
+        （blob 字段）——截断落盘 toolcache 与 read_more 路径由 mcp_service 编排。
+        """
+        return self._request('resources/read', {'uri': str(uri or '')},
+                            timeout=LIST_TIMEOUT) or {}
+
     def ping(self) -> dict:
         return self._request('ping', {}, timeout=PING_TIMEOUT if PING_TIMEOUT is not None else 15) or {}
 
@@ -216,8 +250,17 @@ class McpClient:
                 if owner:
                     try:
                         self._log.info('HTTP 会话过期（404），重新握手后重试')
+                        # 实现 v1.6 W21：404 重连走退避序列（reconnect_backoff_delays
+                        # 1s/2s/4s，连续失败递增、握手成功后归零）——防服务端周期性
+                        # 回收会话时的重连风暴（原立即重连无退避）
+                        delays = reconnect_backoff_delays()
+                        idx = min(self._reconnect_attempts, len(delays) - 1)
+                        self._reconnect_attempts += 1
+                        if delays[idx] > 0:
+                            time.sleep(delays[idx])
                         self._transport.reset_session()
                         self._reconnect()
+                        self._reconnect_attempts = 0
                     except Exception as e2:
                         raise McpProtocolError(-1, 'HTTP 重连后重试失败: %s' % e2)
                     finally:

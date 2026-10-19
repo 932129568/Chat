@@ -295,9 +295,22 @@ class _DavHandler(BaseHTTPRequestHandler):
         return self.headers.get('Authorization') == 'Basic ' + \
             __import__('base64').b64encode(b'u:p').decode()
 
+    def _deny(self):
+        """401 前必须先读净请求体——否则服务端（HTTP/1.0，响应后即关连接）
+        在客户端仍在写 body 时 close，客户端踩 WinError 10053（连接被重置）
+        而非收到 401（回环竞态，~20% 复现；QA 修复）。"""
+        try:
+            ln = int(self.headers.get('Content-Length') or 0)
+            if ln > 0:
+                self.rfile.read(ln)
+        except Exception:
+            pass
+        self.send_response(401)
+        self.end_headers()
+
     def do_PUT(self):
         if not self._authorized():
-            self.send_response(401); self.end_headers(); return
+            self._deny(); return
         rel = self.path.lstrip('/')
         ln = int(self.headers.get('Content-Length') or 0)
         data = self.rfile.read(ln) if ln else b''
@@ -311,7 +324,7 @@ class _DavHandler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         if not self._authorized():
-            self.send_response(401); self.end_headers(); return
+            self._deny(); return
         rel = self.path.lstrip('/')
         p = self._fs(rel)
         if not os.path.isfile(p):
@@ -325,7 +338,7 @@ class _DavHandler(BaseHTTPRequestHandler):
 
     def do_MKCOL(self):
         if not self._authorized():
-            self.send_response(401); self.end_headers(); return
+            self._deny(); return
         rel = self.path.strip('/')
         p = self._fs(rel)
         if os.path.isdir(p):
@@ -336,7 +349,7 @@ class _DavHandler(BaseHTTPRequestHandler):
 
     def do_PROPFIND(self):
         if not self._authorized():
-            self.send_response(401); self.end_headers(); return
+            self._deny(); return
         rel = self.path.strip('/')
         p = self._fs(rel)
         exists = os.path.isdir(p) or os.path.isfile(p)

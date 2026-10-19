@@ -135,6 +135,11 @@ async function loadAll() {
   try { connectLoadFromConfig(cfg); } catch (e) { console.warn('连接与模型回填失败', e); }
   try { loadLocalUI(cfg); } catch (e) {}   // v1.5 本地专属项（ctx 覆盖 / 工具调用；local_* 键回填）
   try { await loadGuardConfig(); } catch (e) {}
+  // 实现 v1.6 T6：沙箱设置面板 + 状态灯（加载配置/状态；失败不阻塞启动）
+  try { await loadSandboxPanel(); } catch (e) {}
+  // 实现 v1.6 T11/T13：左侧主导航引导 + 空态引导 + 头部状态区 + 通知中心 + DND 回填
+  try { loadDndSetting(); } catch (e) {}
+  try { navInit(); } catch (e) {}
   document.getElementById('searchEngineWrap').style.display = cfg.enable_search ? 'flex' : 'none';
   updateLabels();
   CS.syncAll();
