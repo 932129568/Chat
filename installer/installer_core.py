@@ -1,0 +1,353 @@
+# -*- coding: utf-8 -*-
+"""Harbor 安装器核心逻辑（v1.7.0 安装体验重构）。
+
+设计依据（外部调研 2026-10-19，[外]）：
+- 每用户安装到 %LOCALAPPDATA%\\Programs\\Harbor——无需 UAC、自动更新可原地替换
+  （positioniseverything / strath.ac.uk / gitcode Zen 案例：Program Files 会阻碍自更新）；
+- 每用户快捷方式放 %APPDATA%\\...\\Start Menu\\Programs（勿用 ProgramData 全用户位）；
+- 注册表写 HKCU 卸载项（每用户，NoModify/NoRepair）；
+- 标准向导步序：欢迎 → 目录选择 → 进度 → 完成（运行选项）。
+
+本模块零第三方依赖（tkinter/winreg/ctypes/subprocess 全 stdlib），
+GUI（installer_gui）与静默模式（main）共用；全部 IO 可无头单测。
+"""
+import ctypes
+import hashlib
+import json
+import os
+import shutil
+import subprocess
+import sys
+import time
+
+APP_NAME = 'Harbor'
+UNINSTALLER_NAME = 'Uninstall.exe'
+
+# ---------------- 版本与路径 ----------------
+
+def app_version():
+    """单一数据源：VERSION 文件（frozen 时在 _MEIPASS，开发时在仓库根）。"""
+    here = os.path.dirname(os.path.abspath(__file__))
+    candidates = []
+    if getattr(sys, 'frozen', False):
+        candidates.append(os.path.join(sys._MEIPASS, 'VERSION'))
+    candidates.append(os.path.join(here, '..', 'VERSION'))
+    candidates.append(os.path.join(here, 'VERSION'))
+    for p in candidates:
+        try:
+            with open(p, 'r', encoding='utf-8') as f:
+                v = f.read().strip()
+                if v:
+                    return v
+        except OSError:
+            continue
+    return '0.0.0'
+
+
+def default_install_dir():
+    """%LOCALAPPDATA%\\Programs\\Harbor（每用户标准位，无 UAC）。"""
+    local = os.environ.get('LOCALAPPDATA') or os.path.expanduser('~\\AppData\\Local')
+    return os.path.join(local, 'Programs', APP_NAME)
+
+
+def payload_path():
+    """Harbor.exe 载荷：frozen 时内嵌于 payload/，开发时取 dist/。"""
+    if getattr(sys, 'frozen', False):
+        p = os.path.join(sys._MEIPASS, 'payload', 'Harbor.exe')
+        if os.path.exists(p):
+            return p
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    return os.path.join(root, 'dist', 'Harbor.exe')
+
+
+def uninstaller_payload_path():
+    """卸载程序载荷（与安装器同批构建，frozen 时内嵌于 uninstall/）。
+
+    注意：spec 的 datas 元组目标只决定目录，文件名保持源文件名
+    （dist/Harbor-Uninstall.exe）——故 frozen 路径必须用带前缀的名字。"""
+    if getattr(sys, 'frozen', False):
+        p = os.path.join(sys._MEIPASS, 'uninstall', 'Harbor-Uninstall.exe')
+        if os.path.exists(p):
+            return p
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    return os.path.join(root, 'dist', 'Harbor-Uninstall.exe')
+
+
+def start_menu_dir():
+    appdata = os.environ.get('APPDATA') or os.path.expanduser('~\\AppData\\Roaming')
+    return os.path.join(appdata, 'Microsoft', 'Windows', 'Start Menu', 'Programs')
+
+
+def desktop_dir():
+    return os.path.join(os.path.expanduser('~'), 'Desktop')
+
+
+# ---------------- 环境探测 ----------------
+
+def free_space_mb(path):
+    try:
+        free = ctypes.c_ulonglong(0)
+        ctypes.windll.kernel32.GetDiskFreeSpaceExW(
+            ctypes.c_wchar_p(path), None, None, ctypes.byref(free))
+        return int(free.value // (1024 * 1024))
+    except Exception:
+        return -1
+
+
+def check_target(path):
+    """目标目录体检。返回 (ok, warn, need_admin)。
+
+    warn 非空 = 可安装但需提示（如选 Program Files 会影响自动更新）；
+    need_admin=True 时 warn 说明原因（Zen 案例：系统级目录阻碍自更新 [外]）。
+    """
+    path = os.path.abspath(path)
+    low = path.lower().replace('/', '\\')
+    need_admin = (low.startswith(os.environ.get('SYSTEMROOT', 'C:\\WINDOWS').lower())
+                  or '\\program files' in low or '\\windows' in low)
+    warn = None
+    if need_admin:
+        warn = ('所选目录位于系统保护区（Program Files/Windows），写入需要管理员权限，'
+                '且日后自动更新可能因权限不足而失败。建议使用默认的每用户目录。')
+    try:
+        os.makedirs(path, exist_ok=True)
+        probe = os.path.join(path, '.harbor-write-test')
+        with open(probe, 'w') as f:
+            f.write('ok')
+        os.remove(probe)
+    except OSError as e:
+        return False, ('目录不可写入：%s' % e), need_admin
+    return True, warn, need_admin
+
+
+def is_app_running():
+    """Harbor 是否在运行（tasklist 探测，无第三方依赖）。"""
+    try:
+        out = subprocess.run(['tasklist', '/FI', 'IMAGENAME eq Harbor.exe', '/NH'],
+                             capture_output=True, timeout=10,
+                             creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+        return b'harbor.exe' in (out.stdout or b'').lower()
+    except Exception:
+        return False
+
+
+# ---------------- 快捷方式 / 注册表 ----------------
+
+def _ps_escape(s):
+    return str(s).replace("'", "''")
+
+
+def create_shortcut(lnk_path, target, work_dir=None, icon=None, description=APP_NAME):
+    """创建 .lnk（WScript.Shell COM，经 PowerShell 调用——零依赖）。
+
+    返回 True/False；PowerShell 缺失等非关键失败不炸安装（调用方记 warning）。
+    """
+    lnk_path = os.path.abspath(lnk_path)
+    os.makedirs(os.path.dirname(lnk_path), exist_ok=True)
+    ps = ("$s=(New-Object -COMObject WScript.Shell).CreateShortcut('%s');"
+          "$s.TargetPath='%s';$s.WorkingDirectory='%s';$s.IconLocation='%s';"
+          "$s.Description='%s';$s.Save()") % (
+        _ps_escape(lnk_path), _ps_escape(os.path.abspath(target)),
+        _ps_escape(work_dir or os.path.dirname(os.path.abspath(target))),
+        _ps_escape(icon or os.path.abspath(target)), _ps_escape(description))
+    try:
+        r = subprocess.run(
+            ['powershell', '-NoProfile', '-ExecutionPolicy', 'Bypass',
+             '-WindowStyle', 'Hidden', '-Command', ps],
+            capture_output=True, timeout=20,
+            creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+        return r.returncode == 0 and os.path.exists(lnk_path)
+    except Exception:
+        return False
+
+
+def remove_shortcut(lnk_path):
+    try:
+        if os.path.exists(lnk_path):
+            os.remove(lnk_path)
+            return True
+    except OSError:
+        pass
+    return False
+
+
+_UNINSTALL_KEY = r'Software\Microsoft\Windows\CurrentVersion\Uninstall\Harbor'
+
+
+def register_uninstall(install_dir, version, uninstall_exe,
+                       test_root=None, estimated_mb=0):
+    """HKCU 卸载项（每用户，Add/Remove Programs 可见）。test_root 供单测隔离。"""
+    import winreg
+    key_path = test_root or _UNINSTALL_KEY
+    with winreg.CreateKey(winreg.HKEY_CURRENT_USER, key_path) as k:
+        winreg.SetValueEx(k, 'DisplayName', 0, winreg.REG_SZ, '%s %s' % (APP_NAME, version))
+        winreg.SetValueEx(k, 'DisplayVersion', 0, winreg.REG_SZ, version)
+        winreg.SetValueEx(k, 'Publisher', 0, winreg.REG_SZ, 'Harbor')
+        winreg.SetValueEx(k, 'InstallLocation', 0, winreg.REG_SZ, install_dir)
+        winreg.SetValueEx(k, 'UninstallString', 0, winreg.REG_SZ,
+                          '"%s"' % os.path.abspath(uninstall_exe))
+        winreg.SetValueEx(k, 'DisplayIcon', 0, winreg.REG_SZ,
+                          os.path.join(install_dir, 'Harbor.exe') + ',0')
+        if estimated_mb:
+            winreg.SetValueEx(k, 'EstimatedSize', 0, winreg.REG_DWORD, int(estimated_mb * 1024))
+        winreg.SetValueEx(k, 'NoModify', 0, winreg.REG_DWORD, 1)
+        winreg.SetValueEx(k, 'NoRepair', 0, winreg.REG_DWORD, 1)
+
+
+def unregister_uninstall(test_root=None):
+    import winreg
+    try:
+        winreg.DeleteKey(winreg.HKEY_CURRENT_USER, test_root or _UNINSTALL_KEY)
+        return True
+    except OSError:
+        return False
+
+
+# ---------------- 安装 / 卸载 ----------------
+
+def _sha256(path):
+    h = hashlib.sha256()
+    with open(path, 'rb') as f:
+        for chunk in iter(lambda: f.read(1024 * 1024), b''):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def install(target, progress_cb=None, desktop_shortcut=True, start_menu=True,
+            uninstaller_src=None):
+    """执行安装。返回 {'ok':bool, 'install_dir':…, 'warnings':[…]}。
+
+    progress_cb(step, total, msg) 供 GUI 进度条/静默日志。
+    """
+    warnings = []
+    target = os.path.abspath(target)
+    total = 5
+
+    def cb(i, msg):
+        if progress_cb:
+            progress_cb(i, total, msg)
+
+    ok, warn, need_admin = check_target(target)
+    if not ok:
+        return {'ok': False, 'error': warn, 'install_dir': target, 'warnings': []}
+    if warn:
+        warnings.append(warn)
+
+    payload = payload_path()
+    if not os.path.exists(payload):
+        return {'ok': False, 'error': '安装包损坏：找不到应用载荷 Harbor.exe',
+                'install_dir': target, 'warnings': warnings}
+    dest = os.path.join(target, 'Harbor.exe')
+
+    cb(1, '正在复制程序文件…')
+    try:
+        shutil.copy2(payload, dest)
+        if os.path.getsize(dest) != os.path.getsize(payload):
+            return {'ok': False, 'error': '文件复制不完整，请重试',
+                    'install_dir': target, 'warnings': warnings}
+    except OSError as e:
+        return {'ok': False, 'error': '复制失败：%s（请关闭运行中的 Harbor 后重试）' % e,
+                'install_dir': target, 'warnings': warnings}
+
+    cb(2, '正在安装卸载程序…')
+    uninst_src = uninstaller_src or uninstaller_payload_path()
+    if os.path.exists(uninst_src):
+        try:
+            shutil.copy2(uninst_src, os.path.join(target, UNINSTALLER_NAME))
+        except OSError as e:
+            warnings.append('卸载程序复制失败：%s' % e)
+    else:
+        warnings.append('未找到卸载程序载荷（开发模式跳过）')
+
+    cb(3, '正在创建快捷方式…')
+    made = 0
+    if start_menu:
+        if create_shortcut(os.path.join(start_menu_dir(), 'Harbor.lnk'), dest):
+            made += 1
+        else:
+            warnings.append('开始菜单快捷方式创建失败（不影响使用）')
+    if desktop_shortcut:
+        if create_shortcut(os.path.join(desktop_dir(), 'Harbor.lnk'), dest):
+            made += 1
+        else:
+            warnings.append('桌面快捷方式创建失败（不影响使用）')
+
+    cb(4, '正在注册系统信息…')
+    try:
+        register_uninstall(target, app_version(),
+                           os.path.join(target, UNINSTALLER_NAME),
+                           estimated_mb=os.path.getsize(dest) // (1024 * 1024))
+    except OSError as e:
+        warnings.append('系统注册失败：%s（将不出现在「应用与功能」列表）' % e)
+
+    cb(5, '正在写入安装清单…')
+    try:
+        with open(os.path.join(target, 'install.json'), 'w', encoding='utf-8') as f:
+            json.dump({'version': app_version(), 'install_dir': target,
+                       'installed_at': time.strftime('%Y-%m-%d %H:%M:%S'),
+                       'sha256': _sha256(dest)}, f, ensure_ascii=False, indent=2)
+    except OSError:
+        pass
+
+    return {'ok': True, 'install_dir': target, 'warnings': warnings,
+            'shortcuts': made, 'need_admin': need_admin}
+
+
+def read_install_manifest(install_dir):
+    try:
+        with open(os.path.join(install_dir, 'install.json'), 'r', encoding='utf-8') as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return None
+
+
+def _rmtree_retry(path, retries=3):
+    for i in range(retries):
+        try:
+            shutil.rmtree(path)
+            return True
+        except OSError:
+            if is_app_running():
+                time.sleep(1.0)   # 等用户关应用
+                continue
+            time.sleep(0.3)
+    return not os.path.exists(path)
+
+
+def uninstall(install_dir, purge_data=False, progress_cb=None):
+    """卸载：删快捷方式 + 注册表项 + 安装目录。默认保留用户数据（~/.glm-chat）。"""
+    warnings = []
+    install_dir = os.path.abspath(install_dir)
+    total = 4
+
+    def cb(i, msg):
+        if progress_cb:
+            progress_cb(i, total, msg)
+
+    if is_app_running():
+        return {'ok': False,
+                'error': 'Harbor 正在运行，请先退出后再卸载。',
+                'install_dir': install_dir}
+
+    cb(1, '正在移除快捷方式…')
+    remove_shortcut(os.path.join(start_menu_dir(), 'Harbor.lnk'))
+    remove_shortcut(os.path.join(desktop_dir(), 'Harbor.lnk'))
+
+    cb(2, '正在清理系统注册信息…')
+    if not unregister_uninstall():
+        warnings.append('注册表卸载项清理失败（可手动删除）')
+
+    cb(3, '正在删除程序文件…')
+    if os.path.isdir(install_dir):
+        if not _rmtree_retry(install_dir):
+            warnings.append('部分文件未能删除（可能被占用）：%s' % install_dir)
+
+    cb(4, '正在处理用户数据…')
+    if purge_data:
+        data_dir = os.path.join(os.path.expanduser('~'), '.glm-chat')
+        if os.path.isdir(data_dir):
+            if not _rmtree_retry(data_dir):
+                warnings.append('用户数据目录未能完全删除：%s' % data_dir)
+    else:
+        warnings.append('用户数据（配置/会话/密钥）保留在 ~/.glm-chat，未删除。')
+
+    return {'ok': True, 'install_dir': install_dir, 'warnings': warnings}
