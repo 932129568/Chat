@@ -16,7 +16,7 @@
 ### 2. 本地模型 `/api/tags` 元数据优化未经 UI 真机验证
 - **描述**：v1.5 新增的第四级元数据来源（Ollama `/api/tags` 权威声明优先于前缀猜测）在代码层验证通过（含真实 Ollama 实测：qwen3.5-9b → 256k + tools），但未经设置面板 UI 确认展示效果。
 - **影响范围**：本地模型元数据徽标显示（窗口值/tool 能力标注）
-- **处理状态**：🔴 未处理（代码就绪，重启后在「设置 → 本地模型 → 探测本机」可人工验证）
+- **处理状态**：🟡 一键销项就绪（2026-10-19 v1.6 遗留 L3）。目标机跑 `python deliverables/scripts/target_verify.py --ollama-url http://localhost:11434`，Ollama 项 PASS 即销项（脚本已覆盖 /api/tags + /api/show + 最小 generate 冷启动路径）。
 
 ### 3. 性能基准未实测
 - **描述**：MCP 连接池改造目标为「本地回环 P95 -40%」（roadmap §6），WebDAV 上传下载、本地模型冷/温启耗时均无真实基准数据。

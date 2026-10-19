@@ -553,34 +553,85 @@ def _parse_github_catalog(raw):
     return out
 
 
+def _parse_github_models_list(raw):
+    """实现 v1.6 遗留 L2：OpenAI 标准清单格式（{object:'list', data:[{id,...}]}）
+    解析 —— GitHub /inference/models 路径的兜底格式（外部源对目录接口的描述
+    在部分网络环境下不可信：实测无认证时 /catalog/models 返回 4 字节 OK，
+    疑似中间设备响应，故双路径互为备份，真实 PAT 场景多一条路）。"""
+    try:
+        data = json.loads(raw.decode('utf-8', 'replace'))
+    except Exception:
+        return []
+    if not isinstance(data, dict):
+        return []
+    items = data.get('data') if isinstance(data.get('data'), list) else data.get('models')
+    if not isinstance(items, list):
+        return []
+    out = []
+    for it in items:
+        if isinstance(it, str):
+            mid = it.strip()
+        elif isinstance(it, dict):
+            mid = str(it.get('id') or it.get('name') or '').strip()
+        else:
+            continue
+        if not mid:
+            continue
+        out.append({'id': mid, 'ctx_window': 0, 'modalities': []})
+    return out
+
+
 def github_catalog_models(base_url, timeout=8.0, api_key=''):
     """v1.6 T2：拉取 GitHub Models 目录 → 与 models() 同形态输出。
 
     返回 {ok, base_url, models:[{id, ctx_window, tool_capable, estimated,
     modalities}]}；失败 {ok: False, error: 人话}（401 scope 引导/429 限流/
     结构异常/空目录）。探测失败不阻塞调用方其他功能（由前端降级手输）。
+
+    实现 v1.6 遗留 L2：双路径——先试目录端点 /catalog/models（T2 原路径），
+    失败（网络错误/结构不符）再试 OpenAI 标准清单 {inference_base}/models；
+    两者皆败才返回降级信号（前端热门兜底 + 手输）。两路 Bearer 鉴权口径一致。
     """
-    url = _github_catalog_url(base_url)
-    if not url:
-        return {'ok': False, 'error': '缺少 Base URL'}
     headers = {'Accept': 'application/json'}
     token = auth_header_value(api_key)
     if token:
         headers['Authorization'] = 'Bearer ' + token
-    try:
-        req = urllib.request.Request(url, method='GET', headers=headers)
-        with urlopen_no_redirect(req, timeout=timeout) as resp:
-            raw = resp.read(512 * 1024)
-    except Exception as e:
-        return {'ok': False, 'error': _github_catalog_error(e)}
-    entries = _parse_github_catalog(raw)
-    if not entries:
-        return {'ok': False,
-                'error': '未能解析 GitHub 模型目录（响应结构异常或无 provider/model 格式模型，接口可能已变更）'}
+    # 路径 1：目录端点（外部核实格式 {models:[{id,name,context_window,modalities}]}）
+    cat_url = _github_catalog_url(base_url)
+    if cat_url:
+        try:
+            req = urllib.request.Request(cat_url, method='GET', headers=headers)
+            with urlopen_no_redirect(req, timeout=timeout) as resp:
+                raw = resp.read(512 * 1024)
+            entries = _parse_github_catalog(raw)
+            if entries:
+                return _github_catalog_ok(base_url, entries)
+        except Exception:
+            pass          # 落到路径 2（错误信息由路径 2 统一出）
+    # 路径 2：OpenAI 标准清单 {inference_base}/models
+    base = normalize_base_url(base_url) or str(base_url or '').rstrip('/')
+    if base:
+        list_url = base + '/models'
+        try:
+            req = urllib.request.Request(list_url, method='GET', headers=headers)
+            with urlopen_no_redirect(req, timeout=timeout) as resp:
+                raw = resp.read(512 * 1024)
+            entries = _parse_github_models_list(raw)
+            if entries:
+                return _github_catalog_ok(base_url, entries)
+            return {'ok': False,
+                    'error': 'GitHub 模型清单为空或结构不符（%s），可手动输入模型名（provider/model 格式，如 openai/gpt-4o）' % list_url}
+        except Exception as e:
+            return {'ok': False, 'error': _github_catalog_error(e)}
+    return {'ok': False, 'error': '缺少 Base URL'}
+
+
+def _github_catalog_ok(base_url, entries):
+    """实现 v1.6 遗留 L2：目录/清单解析成功 → 统一输出形态（与 models() 对齐）。"""
     return {'ok': True, 'base_url': normalize_base_url(base_url),
             'models': [dict({'id': e['id'], 'ctx_window': e['ctx_window'],
                              'tool_capable': True, 'estimated': False,
-                             'modalities': e['modalities']}) for e in entries]}
+                             'modalities': e.get('modalities') or []}) for e in entries]}
 
 
 def test_local_endpoint(base_url, model, timeout=30):

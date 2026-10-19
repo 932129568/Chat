@@ -60,8 +60,31 @@ function humanizeGithub429(headers) {
   return null;
 }
 
+/* 实现 v1.6 遗留 L1：真实端点错误体校准（2026-10-19 主理人真机探测取证）——
+ * DeepSeek 真 401 体：{"error":{"message":"Authentication Fails, Your api key:
+ * ****e000 is invalid (request_id: 37dfc259-...)","type":"authentication_error"}}
+ * GLM 真 401 体：{"error":{"code":"1000","message":"身份验证失败。"}}
+ * 通用 401 文案太泛，这两个分支给出「哪家错 + request_id 可定位」。
+ * 注意：DeepSeek 错误体里 "invalid" 在 "key" 之后，通用表 invalid.*key 匹配不到，
+ * 必须靠本分支的 Authentication Fails 特征命中。 */
+function humanizeAuthError(raw) {
+  const rid = /request_id[":\s]+([0-9a-zA-Z-]{8,})/i.exec(raw);
+  const idTail = rid ? '\n（request_id: ' + rid[1] + '，排查时一并向官方提供可快速定位）' : '';
+  if (/Authentication Fails/i.test(raw)) {
+    return 'API Key 无效（DeepSeek 鉴权失败）：请检查设置中的 Key 是否正确、是否已启用。' + idTail;
+  }
+  if (/身份验证失败/.test(raw) || /"code"\s*:\s*"?1000"?/.test(raw)) {
+    return 'API Key 无效（GLM 平台错误码 1000 = 鉴权失败）：请检查设置中的 Key 是否正确、是否属于所选服务商。' + idTail;
+  }
+  return null;
+}
+
 function humanizeApiError(msg, isLocal, headers) {
   const raw = String(msg || '');
+  // 实现 v1.6 遗留 L1：DeepSeek/GLM 真错误体特征优先于通用 401 表（仅云端路径；
+  // local 模式让位本地表——Ollama 前的代理错误体罕见，免 Key 提示更贴切）
+  const auth = isLocal ? null : humanizeAuthError(raw);
+  if (auth) return auth + '\n\n（原始错误：' + raw.slice(0, 300) + '）';
   // 实现 v1.6 T3：429 且带响应头 → 先试 GitHub 频率/日额分支（云端路径；local 表优先）
   if (!isLocal && (/\b429\b/.test(raw) || /rate.?limit/i.test(raw))) {
     const gh = humanizeGithub429(headers);
