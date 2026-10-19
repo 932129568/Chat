@@ -649,8 +649,11 @@ body.dark .md-body :not(pre)>code{background:var(--chip-bg);color:#f87171;}
   animation:v4ToolBreathe var(--dur-breathe) ease-in-out infinite;}
 @keyframes v4ToolBreathe{0%,100%{opacity:.88}50%{opacity:1}}
 /* 修复 Bug B（2026-10-18）：flex 子项标签补 min-width:0+ellipsis，长命令/长路径不再被 overflow:hidden 无声裁切 */
-.tool-call-item>span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
-.tool-call-item .tc-dot{width:7px;height:7px;border-radius:50%;background:var(--primary);flex-shrink:0;
+/* 修复 M1（四轮）：选择器收窄到「最后一个子 span」（标签）——原 .tool-call-item>span
+   对所有直接子 span 施加 flex:1（basis:0），7px 圆点/spinner 被拉成半宽「胶囊」
+   （flex-basis:0% 使 width 失效）。圆点/加载圈显式不参与 flex 分配。 */
+.tool-call-item>span:last-child{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.tool-call-item .tc-dot{width:7px;height:7px;border-radius:50%;background:var(--primary);flex:0 0 auto;flex-shrink:0;
   transition:background-color var(--dur-comp) var(--ease-out-soft);}
 .tool-call-item.done .tc-dot{background:var(--ok);}
 .tool-call-item.fail .tc-dot{background:var(--err);}
@@ -664,7 +667,7 @@ body:not(.fx-off) .tool-call-item:not(.done):not(.fail)::after{content:"";positi
   transform:translateX(-100%);animation:toolSheen var(--dur-sheen) linear infinite;pointer-events:none;}
 @keyframes toolSheen{to{transform:translateX(100%)}}
 .tool-spinner{display:inline-block;width:11px;height:11px;border:2px solid var(--primary);
-  border-top-color:transparent;border-radius:50%;animation:spin .8s linear infinite;flex-shrink:0;}
+  border-top-color:transparent;border-radius:50%;animation:spin .8s linear infinite;flex:0 0 auto;flex-shrink:0;}
 @keyframes spin{to{transform:rotate(360deg)}}
 .toolchip{border:1px solid var(--border);border-radius:var(--radius-sm);margin:4px 0;
   background:var(--surface-2);overflow:hidden;font-size:12px;}
@@ -2088,11 +2091,16 @@ function toast(msg, type, opts) {
   }
   const box = _toastBox();
   // v4：队列溢出优先让最旧的走退场动画（无 close 句柄才直接移除）
-  while (box.children.length >= 5) {
+  // 修复 fe-H2（四轮）：原 while + old.close() 在动画模式下死循环——close() 的
+  // remove() 在 onAnimEnd 异步执行（≥140ms），同步循环内 children.length 永不下降，
+  // 第二轮起 __closing 幂等守卫直接 return，第 6 个 toast 冻结整个 UI（错误风暴
+  // 5~6 条并发完全可能）。改为单次判断 + 强制同步移除（溢出场景无需退场动画）。
+  if (box.children.length >= 5) {
     const old = box.firstChild;
-    if (old && old.close) old.close();
-    else if (old) box.removeChild(old);
-    else break;
+    if (old) {
+      if (old.close) { try { old.__closing = true; } catch (e) {} }
+      try { box.removeChild(old); } catch (e) {}
+    }
   }
   const t = document.createElement('div');
   t.className = 'toast toast-' + type;
@@ -2238,8 +2246,11 @@ function uiPrompt(opts) {
   // 修复 W22（二轮）：uiPrompt 复用全局模态队列——与 uiConfirm 并发时不再互相覆盖
   //（原绕过队列直开模态，可把挂起中的 uiConfirm 兜底吞掉）
   const run = () => new Promise(resolve => {
-    _uiPromptResolve = (v) => { _uiPromptResolve = null; resolve(v); };   // 修复 W22：登记兜底
+    // 修复 M2（四轮）：先取模态、后登记兜底——_modalRoot() 复用被外部占用的模态时会
+    // 调 _settlePendingModal（把刚登记的 resolve 立即按 null 收尾 = uiPrompt 自我取消，
+    // uiConfirm 同款问题 W22 修复时只改了 confirm 侧）。与 uiConfirm :171-173 顺序对齐。
     const m = _modalRoot();
+    _uiPromptResolve = (v) => { _uiPromptResolve = null; resolve(v); };   // 修复 W22：登记兜底
     m.innerHTML =
       '<div class="modal-mask"></div>' +
       '<div class="modal-card" role="dialog" aria-modal="true">' +
@@ -3673,8 +3684,25 @@ function shrinkAiCopy(c) {
   return c.slice(0, SHRINK_LEN.aiHead) + '\n…[旧回复已瘦身,原' + c.length + '字]…\n' +
     c.slice(-SHRINK_LEN.aiTail);
 }
+/** 剥离 __tool 内部标记（fe-H3/四轮）：豁免判定完成后调用——该字段是
+ * buildMessagesForAPI 为本模块透传的内部元数据，不得进 API 请求体
+ * （严格端点会拒未知字段）。仅对带标记的消息做浅拷贝，其余按引用原样返回。 */
+function _stripToolTags(msgs) {
+  let out = null;
+  for (let i = 0; i < msgs.length; i++) {
+    const m = msgs[i];
+    if (m && m.__tool !== undefined) {
+      if (!out) out = msgs.slice();
+      const c = Object.assign({}, m);
+      delete c.__tool;
+      out[i] = c;
+    }
+  }
+  return out || msgs;
+}
+
 function shrinkHistoryForApi(msgs) {
-  if (!Array.isArray(msgs) || msgs.length <= SHRINK.keepTail) return msgs;
+  if (!Array.isArray(msgs) || msgs.length <= SHRINK.keepTail) return _stripToolTags(msgs);
   const cut = msgs.length - SHRINK.keepTail;
   const out = msgs.slice();
   for (let i = 0; i < cut; i++) {
@@ -3686,7 +3714,7 @@ function shrinkHistoryForApi(msgs) {
       out[i] = Object.assign({}, m, { content: shrinkAiCopy(m.content) });
     }
   }
-  return out;
+  return _stripToolTags(out);
 }
 
 /**
@@ -4353,7 +4381,14 @@ function buildMessagesForAPI(msgs) {
   for (const m of msgs) {
     if (m.role === 'assistant' && !m.tool_calls && (m.content === null || m.content === '')) continue;
     const copy = { role: m.role };
-    if (m.role === 'tool') { copy.tool_call_id = m.tool_call_id; copy.content = m.content ?? ''; }
+    if (m.role === 'tool') {
+      copy.tool_call_id = m.tool_call_id; copy.content = m.content ?? '';
+      // 修复 fe-H3（四轮）：透传 __tool——原副本不带该字段，30-history-shrink 的
+      // read_file/read_more 豁免（m.__tool !== 'read_file'）对副本恒真，「原文永久
+      // 保留」承诺被后置瘦身破坏（AI 被禁止重读又拿不到原文，只能凭残片幻觉）。
+      // 该字段仅瘦身高层内部使用，shrinkHistoryForApi 出口处剥离、不进 API 请求体。
+      if (m.__tool !== undefined) copy.__tool = m.__tool;
+    }
     else if (m.role === 'assistant') {
       copy.content = typeof m.content === 'string' ? m.content : null;
       if (m.tool_calls && m.tool_calls.length) copy.tool_calls = m.tool_calls;
@@ -6483,14 +6518,20 @@ function streamSpeedText(totalChars, elapsedMs, completionTokens) {
 
 /* 修复 S3（三轮）：暂停/中止后把悬挂 tool_calls 配平——assistant.tool_calls 与 tool
  * 消息必须一一对应，否则会话被毒化、后续每轮 HTTP 400。暂停 break（工具批未跑完）
- * 与 AbortError 两条路径共用本函数（原只在 AbortError 分支内联处理）。 */
+ * 与 AbortError 两条路径共用本函数（原只在 AbortError 分支内联处理）。
+ * 修复 fe-H1（四轮）：原只检查「末条消息是否为带 tool_calls 的 assistant」——暂停的
+ * 主场景（部分批次已执行、末条是 tool 结果）守卫不成立、配平 no-op，会话仍被毒化。
+ * 改为回溯找最后一条 assistant 消息（无论其后有多少 tool 结果）再对 done 集配平。 */
 function fillMissingToolResults(s) {
-  const last = s.messages[s.messages.length - 1];
-  if (last && last.role === 'assistant' && last.tool_calls) {
-    const done = new Set(s.messages.filter(m => m.role === 'tool').map(m => m.tool_call_id));
-    last.tool_calls.forEach(t => {
+  for (let i = s.messages.length - 1; i >= 0; i--) {
+    const m = s.messages[i];
+    if (!m || m.role !== 'assistant') continue;
+    if (!m.tool_calls || !m.tool_calls.length) return;   // 最近一条 assistant 无工具调用 → 无悬挂
+    const done = new Set(s.messages.filter(x => x && x.role === 'tool').map(x => x.tool_call_id));
+    m.tool_calls.forEach(t => {
       if (!done.has(t.id)) s.messages.push({ role: 'tool', tool_call_id: t.id, content: '（用户已停止，未执行）' });
     });
+    return;
   }
 }
 
@@ -6891,7 +6932,11 @@ async function runAgentLoop(s, apiKey) {
             }
             if (shotState === 'sending') {
               shotState = 'idle'; pendingShots = [];
-              try { s.messages.push({ role: 'user', content: '[已向 AI 发送当前屏幕截图]' }); } catch (e) {}   // 修复 W25：原误写 text 字段，混入空 user 消息
+              // 修复 fe-[9]（四轮）：note 消息同时上屏（原只入库，live 视图与重渲染不一致）
+              try {
+                s.messages.push({ role: 'user', content: '[已向 AI 发送当前屏幕截图]' });
+                if (typeof addMessage === 'function') addMessage('user', '[已向 AI 发送当前屏幕截图]');
+              } catch (e) {}   // 修复 W25：原误写 text 字段，混入空 user 消息
             }
           }
         } catch (e) {}
@@ -6912,6 +6957,16 @@ async function runAgentLoop(s, apiKey) {
       for (const line of (pending ? [pending] : [])) handleSseLine(line);
       pending = '';
       _clearWaitTimer();   // 修复 B3：流正常结束清理等待态计时器
+      // 修复 M5（四轮）：截图状态机流结束兜底——原只在 usage 帧与 AbortError 两个窄口
+      // 收口；端点不发 usage chunk（Ollama 旧版忽略 stream_options）时 shotState 永卡
+      // 'sending'（截图永不发送也永不清理，工具结果却已告诉模型「将自动提供」）。
+      if (shotState === 'sending') {
+        shotState = 'idle'; pendingShots = [];
+        try {
+          s.messages.push({ role: 'user', content: '[已向 AI 发送当前屏幕截图]' });
+          if (typeof addMessage === 'function') addMessage('user', '[已向 AI 发送当前屏幕截图]');
+        } catch (e) {}
+      }
       if (_speedT0) _paintStreamSpeed(usage ? usage.completion_tokens : 0);   // 实现 v1.6 T10③：usage 精确值收口
 
       const toolCalls = Object.values(toolCallMap);
@@ -7219,23 +7274,28 @@ async function runAgentLoop(s, apiKey) {
       toolCalls.forEach(tc => taskUsed.add(tc.name));  // 回填已用工具，后续轮次保留
       s._readKeys = [...readFileSet];   // 跨任务持久化已读记录
 
-      const sig = JSON.stringify(toolCalls.map(tc => [tc.name, tc.argsStr]));
-      const n = recentSigs.length;
-      const alternating = n >= 3 && sig === recentSigs[n-2] && recentSigs[n-1] === recentSigs[n-3];
-      recentSigs.push(sig); if (recentSigs.length > 6) recentSigs.shift();
-      // 修复 建议㉛（三轮）：lastToolSig 为死变量（只写不读），删除
-      // v1.2 R4：循环熔断——同工具同参数 ×3（或交替模式）→ 暂停并询问，不再静默自动停止
-      const loopHit = registerToolSig(sig);
-      if (loopHit || alternating) {
-        showPausePanel(aiContent, s, 'loop', loopHit || { count: '交替', sig });
-        toast('检测到循环工具调用，已熔断暂停', 'err');
-        finished = true; break;
-      }
-      // v1.2 R4：连续 15 步无进展熔断
-      if (registerProgress(taskFacts.length, fullContent.length)) {
-        showPausePanel(aiContent, s, 'stall', {});
-        toast('连续多步无进展，已熔断暂停', 'warn');
-        finished = true; break;
+      // 修复 L4（四轮）：暂停后不再做熔断检测与进度记账——原停止后仍 registerToolSig
+      //（同签名此前已登记两次时，停止动作会误触发「循环熔断」暂停面板，与用户主动
+      // 停止语义重叠）、仍 registerProgress。sig 登记本身保留（下一任务新 deduper）。
+      if (!userStopped) {
+        const sig = JSON.stringify(toolCalls.map(tc => [tc.name, tc.argsStr]));
+        const n = recentSigs.length;
+        const alternating = n >= 3 && sig === recentSigs[n-2] && recentSigs[n-1] === recentSigs[n-3];
+        recentSigs.push(sig); if (recentSigs.length > 6) recentSigs.shift();
+        // 修复 建议㉛（三轮）：lastToolSig 为死变量（只写不读），删除
+        // v1.2 R4：循环熔断——同工具同参数 ×3（或交替模式）→ 暂停并询问，不再静默自动停止
+        const loopHit = registerToolSig(sig);
+        if (loopHit || alternating) {
+          showPausePanel(aiContent, s, 'loop', loopHit || { count: '交替', sig });
+          toast('检测到循环工具调用，已熔断暂停', 'err');
+          finished = true; break;
+        }
+        // v1.2 R4：连续 15 步无进展熔断
+        if (registerProgress(taskFacts.length, fullContent.length)) {
+          showPausePanel(aiContent, s, 'stall', {});
+          toast('连续多步无进展，已熔断暂停', 'warn');
+          finished = true; break;
+        }
       }
       const spent = sessionSpent(s).tokens;   // 修复 S8（二轮）：30 万提醒读单调计数器（压缩不归零）
       if (spent > 300000 && !s.__budgetWarned) {
@@ -7246,9 +7306,10 @@ async function runAgentLoop(s, apiKey) {
         aiContent.appendChild(div);
       }
       s.updatedAt = Date.now();
-      if (taskFacts.length > memFlushed) {   // 修复 W27：只追加本轮新增的增量事实
+      if (!userStopped && taskFacts.length > memFlushed) {   // 修复 W27：只追加本轮新增的增量事实；L4（四轮）：暂停后不再发记忆 RPC
         try { await callApi('append_memory', [JSON.stringify({ text: taskFacts.slice(memFlushed, memFlushed + 20).join('；') })]); window.__memCache = await callApi('get_memory', []); } catch (e) {}
-        memFlushed = taskFacts.length;
+        // 修复 fe-[10]（四轮）：单轮新增 >20 条时原直接跳到末尾（20 条之后永久漏发）
+        memFlushed = Math.min(memFlushed + 20, taskFacts.length);
       }
       renderSessionList();
     }
@@ -7269,6 +7330,9 @@ async function runAgentLoop(s, apiKey) {
   } catch (err) {
     // 修复 S6（二轮）：请求失败/abort 后截图不能永久失陷——复位 shotState 让下轮可重发
     if (shotState === 'sending') shotState = 'idle';
+    // 修复 M5（四轮）：非 abort 失败路径也清过期截图——原仅 AbortError 清，失败后
+    // pendingShots 残留会被附到下一个无关请求（[系统附图] 误导模型）
+    if (pendingShots.length) pendingShots = [];
     if (_localWaitTimer) { clearInterval(_localWaitTimer); _localWaitTimer = null; }   // 修复 S15（三轮）：AbortError 路径也清本地等待定时器（原只清 else 分支，1s 定时器永久存活劫持状态行）
     if (err.name === 'AbortError') {
       // 修复 建议㉕（三轮）：abort/停止时清 pendingShots——原只复位 shotState，
