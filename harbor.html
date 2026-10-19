@@ -3115,6 +3115,9 @@ async function mcpToggleServer(name, on) {
 async function mcpDeleteServer(name) {
   // 修复 ⑱（三轮）：busy 守卫——原无保护，双击删除按钮会弹两个确认框
   // （第一个删除后第二个对已删名再确认，误导用户）
+  // 修复（四轮）：_busy 由 mcpToggleServer 惰性初始化，未经开关直接点删除时
+  // 为 undefined 致 .has 抛 TypeError——使用前确保初始化
+  mcpToggleServer._busy = mcpToggleServer._busy || new Set();
   if (mcpToggleServer._busy.has(name)) return;
   mcpToggleServer._busy.add(name);
   try {
@@ -5055,7 +5058,9 @@ async function connectIdentifyNow(fromClick) {
     return;
   }
   const key = connectApiKeyInput();
-  if (!key && !meta.local && meta.glm_capable && fromClick) {
+  // 修复（四轮）：前置门统一按 key_required 判据——原只认 glm_capable，DeepSeek/
+  // Moonshot/Qwen/GitHub Models/自定义端点空 Key 会直发真实请求 401 才报错
+  if (!key && meta.key_required && fromClick) {
     toast('请先填写 API Key，再获取模型清单', 'warn');
     connectEnterManual();
     return;
@@ -5143,7 +5148,7 @@ async function connectTestNow() {
   try {
     if (!base) { done(false, '请先填写 Base URL'); return; }
     if (!/^https?:\/\//i.test(base)) { done(false, 'Base URL 需以 http:// 或 https:// 开头'); return; }
-    if (!meta.local && meta.glm_capable && !key) { done(false, '请先填写 API Key'); return; }
+    if (meta.key_required && !key) { done(false, '请先填写 API Key'); return; }   // 修复（四轮）：统一 key_required 判据
     if (!model) { done(false, '请先选择或手动输入模型名'); return; }
     const local = !!meta.local;
     const raw = await callApi('test_provider_endpoint',
@@ -5464,14 +5469,18 @@ if (typeof document !== 'undefined' && document.readyState === 'loading') {
 } else if (typeof document !== 'undefined') {
   loadWebdavConfigNow();
 }
-/** 保存配置（webdav.json，DPAPI 加密 password；导出/恢复前必须先保存）。 */
+/** 保存配置（webdav.json，DPAPI 加密 password；导出/恢复前必须先保存）。
+ * 修复（四轮）：返回 true/false 成败——原吞掉失败只 toast，导出/恢复会继续用
+ * 后端旧配置执行（备份传到用户以为已改掉的旧服务器）。 */
 async function saveWebdavConfigNow() {
   const btn = document.getElementById('webdavSaveBtn');
   if (btn) { btn.disabled = true; btn.textContent = '保存中…'; }
   webdavSetStatus('', true);
+  let ok = false;
   try {
     const r = JSON.parse(await callApi('webdav_save_config', [JSON.stringify(webdavCollectConfig())]));
     if (r.ok) {
+      ok = true;
       webdavMarkSnapshot();   // 修复 W35（三轮）：保存成功即刷新脏检查基线
       if (r.warning) toast(r.warning, 'warn', { stay: true });   // W17：DPAPI 兜底明文告警
       webdavSetStatus('✓ 配置已保存到本机 webdav.json（密码已加密）', true);
@@ -5486,6 +5495,7 @@ async function saveWebdavConfigNow() {
   } finally {
     if (btn) { btn.disabled = false; btn.textContent = '保存配置'; }
   }
+  return ok;
 }
 async function webdavTestNow() {
   const btn = document.getElementById('webdavTestBtn');
@@ -5513,7 +5523,7 @@ async function webdavExportNow() {
   // 没点保存时静默用旧配置（用户以为改了其实没生效）。导出前自动带上未保存改动
   try {
     if (typeof webdavFormDirty === 'function' && webdavFormDirty()) {
-      await saveWebdavConfigNow();
+      if (!(await saveWebdavConfigNow())) return;   // 修复（四轮）：保存失败即中止，不用旧配置导出
     }
   } catch (e) {}
   if (btn) { btn.disabled = true; btn.textContent = '上传中…'; }
@@ -5546,7 +5556,7 @@ async function webdavRestoreNow() {
   // 修复 W35（三轮）：同导出——恢复前自动保存未保存的表单改动（地址/账号）
   try {
     if (typeof webdavFormDirty === 'function' && webdavFormDirty()) {
-      await saveWebdavConfigNow();
+      if (!(await saveWebdavConfigNow())) return;   // 修复（四轮）：保存失败即中止，不从旧来源恢复
     }
   } catch (e) {}
   // 修复 S13（三轮）：数据覆盖级操作补二次确认（config+sessions+audit 全覆盖，
@@ -5685,6 +5695,7 @@ async function wsQuickRefresh() {
   if (effTag && effPath) {
     try {
       const eff = JSON.parse(await callApi('get_effective_ws', []) || '{}');
+      if (seq !== _wsqSeq) return;   // 修复（四轮）：第二个 await 后复检——期间切换工作区时旧响应不得覆写
       effTag.textContent = eff.source === 'session' ? '会话' : eff.source === 'global' ? '全局' : '未启用';
       effPath.textContent = eff.ws || '（未绑定）';
     } catch (e) {}
@@ -6925,6 +6936,7 @@ async function runAgentLoop(s, apiKey) {
             const _cached = usage.prompt_tokens_details?.cached_tokens || 0;
             const _pr = usage.prompt_tokens || 0;
             window.__hitRate = _pr ? Math.round(_cached / _pr * 100) : 0;
+            if (typeof navRenderHeaderStatus === 'function') navRenderHeaderStatus();   // 修复（四轮）：命中率 chip 随轮次刷新
             if (_pr > 4000 && window.__hitRate < 30) {
               // v1.1.1：从 console 升级为界面可见（缓存命中约 3 折计费，命中率低等于多花钱）
               const _le = document.getElementById('liveTokenStat');
@@ -7816,6 +7828,10 @@ function updateBrandModel() {
   const ht = document.getElementById('headerTitle');
   if (bm) bm.textContent = txt;
   if (ht) ht.textContent = txt;
+  /* 修复（四轮）：模型切换后刷新头部状态区与空态引导（41-nav 只渲染一次会永久陈旧；
+   * 老「设置」入口配 Key 后空态引导不消失也靠这里兜底） */
+  if (typeof navRenderHeaderStatus === 'function') navRenderHeaderStatus();
+  if (typeof navUpdateEmptyGuide === 'function') navUpdateEmptyGuide();
 }
 
 /* ===== 75-token-stat.js ===== */
@@ -9399,6 +9415,7 @@ async function sendMessage() {
   const uEl = addMessage('user', displayText || '（发送附件）', displayExtra);
   if (text) addMsgActions(uEl, text, true);
   s.messages.push({ role: 'user', content: userContent });
+  if (typeof navUpdateEmptyGuide === 'function') navUpdateEmptyGuide();   // 修复（四轮）：首条消息发出后空态引导立即消失
   // 修复 UX-1/UX-3（v1.4）：live 消息也 stamp 下标（瘦身标记/搜索跳转用）。
   // dataset 防御：非 DOM 元素（测试桩/降级路径）时静默跳过，不抛错中断发送
   if (uEl && uEl.dataset) uEl.dataset.midx = s.messages.length - 1;

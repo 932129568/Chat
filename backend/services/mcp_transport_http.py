@@ -131,7 +131,7 @@ class HttpTransport:
             except Exception:
                 pass
             try:
-                detail = e.read().decode('utf-8', 'replace')[:200]
+                detail = e.read(64 * 1024).decode('utf-8', 'replace')[:200]   # 修复 N20（四轮）：错误体有界读
             except Exception:
                 detail = ''
             raise HttpTransportError('HTTP %s: %s' % (e.code, detail or e.reason), code=e.code)
@@ -187,7 +187,19 @@ class HttpTransport:
                     self._session_id = sid
             except Exception:
                 pass
-            return self._consume_response(resp, timeout, obj, from_pool=True)
+            # 修复 N1（四轮）：_consume_response 抛 HttpTransportError 时（超 32MB 上限/
+            # SSE watchdog 超时/排干失败），连接里可能有未读残留——原 except 分支保持
+            # healthy=True 归还脏连接，复用后下一请求把残留字节当响应解析（回环实证）。
+            # 保守口径：消费路径任何异常一律按不健康归还（宁关勿脏）。
+            _status = {}
+            try:
+                return self._consume_response(resp, timeout, obj, from_pool=True, status=_status)
+            except HttpTransportError:
+                healthy = False
+                raise
+            finally:
+                if _status.get('dirty'):
+                    healthy = False
         except HttpTransportError:
             raise
         except Exception as e:
@@ -195,11 +207,13 @@ class HttpTransport:
             raise HttpTransportError('请求失败: %s' % e)
         finally:
             self._pool.release(conn, healthy=healthy)
-    def _consume_response(self, resp, timeout, obj, from_pool=False):
+    def _consume_response(self, resp, timeout, obj, from_pool=False, status=None):
         """响应消费（池化/urllib 双路径共用）：SSE 增量读 / JSON 解析 / 空体处理。
 
         urllib addinfourl 与 http.client.HTTPResponse 均有 .headers，读取口径统一。
-        Mcp-Session-Id 回收在此共用（成功路径；错误路径在各 post_* 内回收）。"""
+        Mcp-Session-Id 回收在此共用（成功路径；错误路径在各 post_* 内回收）。
+        status（N7/四轮）：池化路径传入的可写字典——SSE 排干未完成时置 status['dirty']，
+        _post_pooled 据此按不健康归还连接。"""
         try:
             sid = resp.headers.get('Mcp-Session-Id') if resp.headers else None
             if sid:
@@ -211,7 +225,7 @@ class HttpTransport:
         except Exception:
             ctype = ''
         if 'text/event-stream' in ctype.lower():
-            return self._read_sse(resp, timeout, obj)   # 修复 S14：流式增量读
+            return self._read_sse(resp, timeout, obj, status=status)   # 修复 S14：流式增量读
         try:
             if from_pool:
                 raw = resp.read(_MAX_RESP_BYTES + 1)    # 修复 S1：防 OMM 上限
@@ -237,10 +251,12 @@ class HttpTransport:
             raise HttpTransportError('响应不是合法 JSON: %s' % e)
 
     # ---- SSE（S14/W16）----
-    def _read_sse(self, resp, timeout, req_obj):
+    def _read_sse(self, resp, timeout, req_obj, status=None):
         """增量读 SSE 流：拿到本次请求的响应帧即返回；通知/服务器请求帧上交 on_frame。
 
         watchdog：整体时限 = timeout（keepalive 注释帧不能续命——修复 S14）。
+        修复 N6（四轮）：buf 增加容量上限（时间 watchdog 不防容量，本地高速发送方
+        可在超时窗内灌满内存）；超限即断开。
         """
         deadline = time.monotonic() + max(1.0, float(timeout or 30))
         buf = b''
@@ -259,6 +275,8 @@ class HttpTransport:
             if not chunk:
                 break                            # EOF
             buf += chunk
+            if len(buf) > _MAX_RESP_BYTES:       # 修复 N6（四轮）：单事件容量上限
+                raise HttpTransportError('SSE 事件超过 32MB 上限（疑似病态服务器），已断开')
             # 按空行切事件（兼容 \n\n 与 \r\n\r\n）
             while True:
                 ev, buf = self._pop_event(buf)
@@ -278,7 +296,10 @@ class HttpTransport:
                     # 连接里残留未读字节，归还连接池后下次复用必抛
                     # CannotSendRequest('Request-sent')（Streamable HTTP 主流形态必发，
                     # 两次回环实证；既有测试因 HTTP/1.0 桩不复用而漏检）
-                    self._drain_sse(resp, reader, deadline, req_obj)
+                    # 修复 N7（四轮）：排干改为短窗（≤2s）——MCP 规范允许服务器在响应帧后
+                    # 保持 SSE 流开启（后续推送通知），原「读到 EOF 或整体 deadline」使此类
+                    # 服务器每个请求固定干等 60s。短窗内排不干即按脏连接归还（宁关勿脏）。
+                    self._drain_sse(resp, reader, deadline, req_obj, status=status)
                     return frame
                 self._dispatch_frame(frame)      # 通知/服务器请求（W15）
         # EOF 兜底：缓冲区里可能还有末帧
@@ -293,20 +314,28 @@ class HttpTransport:
                 self._dispatch_frame(frame)
         raise HttpTransportError('SSE 响应无匹配 data 帧')
 
-    def _drain_sse(self, resp, reader, deadline, req_obj):
-        """修复 S6（三轮）：响应帧已取到，排干 SSE 剩余字节（继续 dispatch 途中帧，
-        不丢通知）后再归还连接池。残留未读字节会让复用连接报
-        CannotSendRequest('Request-sent')。上限 = 同一 watchdog deadline。"""
+    def _drain_sse(self, resp, reader, deadline, req_obj, status=None):
+        """修复 S6（三轮）+ N7（四轮）：响应帧已取到，短窗排干 SSE 剩余字节（继续
+        dispatch 途中帧，不丢通知）。修复 N1 残留：deadline 已耗尽时进入即退出（残留
+        一字节不排）——现改为：只要短窗内能读就继续，短窗耗尽仍未 EOF 时置
+        status['dirty']，由 _post_pooled 按不健康归还。容量上限同 N6。"""
         buf = b''
         try:
-            while time.monotonic() <= deadline:
+            drain_deadline = min(time.monotonic() + 2.0, deadline)
+            while time.monotonic() <= drain_deadline:
                 try:
                     chunk = reader(_SSE_CHUNK)
                 except Exception:
+                    if status is not None:
+                        status['dirty'] = True
                     return
                 if not chunk:
                     return                     # EOF：已排干
                 buf += chunk
+                if len(buf) > _MAX_RESP_BYTES:  # 修复 N6（四轮）：排干路径同容量上限
+                    if status is not None:
+                        status['dirty'] = True
+                    return
                 while True:
                     ev, buf = self._pop_event(buf)
                     if ev is None:
@@ -318,8 +347,12 @@ class HttpTransport:
                     if frame is None:
                         continue
                     self._dispatch_frame(frame)
+            # 短窗耗尽仍未 EOF（服务器保持流开启）：连接不可复用
+            if status is not None:
+                status['dirty'] = True
         except Exception:
-            pass   # 排干失败不升级：healthy 标记兜底，finally 里会正确归还
+            if status is not None:
+                status['dirty'] = True   # 排干异常：按脏连接归还
 
     @staticmethod
     def _pop_event(buf):

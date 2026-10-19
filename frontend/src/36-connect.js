@@ -650,7 +650,9 @@ async function connectIdentifyNow(fromClick) {
     return;
   }
   const key = connectApiKeyInput();
-  if (!key && !meta.local && meta.glm_capable && fromClick) {
+  // 修复（四轮）：前置门统一按 key_required 判据——原只认 glm_capable，DeepSeek/
+  // Moonshot/Qwen/GitHub Models/自定义端点空 Key 会直发真实请求 401 才报错
+  if (!key && meta.key_required && fromClick) {
     toast('请先填写 API Key，再获取模型清单', 'warn');
     connectEnterManual();
     return;
@@ -738,7 +740,7 @@ async function connectTestNow() {
   try {
     if (!base) { done(false, '请先填写 Base URL'); return; }
     if (!/^https?:\/\//i.test(base)) { done(false, 'Base URL 需以 http:// 或 https:// 开头'); return; }
-    if (!meta.local && meta.glm_capable && !key) { done(false, '请先填写 API Key'); return; }
+    if (meta.key_required && !key) { done(false, '请先填写 API Key'); return; }   // 修复（四轮）：统一 key_required 判据
     if (!model) { done(false, '请先选择或手动输入模型名'); return; }
     const local = !!meta.local;
     const raw = await callApi('test_provider_endpoint',

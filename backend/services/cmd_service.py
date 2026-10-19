@@ -125,11 +125,58 @@ def _dedup_token(t):
     return t
 
 
+def _strip_redirects(s):
+    """修复 H3（四轮）：剥未加引号的重定向子句（>nul / 2>&1 / >> "f.txt" 等）。
+    引号内的 > 不动（与 _unquoted_redirect 同判定域）——`del x.txt >nul` 与
+    `del x.txt` 归一为同一条命令。"""
+    import re as _re
+    out = []
+    i, n, q = 0, len(s), None
+    redir = _re.compile(r'\d*>>?\s*(?:"[^"]*"|\'[^\']*\'|\S+)')
+    while i < n:
+        ch = s[i]
+        if q:
+            out.append(ch)
+            if ch == q:
+                q = None
+            i += 1
+            continue
+        if ch in '"\'':
+            q = ch
+            out.append(ch)
+            i += 1
+            continue
+        m = redir.match(s, i)
+        if m:
+            i = m.end()
+            continue
+        out.append(ch)
+        i += 1
+    return ''.join(out)
+
+
 def dedup_key(norm):
-    """修复 S2（三轮）：去重身份键——在 subprocess_norm（结构归一，引号保留供
-    _is_write 重定向判定）之上做 token 级归一，语义等值变体同键。
-    与前端 60-agent-loop.js cmdDeduper 的键口径逐字一致（双层同构）。"""
-    return ' '.join(_dedup_token(t) for t in norm.split())
+    """修复 S2（三轮）+ H3（四轮）：去重身份键。
+    三轮：token 级归一（剥引号与 ./ .\\ 前缀），`del x.txt`/`del ./x.txt`/`del "x.txt"` 同键。
+    四轮（H3 实测 8 类变体绕过）：在 token 归一之上补结构归一——
+    ① 未引号重定向子句剥离（`del x.txt >nul` ≡ `del x.txt`）；
+    ② 分隔符 `| & ; ,` 与 CMD 脱字符 `^` 按 _is_write 同口径归一（`del x.txt;` ≡ `del x.txt`）；
+    ③ 行内注释截断（`del x.txt & rem 1` / PS `del x.txt # 1` ≡ `del x.txt`）。
+    与前端 60-agent-loop.js cmdDeduper 的键口径逐字一致（双层同构）。
+    已知边界（防呆级定位，不承诺全拦）：引号内空格形态 `del "x.txt "` 依赖 shell 级
+    tokenizer，不在本层处理。"""
+    import re as _re
+    s = _strip_redirects(norm)
+    s = s.replace('|', ' ').replace('&', ' ').replace(';', ' ').replace(',', ' ').replace('^', '')
+    s = _re.sub(r'\s+', ' ', s).strip()
+    toks = []
+    for i, t in enumerate(s.split()):
+        if i > 0 and (t == 'rem' or t.startswith('::') or t.startswith('#')):
+            break   # 行内注释：其后内容不改变命令身份
+        d = _dedup_token(t)
+        if d:
+            toks.append(d)
+    return ' '.join(toks)
 
 
 def _apply_win32_signatures():
@@ -192,6 +239,10 @@ class CmdService:
         无竞业逃逸窗口；超时 TerminateJobObject 内核级清剿整树）。
         宿主替换过 subprocess.run 时（测试桩，不产生真实进程、无逃逸面）
         沙箱请求退化为桩路径。
+        已知边界（H14/四轮）：该判定无法区分「测试桩」与「生产期被第三方库 patch
+        subprocess.run」（覆盖率/tracing 插件）——后者会静默脱箱（fail-open 例外通道）。
+        生产环境不 patch subprocess.run 即无此面；如需彻底封死可改显式开关
+        （如环境变量 HARBOR_SANDBOX_TEST_STUB=1），但会波及全部既有测试桩，暂维持现状。
         """
         if sandbox is not None:
             if subprocess.run is not _STDLIB_RUN:
@@ -396,7 +447,11 @@ class CmdService:
                 # （提权进程仍占用）延迟 45s 重试，防硬删 Sharing Violation + TEMP 泄漏
                 left = self._cleanup_admin_tmps([tmp_out, tmp_exit, tmp_bat])
                 if left:
-                    threading.Timer(45.0, self._cleanup_admin_tmps, args=(left,)).start()
+                    # 修复 H11（四轮）：Timer 必须 daemon——原非守护线程在 45s 窗口内
+                    # 用户关窗时阻塞解释器退出（进程驻留「关不掉」）
+                    _t = threading.Timer(45.0, self._cleanup_admin_tmps, args=(left,))
+                    _t.daemon = True
+                    _t.start()
             else:
                 self._cleanup_admin_tmps([tmp_out, tmp_exit, tmp_bat])
 

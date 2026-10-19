@@ -49,6 +49,16 @@ def _encrypt_field(mapping):
     返回 (out, plain_keys)：plain_keys 为加密失败/不可用而以明文落盘的键（面板可见提示用，W21）。"""
     out, plain_keys = {}, []
     for k, v in (mapping or {}).items():
+        # 修复 N3（四轮）：落盘加密结构（{'__enc__': 'dpapi:...'}，文件格式文档允许的形态）
+        # 原被 str() 成 Python repr 再重新加密——原密文永久丢失（DPAPI 真机实证）。
+        # 密文标记 dict 原样透传（试解密验证）；env 路径与 headers 同口径。
+        if isinstance(v, dict) and isinstance(v.get('__enc__'), str):
+            _ev = v['__enc__']
+            dec = mcp_dpapi.decrypt_value(_ev)
+            if dec and not dec.startswith(mcp_dpapi.ENC_PREFIX):
+                out[k] = {'__enc__': _ev}
+                continue
+            v = _ev   # 解密验证失败：按明文串重新加密（不丢原值语义）
         v = str(v if v is not None else '')
         if v.startswith(mcp_dpapi.ENC_PREFIX):
             # 修复 建议⑰（二轮）：合法明文值可能恰好以 'dpapi:' 开头——原无条件当
@@ -198,8 +208,15 @@ class McpConfigService:
             record['command'] = command
             record['args'] = [str(a) for a in args]
             # 空值 env 条目 = 删除该键（共享知识 11）
-            record['env'] = {str(k): str(v) for k, v in env.items()
-                             if str(v or '').strip() != ''}
+            # 修复 N3（四轮）：env 分支与 headers 同口径——DPAPI dict 形态原样保留
+            #（原 str(v) 把密文标记损坏成 repr，真机实证不可恢复）
+            _env = {}
+            for k, v in env.items():
+                if isinstance(v, dict):
+                    _env[str(k)] = v
+                elif str(v or '').strip() != '':
+                    _env[str(k)] = str(v)
+            record['env'] = _env
             transport = 'stdio'
         else:
             return None, None, 'stdio 服务器需要 command，HTTP 服务器需要 url'
@@ -352,6 +369,10 @@ class McpConfigService:
         plain_keys = []   # 修复 建议㉑（二轮）：导入的 plain_keys 不再丢弃（W21 面板提示）
         with self._lock:
             servers = self._data.setdefault('mcpServers', {})
+            # 修复 N5（四轮）：导入前快照内存态，落盘失败回滚——原只返回 error 不回滚，
+            # 内存已含导入项而磁盘没有（两态分裂：重启丢失 / 幽灵项被后续 _save 持久化）
+            import copy as _copy
+            _snapshot = _copy.deepcopy(servers)
             for name, entry in data['mcpServers'].items():
                 name = str(name)
                 if not isinstance(entry, dict):
@@ -379,6 +400,8 @@ class McpConfigService:
             try:
                 self._save()
             except Exception as e:
+                # 修复 N5（四轮）：落盘失败回滚内存态（与 save_server/delete 同口径）
+                self._data['mcpServers'] = _snapshot
                 self._log.exception('Claude 配置导入落盘失败')
                 return {'error': '导入落盘失败: %s' % e}
         result = {'ok': True, 'imported': imported, 'skipped': skipped,

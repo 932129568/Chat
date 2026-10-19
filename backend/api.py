@@ -380,11 +380,14 @@ class Api:
         # 即连开窗口——用户实测「反复打开 cmd 窗口」的弹窗面根因）
         try:
             path = str(path or '').strip()
+            # 修复 H7（四轮）：unmark 回滚键必须在 path 被重写（shutil.which/join）之前固化，
+            # 否则登记键（原始 path）与回滚键（重写后 path）不匹配，回滚成为 no-op。
+            dkey = 'open_app ' + path
             reason = self._guard.enforce_exec('open_app', {'path': path[:200]}, token)
             if reason:
                 self._guard.audit('open_app', {'path': path[:200]}, 'block', 'backend-enforced')
                 return err(reason)
-            tip = self._cmds.cmd_deduper.check('open_app ' + path)
+            tip = self._cmds.cmd_deduper.check(dkey)
             if tip:
                 return ok({'info': tip, 'skipped': True})
             import re as _re
@@ -404,7 +407,7 @@ class Api:
         except Exception as e:
             # 修复 W1（三轮）：打开失败回滚登记（合法重试不被去重误拦）
             try:
-                self._cmds.cmd_deduper.unmark('open_app ' + path)
+                self._cmds.cmd_deduper.unmark(dkey)
             except Exception:
                 pass
             return err(e)

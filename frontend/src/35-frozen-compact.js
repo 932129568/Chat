@@ -39,7 +39,14 @@ function buildMessagesForAPI(msgs) {
   for (const m of msgs) {
     if (m.role === 'assistant' && !m.tool_calls && (m.content === null || m.content === '')) continue;
     const copy = { role: m.role };
-    if (m.role === 'tool') { copy.tool_call_id = m.tool_call_id; copy.content = m.content ?? ''; }
+    if (m.role === 'tool') {
+      copy.tool_call_id = m.tool_call_id; copy.content = m.content ?? '';
+      // 修复 fe-H3（四轮）：透传 __tool——原副本不带该字段，30-history-shrink 的
+      // read_file/read_more 豁免（m.__tool !== 'read_file'）对副本恒真，「原文永久
+      // 保留」承诺被后置瘦身破坏（AI 被禁止重读又拿不到原文，只能凭残片幻觉）。
+      // 该字段仅瘦身高层内部使用，shrinkHistoryForApi 出口处剥离、不进 API 请求体。
+      if (m.__tool !== undefined) copy.__tool = m.__tool;
+    }
     else if (m.role === 'assistant') {
       copy.content = typeof m.content === 'string' ? m.content : null;
       if (m.tool_calls && m.tool_calls.length) copy.tool_calls = m.tool_calls;

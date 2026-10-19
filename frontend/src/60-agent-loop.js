@@ -16,14 +16,20 @@ function streamSpeedText(totalChars, elapsedMs, completionTokens) {
 
 /* 修复 S3（三轮）：暂停/中止后把悬挂 tool_calls 配平——assistant.tool_calls 与 tool
  * 消息必须一一对应，否则会话被毒化、后续每轮 HTTP 400。暂停 break（工具批未跑完）
- * 与 AbortError 两条路径共用本函数（原只在 AbortError 分支内联处理）。 */
+ * 与 AbortError 两条路径共用本函数（原只在 AbortError 分支内联处理）。
+ * 修复 fe-H1（四轮）：原只检查「末条消息是否为带 tool_calls 的 assistant」——暂停的
+ * 主场景（部分批次已执行、末条是 tool 结果）守卫不成立、配平 no-op，会话仍被毒化。
+ * 改为回溯找最后一条 assistant 消息（无论其后有多少 tool 结果）再对 done 集配平。 */
 function fillMissingToolResults(s) {
-  const last = s.messages[s.messages.length - 1];
-  if (last && last.role === 'assistant' && last.tool_calls) {
-    const done = new Set(s.messages.filter(m => m.role === 'tool').map(m => m.tool_call_id));
-    last.tool_calls.forEach(t => {
+  for (let i = s.messages.length - 1; i >= 0; i--) {
+    const m = s.messages[i];
+    if (!m || m.role !== 'assistant') continue;
+    if (!m.tool_calls || !m.tool_calls.length) return;   // 最近一条 assistant 无工具调用 → 无悬挂
+    const done = new Set(s.messages.filter(x => x && x.role === 'tool').map(x => x.tool_call_id));
+    m.tool_calls.forEach(t => {
       if (!done.has(t.id)) s.messages.push({ role: 'tool', tool_call_id: t.id, content: '（用户已停止，未执行）' });
     });
+    return;
   }
 }
 
@@ -417,6 +423,7 @@ async function runAgentLoop(s, apiKey) {
             const _cached = usage.prompt_tokens_details?.cached_tokens || 0;
             const _pr = usage.prompt_tokens || 0;
             window.__hitRate = _pr ? Math.round(_cached / _pr * 100) : 0;
+            if (typeof navRenderHeaderStatus === 'function') navRenderHeaderStatus();   // 修复（四轮）：命中率 chip 随轮次刷新
             if (_pr > 4000 && window.__hitRate < 30) {
               // v1.1.1：从 console 升级为界面可见（缓存命中约 3 折计费，命中率低等于多花钱）
               const _le = document.getElementById('liveTokenStat');
@@ -424,7 +431,11 @@ async function runAgentLoop(s, apiKey) {
             }
             if (shotState === 'sending') {
               shotState = 'idle'; pendingShots = [];
-              try { s.messages.push({ role: 'user', content: '[已向 AI 发送当前屏幕截图]' }); } catch (e) {}   // 修复 W25：原误写 text 字段，混入空 user 消息
+              // 修复 fe-[9]（四轮）：note 消息同时上屏（原只入库，live 视图与重渲染不一致）
+              try {
+                s.messages.push({ role: 'user', content: '[已向 AI 发送当前屏幕截图]' });
+                if (typeof addMessage === 'function') addMessage('user', '[已向 AI 发送当前屏幕截图]');
+              } catch (e) {}   // 修复 W25：原误写 text 字段，混入空 user 消息
             }
           }
         } catch (e) {}
@@ -445,6 +456,16 @@ async function runAgentLoop(s, apiKey) {
       for (const line of (pending ? [pending] : [])) handleSseLine(line);
       pending = '';
       _clearWaitTimer();   // 修复 B3：流正常结束清理等待态计时器
+      // 修复 M5（四轮）：截图状态机流结束兜底——原只在 usage 帧与 AbortError 两个窄口
+      // 收口；端点不发 usage chunk（Ollama 旧版忽略 stream_options）时 shotState 永卡
+      // 'sending'（截图永不发送也永不清理，工具结果却已告诉模型「将自动提供」）。
+      if (shotState === 'sending') {
+        shotState = 'idle'; pendingShots = [];
+        try {
+          s.messages.push({ role: 'user', content: '[已向 AI 发送当前屏幕截图]' });
+          if (typeof addMessage === 'function') addMessage('user', '[已向 AI 发送当前屏幕截图]');
+        } catch (e) {}
+      }
       if (_speedT0) _paintStreamSpeed(usage ? usage.completion_tokens : 0);   // 实现 v1.6 T10③：usage 精确值收口
 
       const toolCalls = Object.values(toolCallMap);
@@ -752,23 +773,28 @@ async function runAgentLoop(s, apiKey) {
       toolCalls.forEach(tc => taskUsed.add(tc.name));  // 回填已用工具，后续轮次保留
       s._readKeys = [...readFileSet];   // 跨任务持久化已读记录
 
-      const sig = JSON.stringify(toolCalls.map(tc => [tc.name, tc.argsStr]));
-      const n = recentSigs.length;
-      const alternating = n >= 3 && sig === recentSigs[n-2] && recentSigs[n-1] === recentSigs[n-3];
-      recentSigs.push(sig); if (recentSigs.length > 6) recentSigs.shift();
-      // 修复 建议㉛（三轮）：lastToolSig 为死变量（只写不读），删除
-      // v1.2 R4：循环熔断——同工具同参数 ×3（或交替模式）→ 暂停并询问，不再静默自动停止
-      const loopHit = registerToolSig(sig);
-      if (loopHit || alternating) {
-        showPausePanel(aiContent, s, 'loop', loopHit || { count: '交替', sig });
-        toast('检测到循环工具调用，已熔断暂停', 'err');
-        finished = true; break;
-      }
-      // v1.2 R4：连续 15 步无进展熔断
-      if (registerProgress(taskFacts.length, fullContent.length)) {
-        showPausePanel(aiContent, s, 'stall', {});
-        toast('连续多步无进展，已熔断暂停', 'warn');
-        finished = true; break;
+      // 修复 L4（四轮）：暂停后不再做熔断检测与进度记账——原停止后仍 registerToolSig
+      //（同签名此前已登记两次时，停止动作会误触发「循环熔断」暂停面板，与用户主动
+      // 停止语义重叠）、仍 registerProgress。sig 登记本身保留（下一任务新 deduper）。
+      if (!userStopped) {
+        const sig = JSON.stringify(toolCalls.map(tc => [tc.name, tc.argsStr]));
+        const n = recentSigs.length;
+        const alternating = n >= 3 && sig === recentSigs[n-2] && recentSigs[n-1] === recentSigs[n-3];
+        recentSigs.push(sig); if (recentSigs.length > 6) recentSigs.shift();
+        // 修复 建议㉛（三轮）：lastToolSig 为死变量（只写不读），删除
+        // v1.2 R4：循环熔断——同工具同参数 ×3（或交替模式）→ 暂停并询问，不再静默自动停止
+        const loopHit = registerToolSig(sig);
+        if (loopHit || alternating) {
+          showPausePanel(aiContent, s, 'loop', loopHit || { count: '交替', sig });
+          toast('检测到循环工具调用，已熔断暂停', 'err');
+          finished = true; break;
+        }
+        // v1.2 R4：连续 15 步无进展熔断
+        if (registerProgress(taskFacts.length, fullContent.length)) {
+          showPausePanel(aiContent, s, 'stall', {});
+          toast('连续多步无进展，已熔断暂停', 'warn');
+          finished = true; break;
+        }
       }
       const spent = sessionSpent(s).tokens;   // 修复 S8（二轮）：30 万提醒读单调计数器（压缩不归零）
       if (spent > 300000 && !s.__budgetWarned) {
@@ -779,9 +805,10 @@ async function runAgentLoop(s, apiKey) {
         aiContent.appendChild(div);
       }
       s.updatedAt = Date.now();
-      if (taskFacts.length > memFlushed) {   // 修复 W27：只追加本轮新增的增量事实
+      if (!userStopped && taskFacts.length > memFlushed) {   // 修复 W27：只追加本轮新增的增量事实；L4（四轮）：暂停后不再发记忆 RPC
         try { await callApi('append_memory', [JSON.stringify({ text: taskFacts.slice(memFlushed, memFlushed + 20).join('；') })]); window.__memCache = await callApi('get_memory', []); } catch (e) {}
-        memFlushed = taskFacts.length;
+        // 修复 fe-[10]（四轮）：单轮新增 >20 条时原直接跳到末尾（20 条之后永久漏发）
+        memFlushed = Math.min(memFlushed + 20, taskFacts.length);
       }
       renderSessionList();
     }
@@ -802,6 +829,9 @@ async function runAgentLoop(s, apiKey) {
   } catch (err) {
     // 修复 S6（二轮）：请求失败/abort 后截图不能永久失陷——复位 shotState 让下轮可重发
     if (shotState === 'sending') shotState = 'idle';
+    // 修复 M5（四轮）：非 abort 失败路径也清过期截图——原仅 AbortError 清，失败后
+    // pendingShots 残留会被附到下一个无关请求（[系统附图] 误导模型）
+    if (pendingShots.length) pendingShots = [];
     if (_localWaitTimer) { clearInterval(_localWaitTimer); _localWaitTimer = null; }   // 修复 S15（三轮）：AbortError 路径也清本地等待定时器（原只清 else 分支，1s 定时器永久存活劫持状态行）
     if (err.name === 'AbortError') {
       // 修复 建议㉕（三轮）：abort/停止时清 pendingShots——原只复位 shotState，

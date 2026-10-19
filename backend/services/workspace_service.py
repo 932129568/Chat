@@ -247,11 +247,17 @@ class WorkspaceService:
 
     # ---- save_workspace_file（legacy L218-225）----
     def save_workspace_file(self, sid, name, text):
-        root = self.effective_root(sid)
-        d = os.path.join(root, 'attachments')
-        os.makedirs(d, exist_ok=True)
-        safe = re.sub(r'[\\/:*?<>|]', '_', str(name or 'attachment'))
-        p = os.path.join(d, datetime.datetime.now().strftime('%Y%m%d_%H%M%S_') + safe)
-        with open(p, 'w', encoding='utf-8', errors='replace') as f:
-            f.write(str(text))
-        return p
+        # 修复 H12（四轮）：① 复用 sanitize_name（含 .. 消毒，原只替换分隔符）；
+        # ② 外层异常保护——原 OSError（目录只读/盘满/非法名）穿透 js_api 桥成为裸 reject。
+        try:
+            root = self.effective_root(sid)
+            d = os.path.join(root, 'attachments')
+            os.makedirs(d, exist_ok=True)
+            safe = self.sanitize_name(name)
+            p = os.path.join(d, datetime.datetime.now().strftime('%Y%m%d_%H%M%S_') + safe)
+            with open(p, 'w', encoding='utf-8', errors='replace') as f:
+                f.write(str(text))
+            return p
+        except Exception as e:
+            self._log.warning('save_workspace_file 失败: %r', e)
+            return ''

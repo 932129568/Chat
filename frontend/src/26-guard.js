@@ -19,12 +19,14 @@ const GUARD_OP_MAP = {
   take_screenshot: 'take_screenshot',
   run_command: 'run_command',
   run_powershell: 'run_powershell',
-  run_admin_command: 'run_admin_command'
+  run_admin_command: 'run_admin_command',
+  open_app: 'open_app'   // 修复 H8（四轮）：后端 W9 已纳入护栏矩阵，前端补映射——原缺位致提档即砖
 };
 const GUARD_OP_LABEL = {
   delete_path: '删除文件/目录', kill_process: '结束进程',
   clipboard_write: '写入剪贴板', clipboard_read: '读取剪贴板', take_screenshot: '屏幕截图',
-  run_command: '执行命令', run_powershell: '执行 PowerShell', run_admin_command: '管理员命令'
+  run_command: '执行命令', run_powershell: '执行 PowerShell', run_admin_command: '管理员命令',
+  open_app: '打开应用/链接'
 };
 const GUARD_RUN_OPS = ['run_command', 'run_powershell', 'run_admin_command'];
 
@@ -35,7 +37,13 @@ async function _guardDetailOf(op, args) {
   if (op === 'delete_path') d.path = args.path || args.file_path || args.filename || args.file || args.target || args.src || '';
   if (op === 'kill_process') { d.pid = args.pid != null ? args.pid : ''; d.name = args.name || ''; }
   if (op === 'clipboard_write') { d.len = (args.text || '').length; d.head = (args.text || '').slice(0, 40); }
-  if (GUARD_RUN_OPS.includes(op)) d.cmd = String(args.cmd != null ? args.cmd : (args.command || ''));   // 与 executeToolRaw 的取值口径一致
+  // 修复 M3（四轮）：cmd 取值与执行层 pickCmd 完全同口径——原对 cmd=''/'  ' 空白串
+  // 不回退 command，确认框可显示空命令而实际执行 args.command（token 摘要也与实参脱钩）
+  if (GUARD_RUN_OPS.includes(op)) {
+    const _c = (args.cmd != null) ? String(args.cmd) : '';
+    d.cmd = _c.trim() ? _c : String(args.command || '');
+  }
+  if (op === 'open_app') d.path = String(args.path || args.file_path || args.filename || args.target || '').trim();
   return d;
 }
 
@@ -68,6 +76,9 @@ async function _guardDescribe(op, args) {
   if (op === 'run_admin_command')
     return { title: '确认管理员命令', body: 'AI 请求以管理员权限执行：\n' + String(d.cmd || '').slice(0, 400) +
       '\n该命令将以系统管理员权限运行，风险较高。', danger: true };
+  if (op === 'open_app')   // 修复 H8（四轮）：确认文案（原走兜底「确认操作」）
+    return { title: '确认打开', body: 'AI 请求打开：\n' + String(d.path || '').slice(0, 300) +
+      '\n将使用系统默认程序打开（bat/cmd 脚本会弹出控制台窗口）。', danger: true };
   return { title: '确认操作', body: op, danger: false };
 }
 
@@ -195,7 +206,8 @@ function renderGuardSettings() {
   const ops = [
     ['delete_path', '删除文件/目录'], ['kill_process', '结束进程'],
     ['clipboard_write', '写剪贴板'], ['clipboard_read', '读剪贴板'], ['take_screenshot', '截屏'],
-    ['run_command', '执行命令'], ['run_powershell', 'PowerShell'], ['run_admin_command', '管理员命令']
+    ['run_command', '执行命令'], ['run_powershell', 'PowerShell'], ['run_admin_command', '管理员命令'],
+    ['open_app', '打开应用/链接']   // 修复 H8（四轮）：档位 UI 补行
   ];
   const tierName = { always: '每次确认', list: '仅保护名单', session: '会话内首次确认', off: '不拦截' };
   ops.forEach(([op, label]) => {

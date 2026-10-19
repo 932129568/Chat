@@ -461,7 +461,11 @@ def models(base_url, timeout=5.0, api_key=''):
         return {'ok': False, 'error': '未能解析模型清单（响应不是已知的 OpenAI/Ollama 形态）'}
     # 修复（2026-10-17 实测驱动）：Ollama 系端点补拉 /api/tags 权威元数据
     # （ctx/tools 服务器声明优先于前缀猜测；拉不到静默回落）
-    tags = _fetch_tags_meta(base_url)
+    # 修复 N16（四轮）：/api/tags 是 Ollama 本地接口——原对所有端点（含云端）都追加
+    # 一次无鉴权跨网请求（远端 404/超时静默吞但浪费请求+至多 3s 延迟）。
+    # 仅回环主机（Ollama 场景）才拉。
+    tags = _fetch_tags_meta(base_url) if _local_hostname(base_url) in (
+        'localhost', '127.0.0.1', '::1') else None
     return {'ok': True, 'base_url': normalize_base_url(base_url),
             'models': [dict({'id': mid}, **model_meta(mid, tags)) for mid in ids]}
 
@@ -627,10 +631,16 @@ def github_catalog_models(base_url, timeout=8.0, api_key=''):
 
 
 def _github_catalog_ok(base_url, entries):
-    """实现 v1.6 遗留 L2：目录/清单解析成功 → 统一输出形态（与 models() 对齐）。"""
+    """实现 v1.6 遗留 L2：目录/清单解析成功 → 统一输出形态（与 models() 对齐）。
+
+    修复 N14（四轮）：tool_capable 原硬编码 True——目录含 DeepSeek-R1 等不支持工具
+    的模型，与本项目 LOCAL_MODEL_META 的「未知默认 False（保守侧）」口径冲突。
+    改按 model_meta() 推导 tool_capable（内置表/前缀启发/保守默认）；
+    ctx_window 仍以目录声明为权威（不被 meta 的估计值覆盖）。"""
     return {'ok': True, 'base_url': normalize_base_url(base_url),
             'models': [dict({'id': e['id'], 'ctx_window': e['ctx_window'],
-                             'tool_capable': True, 'estimated': False,
+                             'tool_capable': model_meta(e['id'])['tool_capable'],
+                             'estimated': False,
                              'modalities': e.get('modalities') or []}) for e in entries]}
 
 
@@ -674,7 +684,7 @@ def test_local_endpoint(base_url, model, timeout=30):
         except urllib.error.HTTPError as e:
             snippet = ''
             try:
-                snippet = e.read().decode('utf-8', 'replace')[:300]
+                snippet = e.read(64 * 1024).decode('utf-8', 'replace')[:300]   # 修复 N20（四轮）：错误体有界读
             except Exception:
                 pass
             info = classify_local_error(e.code, snippet)

@@ -649,8 +649,11 @@ body.dark .md-body :not(pre)>code{background:var(--chip-bg);color:#f87171;}
   animation:v4ToolBreathe var(--dur-breathe) ease-in-out infinite;}
 @keyframes v4ToolBreathe{0%,100%{opacity:.88}50%{opacity:1}}
 /* 修复 Bug B（2026-10-18）：flex 子项标签补 min-width:0+ellipsis，长命令/长路径不再被 overflow:hidden 无声裁切 */
-.tool-call-item>span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
-.tool-call-item .tc-dot{width:7px;height:7px;border-radius:50%;background:var(--primary);flex-shrink:0;
+/* 修复 M1（四轮）：选择器收窄到「最后一个子 span」（标签）——原 .tool-call-item>span
+   对所有直接子 span 施加 flex:1（basis:0），7px 圆点/spinner 被拉成半宽「胶囊」
+   （flex-basis:0% 使 width 失效）。圆点/加载圈显式不参与 flex 分配。 */
+.tool-call-item>span:last-child{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.tool-call-item .tc-dot{width:7px;height:7px;border-radius:50%;background:var(--primary);flex:0 0 auto;flex-shrink:0;
   transition:background-color var(--dur-comp) var(--ease-out-soft);}
 .tool-call-item.done .tc-dot{background:var(--ok);}
 .tool-call-item.fail .tc-dot{background:var(--err);}
@@ -664,7 +667,7 @@ body:not(.fx-off) .tool-call-item:not(.done):not(.fail)::after{content:"";positi
   transform:translateX(-100%);animation:toolSheen var(--dur-sheen) linear infinite;pointer-events:none;}
 @keyframes toolSheen{to{transform:translateX(100%)}}
 .tool-spinner{display:inline-block;width:11px;height:11px;border:2px solid var(--primary);
-  border-top-color:transparent;border-radius:50%;animation:spin .8s linear infinite;flex-shrink:0;}
+  border-top-color:transparent;border-radius:50%;animation:spin .8s linear infinite;flex:0 0 auto;flex-shrink:0;}
 @keyframes spin{to{transform:rotate(360deg)}}
 .toolchip{border:1px solid var(--border);border-radius:var(--radius-sm);margin:4px 0;
   background:var(--surface-2);overflow:hidden;font-size:12px;}

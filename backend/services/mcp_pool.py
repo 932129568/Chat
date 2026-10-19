@@ -299,6 +299,16 @@ class HttpConnectionPool:
                 return
         now = time.monotonic()
         with self._lock:
+            # 修复 N12（四轮）：第二个临界区内复查关闭态——原「首查（267）与 append（311）
+            # 分属两个临界区」，两区之间 pool.close() 可完成，in-flight 归还复活 idle 条目
+            # （socket 泄漏至 GC）。W22 只堵住了 close 之后的 release，TOCTOU 窗口仍在。
+            if self._closed:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+                self._stats['closed'] += 1
+                return
             self._reap_locked(key, now)
             bucket = self._idle.setdefault(key, [])
             if len(bucket) >= self._max_per_host:
@@ -350,6 +360,15 @@ class WarmRegistry:
     def register(self, server, client):
         with self._lock:
             self._entries[server] = {'client': client, 'since': time.monotonic()}
+
+    def touch(self, server):
+        """修复 N2（四轮）：使用即续期——温启条目与 entry 共持同一 client，reap 只看
+        since 打点（注册时一次性），持续使用中的服务器首个 TTL 后即被误杀（use-after-close
+        回环实证）。_get_or_spawn 命中活 client 时调用本方法刷新 since。"""
+        with self._lock:
+            entry = self._entries.get(server)
+            if entry is not None:
+                entry['since'] = time.monotonic()
 
     def unregister(self, server):
         with self._lock:

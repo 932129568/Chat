@@ -377,8 +377,10 @@ class McpService:
             if stale_needs_relist(entry.get('last_list_at')):
                 self._on_list_changed(server)
         except Exception:
+            # 修复 N18（四轮）：删除合并残留死代码——原 `pass` 之后还有 `return {'error': error}`
+            # （error 恒 None/''），一旦本段异常触发即以 null 错误放弃调用，与「吞异常继续」
+            # 的注释意图相悖
             pass
-            return {'error': error}
         t0 = time.monotonic()
         # 修复 F2（v1.4）：每服务器 callTimeout 覆盖默认阈值（mcp_servers.json，10-300s）
         # 修复 ⑭（三轮）：cfg_ro 复用入口处已持有的解密视图 cfg——原此处再次
@@ -466,12 +468,14 @@ class McpService:
         entry = self._ensure_entry(name)
         client, error = self._get_or_spawn(name, entry, cfg=cfg)
         if error:
-            self._audit(name, 'resources/read', {'uri': uri[:200]}, 'decision', 'deny', op='mcp_resource')
+            # 修复 N13（四轮）：基础设施失败不是用户拒绝——审计 action 用 error 而非 deny
+            self._audit(name, 'resources/read', {'uri': uri[:200]}, 'error', op='mcp_resource')
             return {'error': error}
         try:
             result = client.read_resource(uri) or {}
         except Exception as e:
-            self._audit(name, 'resources/read', {'uri': uri[:200]}, 'decision', 'deny', op='mcp_resource')
+            # 修复 N13（四轮）：服务器失败同上，审计语义与用户决策（deny）区分
+            self._audit(name, 'resources/read', {'uri': uri[:200]}, 'error', op='mcp_resource')
             return {'error': 'MCP 资源读取失败: %s' % e}
         contents = result.get('contents') or []
         texts, blobs = [], []
@@ -485,7 +489,15 @@ class McpService:
         self._audit(name, 'resources/read',
                     {'uri': uri[:200], 'texts': len(texts), 'blobs': len(blobs)},
                     'decision', 'allow', op='mcp_resource')
-        out = {'ok': True, 'uri': uri, 'text': '\n\n'.join(texts)}
+        # 修复 N13（四轮）：text 无长度上限——超大资源全量过 js_api 桥；超限走 toolcache
+        # 截断（与 _render_result 输出上限同口径）
+        _text = '\n\n'.join(texts)
+        if len(_text) > OUTPUT_CACHE_LIMIT:
+            cid = self._toolcache.cache(_text)
+            _text = (_text[:OUTPUT_CACHE_LIMIT]
+                     + ('\n…[资源共 %d 字已截断; id=%s, 用 read_more 分段获取]' % (len(_text), cid)
+                        if cid else '\n…[资源共 %d 字已截断; 全文未保留]' % len(_text)))
+        out = {'ok': True, 'uri': uri, 'text': _text}
         if blobs:
             import base64 as _b64
             try:
@@ -626,13 +638,22 @@ class McpService:
                         self._log.info('MCP 服务器空闲超 %ss，已回收子进程', IDLE_TIMEOUT)
             # 修复 S2：warm 过期条目清理（reap 返回 (server, client) 对，直接 close——原
             # 「reap 摘除 + 调用方 pop」双保险实际反向：pop 恒 None，永不关闭）
+            # 修复 N2（四轮）双保险：touch 续期为主，此处再校验「该 client 是否仍被活跃
+            # entry 引用」——若 entry 正在使用同一 client（last_used 新鲜），重新登记并跳过
+            # 关闭，防 use-after-close（回环实证：持续使用超 600s 的服务器被误杀）。
             for server, stale in self._warm.reap():
-                if stale is not None:
-                    try:
-                        stale.close()
-                    except Exception:
-                        pass
-                    self._log.info('温启条目 %s 超 %ss 未用，已关闭', server, WARM_ENTRY_IDLE_TTL)
+                if stale is None:
+                    continue
+                _entry = self._rt.get(server)
+                if (_entry is not None and _entry.get('client') is stale
+                        and now - (_entry.get('last_used') or 0) <= IDLE_TIMEOUT):
+                    self._warm.register(server, stale)   # 活跃中：续期，不关
+                    continue
+                try:
+                    stale.close()
+                except Exception:
+                    pass
+                self._log.info('温启条目 %s 超 %ss 未用，已关闭', server, WARM_ENTRY_IDLE_TTL)
 
     # ============ 拉起/重拉 ============
     def _get_or_spawn(self, name, entry=None, cfg=None):
@@ -657,6 +678,7 @@ class McpService:
             if client is not None:
                 if client.is_alive():
                     entry['last_used'] = time.monotonic()
+                    self._warm.touch(name)   # 修复 N2（四轮）：使用即续期，防 warm.reap 误杀活跃 client
                     return client, None
                 # 进程已死 → 自动重拉一次（R6 兜底）
                 # 真实属性是 _transport（StdioTransport 有 returncode property；HTTP 无 → None → 显示 ?）
@@ -703,6 +725,7 @@ class McpService:
                         entry['status'] = 'ok'
                         entry['last_error'] = ''
                         entry['last_used'] = time.monotonic()
+                        self._warm.touch(name)   # 修复 N2（四轮）：温启上车同样续期
                         self._relist(entry, warm_client)
                         return warm_client, None
                 except Exception:

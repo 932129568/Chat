@@ -156,6 +156,9 @@ async function mcpToggleServer(name, on) {
 async function mcpDeleteServer(name) {
   // 修复 ⑱（三轮）：busy 守卫——原无保护，双击删除按钮会弹两个确认框
   // （第一个删除后第二个对已删名再确认，误导用户）
+  // 修复（四轮）：_busy 由 mcpToggleServer 惰性初始化，未经开关直接点删除时
+  // 为 undefined 致 .has 抛 TypeError——使用前确保初始化
+  mcpToggleServer._busy = mcpToggleServer._busy || new Set();
   if (mcpToggleServer._busy.has(name)) return;
   mcpToggleServer._busy.add(name);
   try {

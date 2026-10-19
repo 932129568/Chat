@@ -283,6 +283,16 @@ def _declare_win32():
             wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD, wintypes.LPVOID,
             wintypes.DWORD, wintypes.DWORD, wintypes.HANDLE,
         ]
+
+        # 修复 H13（四轮）：收编失败兜底杀进程 / adopt_pid 的句柄声明漏网（C2 纪律一致性）
+        k32.TerminateProcess.restype = wintypes.BOOL
+        k32.TerminateProcess.argtypes = [wintypes.HANDLE, wintypes.UINT]
+        k32.OpenProcess.restype = wintypes.HANDLE
+        k32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+        # 修复 H6（四轮）：GetLastError 直读——windll 未 use_last_error=True 时
+        # ctypes.get_last_error() 返回陈旧值（实测恒 0），人话映射永不命中
+        k32.GetLastError.restype = wintypes.DWORD
+        k32.GetLastError.argtypes = []
         return True
     except Exception:
         return False
@@ -327,7 +337,7 @@ class SandboxJob:
             raise SandboxUnavailable('job 已关闭，无法收编')
         ok = ctypes.windll.kernel32.AssignProcessToJobObject(self._h, process_handle)
         if not ok:
-            code = ctypes.get_last_error()
+            code = ctypes.windll.kernel32.GetLastError()   # 修复 H6（四轮）
             # ERROR_ACCESS_DENIED=5：进程已在不可破出的 job（Win7 语义/完整性不匹配）
             raise SandboxUnavailable(
                 '进程收编失败（Win32 错误 %d）：目标进程可能已属于其他'
@@ -344,7 +354,7 @@ class SandboxJob:
         k32 = ctypes.windll.kernel32
         h = k32.OpenProcess(PROCESS_SET_QUOTA | PROCESS_TERMINATE, False, int(pid))
         if not h:
-            code = ctypes.get_last_error()
+            code = ctypes.windll.kernel32.GetLastError()   # 修复 H6（四轮）
             # ERROR_INVALID_PARAMETER=87：进程已退出（句柄按僵尸仍可开的情况除外）
             raise SandboxUnavailable('OpenProcess(%s) 失败（错误 %d）：进程可能已退出'
                                      % (pid, code))
@@ -408,7 +418,7 @@ def create_job(limits, logger=None):
     h = k32.CreateJobObjectW(None, None)
     if not h:
         raise SandboxUnavailable('CreateJobObjectW 失败（错误 %d）'
-                                 % ctypes.get_last_error())
+                                 % ctypes.windll.kernel32.GetLastError())   # 修复 H6（四轮）
     try:
         limits = limits or {}
         ext = _JOBOBJECT_EXTENDED_LIMIT_INFORMATION()
@@ -438,7 +448,7 @@ def create_job(limits, logger=None):
 
         if not k32.SetInformationJobObject(h, JobObjectExtendedLimitInformation,
                                            ctypes.byref(ext), ctypes.sizeof(ext)):
-            code = ctypes.get_last_error()
+            code = ctypes.windll.kernel32.GetLastError()   # 修复 H6（四轮）
             k32.CloseHandle(h)
             raise SandboxUnavailable('设置 Job 限制失败（Win32 错误 %d）：'
                                      '限制参数可能不被当前系统支持' % code)
@@ -453,7 +463,7 @@ def create_job(limits, logger=None):
                                                ctypes.sizeof(restr)):
                 (logger or get_logger()).warning(
                     'Job UI 限制设置失败（错误 %d），继续（无 UI 限制）',
-                    ctypes.get_last_error())
+                    ctypes.windll.kernel32.GetLastError())   # 修复 H6（四轮）
         return SandboxJob(h, limits, logger=logger)
     except SandboxUnavailable:
         raise
@@ -522,6 +532,7 @@ def run_in_sandbox(args, shell=False, cwd=None, timeout=60, limits=None,
     out_r = err_r = out_w = err_w = None
     in_r = in_w = None
     proc_info = None
+    t_out = t_err = None
     try:
         # ---- 管道（stdin 接 NUL：子进程读即 EOF，不挂起）----
         out_r, out_w = _create_pipe()
@@ -531,7 +542,10 @@ def run_in_sandbox(args, shell=False, cwd=None, timeout=60, limits=None,
         # 读端设为不可继承（否则父侧读端被孙子继承会导致 EOF 永不到达）
         k32.SetHandleInformation(out_r, HANDLE_FLAG_INHERIT, 0)
         k32.SetHandleInformation(err_r, HANDLE_FLAG_INHERIT, 0)
-        k32.SetHandleInformation(in_r, HANDLE_FLAG_INHERIT, 0)
+        # 修复 H2（四轮）：in_r 是要交给子进程当 stdin 的句柄，必须保持可继承——
+        # 原对 in_r 去继承，bInheritHandles=True 的 CreateProcessW 不会复制它，
+        # 子进程 stdin 句柄值悬空（实测 sys.stdin=None，find/sort 等读管道命令全异常）。
+        # EOF 语义由父侧关闭 in_w 保证，无需（也不能）对 in_r 去继承。
 
         app, cmdline = _build_cmdline(args, shell)
         si = _STARTUPINFOW()
@@ -560,10 +574,16 @@ def run_in_sandbox(args, shell=False, cwd=None, timeout=60, limits=None,
             raise
         if k32.ResumeThread(pi.hThread) == ctypes.c_ulong(-1).value:
             # 进程可能在挂起态已退出：取退出码，按已完成处理
+            # 修复 H4（四轮）：STILL_ACTIVE(259) 表示进程其实还活着（挂起态未运行），
+            # 原样当退出码返回是假成功；且该路径漏计 runs_sandboxed
             code = ctypes.c_ulong(0)
-            if k32.GetExitCodeProcess(pi.hProcess, ctypes.byref(code)):
+            if k32.GetExitCodeProcess(pi.hProcess, ctypes.byref(code)) and code.value != 259:
+                with _STATS_LOCK:
+                    _STATS['runs_sandboxed'] += 1
                 return SandboxRunResult(code.value, b'', b'', sandboxed=True)
-            raise SandboxUnavailable('ResumeThread 失败且退出码不可读')
+            raise SandboxUnavailable('ResumeThread 失败且进程未退出（exit=%s）'
+                                     % (code.value if k32.GetExitCodeProcess(
+                                         pi.hProcess, ctypes.byref(code)) else '?'))
 
         # 父侧写端关闭 → 管道 EOF 只等子进程退出
         k32.CloseHandle(out_w); out_w = None
@@ -598,6 +618,15 @@ def run_in_sandbox(args, shell=False, cwd=None, timeout=60, limits=None,
             _STATS['runs_failed_closed'] += 1
         raise
     finally:
+        # 修复 H5（四轮）：清理次序——先 job.close()（KILL_ON_JOB_CLOSE 清剿整树，
+        # 持写端的孙进程被杀 → 管道写端全关 → 读线程 ReadFile 自然 EOF 退出），
+        # 再 join 读线程，最后收句柄。原「先关读句柄后关 job」在读线程仍阻塞于
+        # ReadFile 时关闭其句柄（Win32 未定义行为，泄漏常驻线程）。
+        job.close()
+        if t_out is not None:
+            t_out.join(2)
+        if t_err is not None:
+            t_err.join(2)
         # 关管道读端与进程/线程句柄；job.close() 触发 KILL_ON_JOB_CLOSE
         for h in (out_r, err_r, in_r, out_w, err_w):
             if h:
@@ -612,7 +641,6 @@ def run_in_sandbox(args, shell=False, cwd=None, timeout=60, limits=None,
                         k32.CloseHandle(h)
                     except Exception:
                         pass
-        job.close()
 
 
 def _create_pipe():
@@ -621,7 +649,8 @@ def _create_pipe():
     w = ctypes.c_void_p()
     if not k32.CreatePipe(ctypes.byref(r), ctypes.byref(w),
                           ctypes.byref(_INHERIT_SA), 65536):
-        raise SandboxUnavailable('CreatePipe 失败（错误 %d）' % ctypes.get_last_error())
+        raise SandboxUnavailable('CreatePipe 失败（错误 %d）'
+                                 % ctypes.windll.kernel32.GetLastError())   # 修复 H6（四轮）
     return r.value, w.value
 
 

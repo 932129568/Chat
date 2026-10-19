@@ -47,7 +47,7 @@ def _decode_console(raw):
             s = raw.decode(enc, 'replace')
         except LookupError:
             continue
-        bad = s.count('')
+        bad = s.count('\ufffd')   # 修复 H10（四轮）：原 s.count('') 恒为 len+1，「替换符最少」从未生效
         if best is None or bad < best_bad:
             best, best_bad = s, bad
         if bad == 0:

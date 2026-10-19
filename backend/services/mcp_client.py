@@ -81,6 +81,7 @@ class McpClient:
         self._initialized = False
         self._closed = False
         self._reconnecting = False               # 修复 S13：HTTP 404 重连防无限递归
+        self._reconnect_owner_tid = None         # 修复 N15（四轮）：重连 owner 线程 id
         self._reconnect_attempts = 0             # 实现 v1.6 W21：404 重连退避计数（成功归零）
         self._reconnect_lock = threading.Lock()  # 修复 W17（二轮）：_reconnecting 并发无锁
         self.server_info = {}
@@ -247,6 +248,7 @@ class McpClient:
                     owner = not self._reconnecting
                     if owner:
                         self._reconnecting = True
+                        self._reconnect_owner_tid = threading.get_ident()
                 if owner:
                     try:
                         self._log.info('HTTP 会话过期（404），重新握手后重试')
@@ -266,7 +268,13 @@ class McpClient:
                     finally:
                         with self._reconnect_lock:
                             self._reconnecting = False
+                            self._reconnect_owner_tid = None   # 修复 N15（四轮）
                 else:
+                    # 修复 N15（四轮）：owner 线程的重连请求再遇 404（重连中 initialize
+                    # 也 404）时，原走等待分支等自己清标志——死等到 _dl（≥30s）才报错。
+                    # owner 线程直接抛错，不等自己。
+                    if threading.get_ident() == self._reconnect_owner_tid:
+                        raise McpProtocolError(-1, 'HTTP 重连失败（initialize 也会话过期）: %s' % e)
                     _dl = time.monotonic() + max(timeout or 0, 30)
                     while time.monotonic() < _dl and self._reconnecting:
                         time.sleep(0.05)

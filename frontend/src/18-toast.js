@@ -73,11 +73,16 @@ function toast(msg, type, opts) {
   }
   const box = _toastBox();
   // v4：队列溢出优先让最旧的走退场动画（无 close 句柄才直接移除）
-  while (box.children.length >= 5) {
+  // 修复 fe-H2（四轮）：原 while + old.close() 在动画模式下死循环——close() 的
+  // remove() 在 onAnimEnd 异步执行（≥140ms），同步循环内 children.length 永不下降，
+  // 第二轮起 __closing 幂等守卫直接 return，第 6 个 toast 冻结整个 UI（错误风暴
+  // 5~6 条并发完全可能）。改为单次判断 + 强制同步移除（溢出场景无需退场动画）。
+  if (box.children.length >= 5) {
     const old = box.firstChild;
-    if (old && old.close) old.close();
-    else if (old) box.removeChild(old);
-    else break;
+    if (old) {
+      if (old.close) { try { old.__closing = true; } catch (e) {} }
+      try { box.removeChild(old); } catch (e) {}
+    }
   }
   const t = document.createElement('div');
   t.className = 'toast toast-' + type;
@@ -223,8 +228,11 @@ function uiPrompt(opts) {
   // 修复 W22（二轮）：uiPrompt 复用全局模态队列——与 uiConfirm 并发时不再互相覆盖
   //（原绕过队列直开模态，可把挂起中的 uiConfirm 兜底吞掉）
   const run = () => new Promise(resolve => {
-    _uiPromptResolve = (v) => { _uiPromptResolve = null; resolve(v); };   // 修复 W22：登记兜底
+    // 修复 M2（四轮）：先取模态、后登记兜底——_modalRoot() 复用被外部占用的模态时会
+    // 调 _settlePendingModal（把刚登记的 resolve 立即按 null 收尾 = uiPrompt 自我取消，
+    // uiConfirm 同款问题 W22 修复时只改了 confirm 侧）。与 uiConfirm :171-173 顺序对齐。
     const m = _modalRoot();
+    _uiPromptResolve = (v) => { _uiPromptResolve = null; resolve(v); };   // 修复 W22：登记兜底
     m.innerHTML =
       '<div class="modal-mask"></div>' +
       '<div class="modal-card" role="dialog" aria-modal="true">' +
