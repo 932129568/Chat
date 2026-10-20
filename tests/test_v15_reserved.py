@@ -32,17 +32,26 @@ V15_JS_API = ('local_probe', 'local_models', 'webdav_get_config', 'webdav_save_c
 
 class TestLocalPresets:
     def test_preset_table_integrity(self):
-        """A1：五预设齐全、URL 格式合法、端口与 url 一致、key_required=False。"""
-        assert set(lms.LOCAL_PRESETS) == {'ollama', 'lmstudio', 'vllm', 'llamacpp', 'localai'}
+        """A1：六预设齐全、URL 格式合法、端口与 url 一致、key_required=False。
+
+        实现 FreeToken preset（2026-10-20）：新增 freetoken（FreeToken Desktop，
+        端口 1919）。注意其 base_url 用 127.0.0.1（FreeToken 代理按设置页绑定
+        回环地址），与其余预设的 localhost 口径不同——故 URL 断言按回环口径
+        放宽为「http://<回环host>:<port>/v1」双写法，其余校验不变。
+        """
+        assert set(lms.LOCAL_PRESETS) == {'ollama', 'lmstudio', 'vllm', 'llamacpp',
+                                          'localai', 'freetoken'}
         for key, p in lms.LOCAL_PRESETS.items():
-            assert p['base_url'].startswith('http://localhost:%d/v1' % p['port']), key
+            assert p['base_url'].startswith(
+                ('http://localhost:%d/v1' % p['port'],
+                 'http://127.0.0.1:%d/v1' % p['port'])), key
             assert p['key_required'] is False, key
             assert p['note'], key
-        assert lms.PROBE_PORTS == (11434, 1234, 8000, 8080)
+        assert lms.PROBE_PORTS == (11434, 1234, 8000, 8080, 1919)
 
     def test_list_presets_shape(self):
         lst = lms.list_presets()
-        assert len(lst) == 5 and all('key' in p and 'base_url' in p for p in lst)
+        assert len(lst) == 6 and all('key' in p and 'base_url' in p for p in lst)
 
 
 class TestModelMeta:
@@ -191,14 +200,16 @@ class TestProbeAndModels:
         assert len(hit) == 1
         assert hit[0]['models'] == ['qwen2.5:7b', 'mistral:7b']
         assert hit[0]['base_url'] == 'http://127.0.0.1:11434/v1'
-        assert len(r['unreachable']) == 3
+        # 实现 FreeToken preset：4 → 5 端口，不可达 3 → 4
+        assert len(r['unreachable']) == 4
         errs = {x['base_url']: x['error'] for x in r['unreachable']}
         assert '超时' in errs['http://127.0.0.1:8000/v1']
         assert '未监听' in errs['http://127.0.0.1:1234/v1']
+        assert '未监听' in errs['http://127.0.0.1:1919/v1']
 
     def test_probe_wall_clock_parallel(self, monkeypatch):
-        """A2：四端口并行——用时间跨度重叠证明并行（负载容忍，不押死墙钟）。
-        串行下 4×0.3s 的总跨度 ≈1.2s；并行下 ≈0.3s。"""
+        """A2：五端口并行——用时间跨度重叠证明并行（负载容忍，不押死墙钟）。
+        串行下 5×0.3s 的总跨度 ≈1.5s；并行下 ≈0.3s。"""
         spans = []
         def router(port):
             t0 = time.monotonic()
@@ -207,9 +218,9 @@ class TestProbeAndModels:
             return _FakeResp(exc=ConnectionRefusedError('refused'))
         _stub_urlopen(monkeypatch, router)
         r = lms.probe()
-        assert r['ok'] is True and len(spans) == 4
+        assert r['ok'] is True and len(spans) == 5
         overlap = max(s for _, s in spans) - min(t for t, _ in spans)
-        assert overlap < 0.9, '并行探测退化为串行: 跨度 %.2fs' % overlap
+        assert overlap < 1.2, '并行探测退化为串行: 跨度 %.2fs' % overlap
 
     @pytest.mark.parametrize('payload,expected,expect_ok', [
         ({'data': [{'id': 'a'}, {'id': 'b'}]}, ['a', 'b'], True),   # OpenAI 形态

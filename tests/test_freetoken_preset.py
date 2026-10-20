@@ -83,3 +83,40 @@ class TestFreetokenBackendCompat:
 
 
 import json  # noqa: E402
+
+
+class TestFreetokenProbeWiring:
+    """探测链路接线（用户截图反馈修复：1919 不在 PROBE_PORTS 导致探测不到）。"""
+
+    def test_probe_ports_include_1919(self):
+        from backend.services import local_model_service as lms
+        assert 1919 in lms.PROBE_PORTS, 'FreeToken 端口必须进探测表'
+
+    def test_local_presets_freetoken(self):
+        from backend.services import local_model_service as lms
+        p = lms.LOCAL_PRESETS.get('freetoken')
+        assert p and p['port'] == 1919
+        assert p['base_url'] == 'http://127.0.0.1:1919/v1'
+        assert p['key_required'] is False
+
+    def test_probe_one_kind_mapping(self):
+        """1919 探测结果 kind=freetoken（前端据此一键填充+applyPreset）。"""
+        from backend.services import local_model_service as lms
+        import json as _json
+        raw = _json.dumps({'object': 'list', 'data': [
+            {'id': 'Gemma4-26B-A4B-QAT.gguf', 'owned_by': 'FreeToken'}]}).encode()
+
+        class FakeResp:
+            def __enter__(self): return self
+            def __exit__(self, *a): return False
+            def read(self, n=None): return raw
+
+        import urllib.request as _u
+        orig = lms.urlopen_no_redirect
+        lms.urlopen_no_redirect = lambda req, timeout=None: FakeResp()
+        try:
+            r = lms._probe_one('127.0.0.1', 1919, 2.0)
+        finally:
+            lms.urlopen_no_redirect = orig
+        assert r['kind'] == 'freetoken' and r['reachable'] is True
+        assert r['models'] == ['Gemma4-26B-A4B-QAT.gguf']

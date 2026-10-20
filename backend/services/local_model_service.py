@@ -94,10 +94,21 @@ LOCAL_PRESETS = {
         'key_required': False,
         'note': 'LocalAI（与 llama.cpp server 同默认端口，二选一）',
     },
+    # 实现 FreeToken preset（2026-10-20 用户实需求）：FreeToken Desktop 本地模型
+    # 管理器，API 代理 OpenAI 兼容（免 Key）；单模型语义——一次只暴露当前启动
+    # 的引擎，切换模型需在 FreeToken Desktop 操作。真机取证：/v1/models +
+    # /chat/completions 实测通。
+    'freetoken': {
+        'name': 'FreeToken Desktop',
+        'base_url': 'http://127.0.0.1:1919/v1',
+        'port': 1919,
+        'key_required': False,
+        'note': 'FreeToken Desktop；在软件内启动模型后连接（一次运行一个模型，切换请在 FreeToken 操作）',
+    },
 }
 
 # A2：并行探测的默认端口表（Ollama/LMStudio/vLLM/llama.cpp；LocalAI 与 llama.cpp 同端口）
-PROBE_PORTS = (11434, 1234, 8000, 8080)
+PROBE_PORTS = (11434, 1234, 8000, 8080, 1919)
 PROBE_PORT_TIMEOUT = 2.0        # 单端口超时（秒）——总墙钟 ≤1s 目标的输入
 PROBE_WALL_BUDGET = 1.0         # 总墙钟预算提示值（roadmap §3.3）
 
