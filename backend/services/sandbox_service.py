@@ -766,6 +766,19 @@ class SandboxService:
             lim = self._cfg['limits'].get(profile)
             return json.loads(json.dumps(lim)) if lim else None
 
+    def limits_for_profile(self, profile):
+        """v1.8.0 S 域：按档位名（standard/strict）直取限制字典。
+
+        software_service 的 risk→档位映射（read/mutate→standard，
+        dangerous→strict）经本方法取限制；enabled=False 或档位不存在 →
+        None（不沙箱，与 limits_for 口径一致）。纯新增方法，既有行为不变。
+        """
+        with self._lock:
+            if not self._cfg.get('enabled'):
+                return None
+            lim = self._cfg['limits'].get(str(profile or ''))
+            return json.loads(json.dumps(lim)) if lim else None
+
     def available(self):
         return hasattr(ctypes, 'windll')
 

@@ -1,11 +1,11 @@
 # -*- coding: utf-8 -*-
-"""安全护栏服务（v1.2 R2 + 修复 S4）：破坏性操作确认矩阵 + 保护名单 + 审计日志
-+ 进程内 confirm-token / 会话信任态后端强制。
+"""安全护栏服务（v1.2 R2 + 修复 S4 + 实现 v1.8.0 A1：v1.8.5 A 域任务授权/白名单）。
 
-设计（PRD §7.1）：
-- 确认矩阵：delete_path / kill_process / clipboard_write / clipboard_read / take_screenshot
-  五个操作三档可配；修复 S4 起追加 run_command / run_powershell / run_admin_command
-  三个命令执行 op（默认 'off'，用户可在 guard.json 中提档加固）：
+设计（PRD §7.1 + 架构 §3.4）：
+- 确认矩阵：delete_path / kill_process / clipboard_write / clipboard_read /
+  take_screenshot 五个操作三档可配；修复 S4 起追加 run_command /
+  run_powershell / run_admin_command 三个命令执行 op（默认 'off'，用户可在
+  guard.json 中提档加固）：
     'always'  每次确认
     'list'    保护名单（命中名单 → 阻断；未命中 → 放行）
     'session' 会话内首次确认，之后放行（会话信任态后端持有，切会话清空）
@@ -17,12 +17,24 @@
   未武装（无窗口的测试/嵌入环境）保持 legacy 行为：只做名单 block。
 - 审计日志：~/.glm-chat/audit_log.jsonl 追加式记录每次判定与用户决策（10MB 轮转，修复 W12）。
 
+v1.8.5 A 域（任务授权 + 白名单，R5/R6 裁决）：
+- **判定链**（新增维度插入，旧三档语义零迁移）：deny 清单 → allow_rules
+  白名单 → task_grant 任务授权 → op 档 → 弹窗。旧 guard.json 无新键时
+  行为 = 现行为（测试锁定）；
+- **任务授权 grant**（进程内状态，**不入 guard.json**）：scope 枚举数组 +
+  TTL（默认 7200s，60-86400）+ **空闲 30min（1800s）自动收回**（R6：
+  grant 内操作刷新空闲计时，TTL 与空闲先到者生效）；授权内放行审计
+  decision=grant（不逐条 toast）；deny 清单先于 grant 生效（授权不是免检）；
+- **allow_rules 白名单**（guard.json 新增键，用户显式创建才写）：op/detail
+  正则窄规则优先；deny 清单覆盖的规则创建即拒；命中审计 decision=rule。
+
 存储：独立文件 guard.json（不碰 config.json——契约差分测试对 config.json 内容逐字节比对）。
 """
 import datetime
 import fnmatch
 import json
 import os
+import re
 import secrets
 import threading
 import time
@@ -53,6 +65,29 @@ DEFAULT_TIERS = {
     'run_admin_command': 'off',
     'open_app': 'off',   # 修复 W9（三轮）：默认 off 保持既有行为，提档后弹窗/ token 生效
 }
+
+# ---- v1.8.5 A 域：任务授权 grant（进程内状态，不入 guard.json）----
+GRANT_SCOPES = ('workspace_write', 'exec', 'app_launch')   # scope 枚举（§3.4）
+GRANT_TTL_DEFAULT = 7200            # R6：默认 2h
+GRANT_TTL_MIN, GRANT_TTL_MAX = 60, 86400
+GRANT_IDLE_SECONDS = 1800           # R6：空闲 30min 自动收回
+GRANT_EXPIRING_SOON_S = 600         # 剩余 <600s → expiring_soon 黄牌（§8.3）
+# op → grant scope 映射（授权覆盖判定：scope 覆盖的 op 授权内放行）
+_OP_GRANT_SCOPES = {
+    'delete_path': 'workspace_write',
+    'run_command': 'exec',
+    'run_powershell': 'exec',
+    'run_admin_command': 'exec',
+    'open_app': 'app_launch',
+}
+# allow_rules 宽模式告警词（detail 含写动词 → warn，不阻断——架构 §3.4）
+_RULE_WRITE_VERBS = ('del', 'delete', 'remove', 'rm', 'erase', 'move', 'copy',
+                     'write', 'kill', 'format', 'mkfs', 'reg', 'regedit',
+                     'setx', 'taskkill', 'stop-process', 'start-process',
+                     'iex', 'invoke-expression', 'rd', 'rmdir', 'mkdir', 'md',
+                     'new-item', 'ni', 'ri', 'cp', 'mv', 'remove-item')
+# deny 语义最强的 op（白名单规则不得架空其保护名单）
+_DENY_SENSITIVE_OPS = ('delete_path', 'kill_process')
 
 # 无保护名单意义的操作：'list' 档对它们语义等同 off 是误导（W10），后端降级为每次确认
 _LISTLESS_OPS = {'clipboard_write', 'clipboard_read', 'take_screenshot',
@@ -99,7 +134,7 @@ def _norm_pattern(p):
 
 
 class GuardService:
-    def __init__(self, guard_path=None, audit_path=None):
+    def __init__(self, guard_path=None, audit_path=None, clock=None):
         self._log = get_logger()
         self._lock = threading.RLock()
         self._path = guard_path or GUARD_FILE
@@ -109,6 +144,10 @@ class GuardService:
         self._tokens = {}              # token -> (op, detail_digest, expiry_ts)
         self._session_trust = set()    # 本会话已信任的 op（切会话清空，W26 同步语义）
         self._armed = False            # 桌面 UI 会话武装标志（Api._set_window 置位）
+        # v1.8.5 A 域：任务授权 grant 进程内状态（不入 guard.json——铁律）
+        self._clock = clock or time.time
+        self._grants = {}              # grant_id -> grant dict
+        self._current_grant_id = None
 
     # ---- 武装状态 ----
     def arm(self):
@@ -141,6 +180,14 @@ class GuardService:
                 # 修复 UX-2（v1.4）：持久信任加载——白名单过滤未知 op
                 if isinstance(data.get('trustedOps'), list):
                     cfg['trustedOps'] = [str(op) for op in data['trustedOps'] if str(op) in GUARD_OPS]
+                # v1.8.5 A 域：allow_rules 白名单加载（旧配置无此键 → 不写入默认，
+                # 行为与现行为逐字节一致——「用户显式创建才写」）
+                rules = data.get('allow_rules')
+                if isinstance(rules, list):
+                    for r in rules:
+                        norm = self._norm_rule(r)
+                        if norm is not None:
+                            cfg.setdefault('allow_rules', []).append(norm)
         except FileNotFoundError:
             pass
         except Exception as e:
@@ -178,12 +225,48 @@ class GuardService:
                         if str(op) not in GUARD_OPS:
                             return json.dumps({'error': '未知的信任操作: %s' % op}, ensure_ascii=False)
                     self._cfg['trustedOps'] = [str(op) for op in trusted]
-                os.makedirs(os.path.dirname(self._path), exist_ok=True)
-                atomic_write_json(self._path, self._cfg, indent=2)   # 修复 S8：原子写
+                self._write_cfg_locked()   # 修复 S8：原子写
             return '{"ok":true}'
         except Exception as e:
             self._log.exception('护栏配置保存失败')
             return json.dumps({'error': str(e)}, ensure_ascii=False)
+
+    def _write_cfg_locked(self):
+        """guard.json 原子落盘（调用方持锁；allow_rules 键随 _cfg 整体保留）。"""
+        os.makedirs(os.path.dirname(self._path), exist_ok=True)
+        atomic_write_json(self._path, self._cfg, indent=2)
+
+    @staticmethod
+    def _norm_rule(raw):
+        """allow_rules 单条归一（加载时过滤非法项：缺 id/pattern 或正则非法 → 跳过）。"""
+        if not isinstance(raw, dict):
+            return None
+        rid = str(raw.get('rule_id') or '').strip()
+        op_p = str(raw.get('op_pattern') or '').strip()
+        if not rid or not op_p:
+            return None
+        try:
+            re.compile(op_p)
+        except re.error:
+            return None
+        d_p = str(raw.get('detail_pattern') or '').strip()
+        if d_p:
+            try:
+                re.compile(d_p)
+            except re.error:
+                d_p = ''
+        rule = {'rule_id': rid, 'op_pattern': op_p}
+        if d_p:
+            rule['detail_pattern'] = d_p
+        try:
+            rule['hits'] = max(0, int(raw.get('hits') or 0))
+        except (TypeError, ValueError):
+            rule['hits'] = 0
+        rule['created_at'] = str(raw.get('created_at') or '')
+        note = str(raw.get('note') or '').strip()[:200]
+        if note:
+            rule['note'] = note
+        return rule
 
     # ---- 保护名单匹配 ----
     def _path_protected(self, path):
@@ -215,11 +298,16 @@ class GuardService:
 
     # ---- 三档判定 ----
     def check(self, op, detail=None):
-        """返回 dict：{action: 'allow'|'confirm'|'block', reason, detail}。
+        """返回 dict：{action: 'allow'|'confirm'|'block', reason?, via?, ...}。
 
-        - block：命中保护名单（即使档位是 always/session 也直接阻断）
-        - confirm：档位 always；或档位 session（首次，会话信任态后端持有）
-        - allow：档位 off / list 未命中 / session（已信任时前端自行放行）
+        v1.8.5 A 域判定链（新增维度插入，旧三档语义零迁移——旧 guard.json
+        无新键时走法与原实现逐字节等价）：
+        ① deny：保护名单 block（无条件，含授权内——授权不是免检）；
+        ② allow_rules：白名单窄规则命中 → allow（via=rule）；
+        ③ task_grant：活跃授权覆盖该 op 的 scope → allow（via=grant，
+           同时刷新空闲计时 R6）；
+        ④ op 档：持久信任 → allow；off → allow；list → allow/confirm；
+        ⑤ always/session → confirm（弹窗）。
         """
         detail = detail or {}
         if op not in GUARD_OPS:
@@ -227,7 +315,7 @@ class GuardService:
         with self._lock:
             tier = self._cfg['tiers'].get(op, DEFAULT_TIERS.get(op, 'always'))
 
-        # 保护名单优先于档位（名单命中 = 无条件阻断）
+        # ① 保护名单优先于一切（名单命中 = 无条件阻断；deny 先于 grant/rules）
         if op == 'delete_path':
             # 修复 QA 发现：优先用调用方随 detail 传入的工作区绝对路径（abs_path），
             # 原始 path 可能是相对路径，abspath 会落到进程 CWD 导致名单永不命中
@@ -243,11 +331,27 @@ class GuardService:
                 return {'action': 'block',
                         'reason': f'进程 {hit} 属于保护名单，已拒绝结束。如确需结束请用户手动操作或在设置中调整保护名单。'}
 
-        # 修复 UX-2（v1.4）：持久信任（guard.json trustedOps，op 级）——重启仍生效。
+        # ② allow_rules 白名单（窄规则 > 松模式；命中审计 decision=rule）
+        rule = self._match_rule(op, detail)
+        if rule is not None:
+            return {'action': 'allow', 'via': 'rule',
+                    'rule_id': rule.get('rule_id')}
+
+        # ③ task_grant 任务授权（deny 已先于此处生效；grant 内操作刷新空闲计时）
+        grant = self._effective_grant()
+        if grant is not None:
+            need = _OP_GRANT_SCOPES.get(op)
+            if need is None or need in grant['scope']:
+                # R6：授权内操作刷新空闲计时（idle_deadline = 现在 + 1800s）
+                self._touch_grant(grant)
+                return {'action': 'allow', 'via': 'grant',
+                        'grant_id': grant['grant_id']}
+
+        # ④ op 档：持久信任（guard.json trustedOps，op 级）——重启仍生效。
         # 位置在名单 block 之后：保护名单永远优先于任何信任。
         with self._lock:
             if op in self._cfg.get('trustedOps', []):
-                return {'action': 'allow'}
+                return {'action': 'allow', 'via': 'trusted-persistent'}
 
         if tier == 'off':
             return {'action': 'allow'}
@@ -272,6 +376,8 @@ class GuardService:
         """修复 S4①②：执行点前端的确认不再是唯一防线——武装后后端强制校验。
 
         - 名单 block：无条件拦截（含未武装环境，保持既有契约行为）
+        - v1.8.5 A 域：allow_rules 命中 → 放行 + 审计 decision=rule；
+          task_grant 覆盖 → 放行 + 审计 decision=grant（不逐条 toast，防噪）
         - 未武装（无窗口的测试/嵌入环境）：always/session 不强制 token（legacy 兼容）
         - 武装后：always 档要求有效一次性 token；session 档要求 token 或本会话已信任；
           off/list 放行（listless 操作的 list 档按 always 处理，W10）
@@ -280,6 +386,16 @@ class GuardService:
         r = self.check(op, detail)
         if r.get('action') == 'block':
             return r.get('reason')
+        # v1.8.5 A 域：白名单/任务授权在执行点放行并记专项审计
+        via = r.get('via')
+        if via == 'rule':
+            self._note_rule_hit(r.get('rule_id'))
+            self.audit(op, detail, 'decision', 'rule')
+            return None
+        if via == 'grant':
+            # 授权内操作不逐条 toast（规范 §3.4 铁律）；空闲计时刷新在 check() 内完成
+            self.audit(op, detail, 'decision', 'grant')
+            return None
         # 修复 UX-2（v1.4）：持久信任在执行点同样生效（check 已 allow，但未武装环境
         # 不走 check 的信任分支以外的逻辑也无副作用；此处显式短路并审计）
         with self._lock:
@@ -388,6 +504,329 @@ class GuardService:
         with self._lock:
             self._session_trust.clear()
             self._tokens.clear()
+
+    # ================================================== v1.8.5 A 域·任务授权
+    @staticmethod
+    def _iso(ts):
+        """epoch → ISO8601 UTC（§4.3：全库统一 'Z' 后缀）。"""
+        return datetime.datetime.fromtimestamp(
+            float(ts), datetime.timezone.utc).replace(microsecond=0) \
+            .isoformat().replace('+00:00', 'Z')
+
+    @staticmethod
+    def _norm_scope(scope):
+        """scope 归一：枚举数组（或 '+/,/空格' 分隔字符串）→ set；非法 → None。"""
+        if isinstance(scope, str):
+            parts = [p for p in re.split(r'[+,/\s]+', scope) if p]
+        elif isinstance(scope, (list, tuple, set)):
+            parts = [str(p) for p in scope]
+        else:
+            return None
+        scopes = {str(p).strip() for p in parts if str(p).strip()}
+        if not scopes or not scopes <= set(GRANT_SCOPES):
+            return None
+        return scopes
+
+    def _effective_grant(self):
+        """当前活跃授权（惰性过期修剪：TTL 与空闲先到者生效——R6）。
+
+        过期授权在首次访问时移除并落审计（decision=expired）；无活跃授权
+        返回 None。持锁调用（RLock 可重入）。
+        """
+        with self._lock:
+            gid = self._current_grant_id
+            grant = self._grants.get(gid) if gid else None
+            if grant is None:
+                return None
+            now = self._clock()
+            if now >= grant['expires_at'] or now >= grant['idle_deadline']:
+                expired_by = 'ttl' if now >= grant['expires_at'] else 'idle'
+                self._grants.pop(gid, None)
+                self._current_grant_id = None
+                self._audit_grant_expired(gid, expired_by, grant)
+                return None
+            return grant
+
+    def _audit_grant_expired(self, grant_id, expired_by, grant):
+        """授权过期审计（惰性修剪时落；TTL 到期/空闲收回两因可分）。"""
+        try:
+            self.audit('guard_grant',
+                       {'grant_id': grant_id, 'scope': ','.join(sorted(grant['scope'])),
+                        'expired_by': expired_by}, 'grant', 'expired')
+        except Exception:
+            pass
+
+    def _touch_grant(self, grant):
+        """grant 内操作刷新空闲计时（R6：idle_deadline = 最后操作 + 1800s）。"""
+        with self._lock:
+            now = self._clock()
+            grant['last_op_at'] = now
+            grant['idle_deadline'] = now + GRANT_IDLE_SECONDS
+
+    def task_grant(self, scope, ttl_seconds=GRANT_TTL_DEFAULT):
+        """A1：创建任务授权（进程内状态，不入 guard.json——架构 §3.4 铁律）。
+
+        Args:
+            scope: 枚举数组（``workspace_write``/``exec``/``app_launch``）；
+                空数组或非法枚举 → error（安全参数不静默夹逼）。
+            ttl_seconds: 授权时长（60-86400，默认 7200=R6 的 2h 上限口径）。
+
+        Returns:
+            dict: ``{ok, grant_id, expires_at, idle_deadline, remaining_s,
+            scope, granted_by}`` 或 ``{error}``。idle_deadline = 最后操作 +
+            1800s（授权建立瞬间可能与 expires_at 相同或更短——先到者生效）。
+        """
+        scopes = self._norm_scope(scope)
+        if scopes is None:
+            return {'error': 'scope 需为非空枚举数组（合法值: %s）'
+                    % '/'.join(GRANT_SCOPES)}
+        ttl = ttl_seconds
+        if isinstance(ttl, bool) or not isinstance(ttl, (int, float)) \
+                or int(ttl) != ttl:
+            return {'error': 'ttl_seconds 需为整数（%d-%d 秒）'
+                    % (GRANT_TTL_MIN, GRANT_TTL_MAX)}
+        ttl = int(ttl)
+        if ttl < GRANT_TTL_MIN or ttl > GRANT_TTL_MAX:
+            return {'error': 'ttl_seconds 超出范围（%d-%d 秒），安全参数不静默夹逼'
+                    % (GRANT_TTL_MIN, GRANT_TTL_MAX)}
+        now = self._clock()
+        grant_id = 'g_%s' % secrets.token_hex(8)
+        grant = {
+            'grant_id': grant_id, 'scope': scopes, 'granted_at': now,
+            'expires_at': now + ttl, 'idle_deadline': now + GRANT_IDLE_SECONDS,
+            'last_op_at': now, 'granted_by': 'user',
+        }
+        with self._lock:
+            self._grants[grant_id] = grant
+            self._current_grant_id = grant_id
+        self.audit('guard_grant', {'grant_id': grant_id,
+                                   'scope': ','.join(sorted(scopes)),
+                                   'ttl': ttl}, 'grant', 'grant')
+        return {'ok': True, 'grant_id': grant_id,
+                'expires_at': self._iso(grant['expires_at']),
+                'idle_deadline': self._iso(grant['idle_deadline']),
+                'remaining_s': int(min(grant['expires_at'],
+                                       grant['idle_deadline']) - now),
+                'scope': sorted(scopes), 'granted_by': 'user'}
+
+    def task_revoke(self, grant_id=None):
+        """A2：收回任务授权（缺省=当前；幂等——本就无授权返回 revoked:false）。"""
+        with self._lock:
+            gid = str(grant_id).strip() if grant_id else self._current_grant_id
+            if gid and gid in self._grants:
+                self._grants.pop(gid, None)
+                if self._current_grant_id == gid:
+                    self._current_grant_id = None
+                revoked = True
+            else:
+                revoked = False
+        if revoked:
+            self.audit('guard_revoke', {'grant_id': gid}, 'revoke', 'revoke')
+        return {'ok': True, 'revoked': revoked}
+
+    def task_status(self):
+        """A3：授权状态（前端 #grantIndicator 倒计时校准源）。
+
+        Returns:
+            dict: ``{ok, active, grant_id?, expires_at?, idle_deadline?,
+            remaining_s?, scope?, granted_by?, expiring_soon?}``——
+            remaining_s = max(0, min(expires_at, idle_deadline) - now)
+            （后端权威，含空闲收回语义）；剩余 <600s 附 expiring_soon。
+        """
+        grant = self._effective_grant()
+        if grant is None:
+            return {'ok': True, 'active': False}
+        now = self._clock()
+        remaining = max(0, int(min(grant['expires_at'],
+                                   grant['idle_deadline']) - now))
+        return {'ok': True, 'active': True, 'grant_id': grant['grant_id'],
+                'expires_at': self._iso(grant['expires_at']),
+                'idle_deadline': self._iso(grant['idle_deadline']),
+                'remaining_s': remaining,
+                'scope': sorted(grant['scope']),
+                'granted_by': grant['granted_by'],
+                'expiring_soon': remaining < GRANT_EXPIRING_SOON_S}
+
+    # ================================================== v1.8.5 A 域·白名单
+    def rule_add(self, op_pattern, detail_pattern=None, note=None):
+        """A5：添加白名单规则（窄规则优先；deny 清单覆盖的创建即拒）。
+
+        Args:
+            op_pattern: op 名正则（空 → error；非法正则 → error）。
+            detail_pattern: detail 文本正则（可选；非法 → error）。
+            note: 备注（≤200 字符）。
+
+        Returns:
+            dict: ``{ok, rule_id, warn?}`` 或 ``{error, code?}``——
+            deny 清单覆盖（对 delete_path/kill_process 的无 detail 宽规则，
+            或 detail 直接命中保护进程/路径）→ ``{error, code:
+            'GUARD_DENIED'}``；detail 含写动词 → warn（不阻断，架构 §3.4）。
+        """
+        op_p = str(op_pattern or '').strip()
+        if not op_p:
+            return {'error': 'op_pattern 不能为空'}
+        try:
+            op_rx = re.compile(op_p)
+        except re.error as e:
+            return {'error': 'op_pattern 不是合法正则: %s' % e}
+        d_p = str(detail_pattern or '').strip()
+        d_rx = None
+        if d_p:
+            try:
+                d_rx = re.compile(d_p)
+            except re.error as e:
+                return {'error': 'detail_pattern 不是合法正则: %s' % e}
+        covered = self._rule_covered_by_deny(op_rx, d_rx)
+        if covered:
+            return {'error': covered, 'code': 'GUARD_DENIED'}
+        warn = None
+        if d_p and any(re.search(r'\b%s\b' % re.escape(v), d_p, re.IGNORECASE)
+                       for v in _RULE_WRITE_VERBS):
+            warn = 'detail 含写动词，确认这是宽模式规则？（窄规则优先）'
+        rule_id = 'r_%s' % secrets.token_hex(6)
+        rule = {'rule_id': rule_id, 'op_pattern': op_p, 'hits': 0,
+                'created_at': self._iso(self._clock())}
+        if d_p:
+            rule['detail_pattern'] = d_p
+        note_s = str(note or '').strip()[:200]
+        if note_s:
+            rule['note'] = note_s
+        with self._lock:
+            self._cfg.setdefault('allow_rules', []).append(rule)
+            self._write_cfg_locked()
+        self.audit('guard_rule_add', {'rule_id': rule_id, 'op_pattern': op_p,
+                                      'detail_pattern': d_p}, 'rule', 'allow')
+        out = {'ok': True, 'rule_id': rule_id}
+        if warn:
+            out['warn'] = warn
+        return out
+
+    def _rule_covered_by_deny(self, op_rx, detail_rx):
+        """deny 清单覆盖判定（规则创建时即拒——deny 先于白名单）。
+
+        对 deny 语义最强的 op（delete_path/kill_process）：
+        - 无 detail 约束的宽规则 → 拒（会架空保护名单）；
+        - detail 正则直接命中内置保护进程名/用户保护路径模式 → 拒。
+        返回拒绝人话或 None。
+        """
+        for op in _DENY_SENSITIVE_OPS:
+            if not op_rx.search(op):
+                continue
+            if detail_rx is None:
+                return ('该规则覆盖 %s 且无 detail 窄约束，会架空保护名单'
+                        '（deny 清单先于白名单生效），已拒绝创建' % op)
+            if op == 'kill_process':
+                for name in sorted(_BUILTIN_PROTECTED_PROCESSES):
+                    if detail_rx.search(name):
+                        return ('detail 模式命中内置保护进程 %s'
+                                '（deny 清单先于白名单生效），已拒绝创建' % name)
+            else:
+                with self._lock:
+                    pats = list(self._cfg.get('protect_paths') or [])
+                for pat in pats:
+                    if detail_rx.search(pat):
+                        return ('detail 模式命中保护路径 %s'
+                                '（deny 清单先于白名单生效），已拒绝创建' % pat)
+        return None
+
+    def rule_list(self):
+        """A4：白名单列表（可选字段缺失即缺省——§4.3）。"""
+        with self._lock:
+            rules = []
+            for r in self._cfg.get('allow_rules') or []:
+                item = {'rule_id': r.get('rule_id'),
+                        'op_pattern': r.get('op_pattern'),
+                        'hits': r.get('hits', 0),
+                        'created_at': r.get('created_at', '')}
+                if r.get('detail_pattern'):
+                    item['detail_pattern'] = r['detail_pattern']
+                if r.get('note'):
+                    item['note'] = r['note']
+                rules.append(item)
+        return {'ok': True, 'rules': rules}
+
+    def rule_remove(self, rule_id):
+        """A6：删除白名单规则（幂等；删除即时生效）。"""
+        rid = str(rule_id or '').strip()
+        removed = False
+        with self._lock:
+            rules = self._cfg.get('allow_rules') or []
+            for i, r in enumerate(rules):
+                if r.get('rule_id') == rid:
+                    rules.pop(i)
+                    removed = True
+                    break
+            if removed:
+                self._write_cfg_locked()
+        if removed:
+            self.audit('guard_rule_remove', {'rule_id': rid}, 'rule', 'remove')
+        return {'ok': True, 'removed': removed}
+
+    def _match_rule(self, op, detail):
+        """白名单命中判定（窄规则优先：带 detail_pattern 的先试）。
+
+        返回命中 rule 或 None。仅 op_pattern 命中即适用的松规则排在
+        detail 规则之后（Safeguard 原则：窄规则 > 松模式）。
+        """
+        with self._lock:
+            rules = list(self._cfg.get('allow_rules') or [])
+        if not rules:
+            return None
+        detail_text = self._rule_detail_text(op, detail)
+        narrow = [r for r in rules if r.get('detail_pattern')]
+        loose = [r for r in rules if not r.get('detail_pattern')]
+        for r in narrow + loose:
+            try:
+                if not re.search(r.get('op_pattern') or '', op):
+                    continue
+            except re.error:
+                continue
+            d_p = r.get('detail_pattern')
+            if d_p:
+                try:
+                    if detail_text and re.search(d_p, detail_text):
+                        return r
+                except re.error:
+                    continue
+                continue        # 窄规则未命中 detail → 不适用
+            return r
+        return None
+
+    @staticmethod
+    def _rule_detail_text(op, detail):
+        """detail → 可正则检索文本（与各 op 的 detail 构造同口径）。"""
+        d = detail or {}
+        if op == 'delete_path':
+            return str(d.get('abs_path') or d.get('path') or '')
+        if op == 'kill_process':
+            return str(d.get('name') or d.get('pid') or '')
+        if op in ('run_command', 'run_powershell', 'run_admin_command'):
+            return str(d.get('cmd') or '')
+        if op == 'open_app':
+            return str(d.get('path') or '')
+        if op == 'clipboard_write':
+            return str(d.get('head') or '')
+        if not d:
+            return ''
+        try:
+            return json.dumps(d, ensure_ascii=False, sort_keys=True)
+        except (TypeError, ValueError):
+            return ''
+
+    def _note_rule_hit(self, rule_id):
+        """规则命中计数（执行点调用；落盘保持重启后可查）。"""
+        if not rule_id:
+            return
+        with self._lock:
+            rules = self._cfg.get('allow_rules') or []
+            for r in rules:
+                if r.get('rule_id') == rule_id:
+                    r['hits'] = int(r.get('hits') or 0) + 1
+                    try:
+                        self._write_cfg_locked()
+                    except Exception as e:
+                        self._log.debug('规则命中计数落盘失败: %r', e)
+                    return
 
     # ---- 审计日志 ----
     def audit(self, op, detail=None, action='check', decision=None):

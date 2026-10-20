@@ -1172,14 +1172,20 @@ let __loads = 0;
 
 
 class TestFrontendBuildArtifact:
-    """构建产物须含新模块挂点（29-mcp / 62-mcp-exec / include_mcp 传参）。"""
+    """构建产物须含新模块挂点（29-mcp / 62-mcp-exec / include_mcp 传参）。
+
+    v1.8.0 C 域：build_tools 调用点追加 include_agent + is_glm_endpoint 两参
+    （R11 端点过滤 + Agent 工具族分级开关；默认 include_agent=false 路径与
+    legacy 逐字节一致，契约差分由 test_v18_tools_wiring 锁定）。
+    """
 
     def test_html_contains_mcp_modules(self):
         html = open(os.path.join(PROJECT_ROOT, 'harbor.html'),
                     encoding='utf-8').read()
         assert 'mcpGuardCheck' in html and 'mcpExecTool' in html
         assert 'mcpParseName' in html and 'loadMcpServers' in html
-        assert "callApi('build_tools', [role, mode === 'full'])" in html
+        assert "callApi('build_tools'," in html and 'includeAgent' in html \
+            and 'isGlmEndpoint()' in html
         assert 'mcpTrusted' in html
         # 既有模块挂点仍在（无意外丢失）
         assert 'registerToolSig' in html and 'guardCheckTool' in html

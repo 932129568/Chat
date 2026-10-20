@@ -197,6 +197,9 @@ async function searchPanelTakeoverAction(action) {
       searchPanelRenderResults(d);
       searchPanelSetState('success');
       spToast('验证通过，继续搜索', 'ok');
+      // v1.8.0 C 域：接管终态通知 Agent 循环（§2.4：成功载荷注入挂起的工具轮次；
+      // typeof 守卫——vm 单模块沙箱无 60-agent-loop 时不炸）
+      if (typeof harborTakeoverNotify === 'function') harborTakeoverNotify(d);
     } else if (d && d.error && d.error.code === 'CAPTCHA_REQUIRED') {
       const n = (d.error.retry || 1);
       spToast('验证未通过，请重试（' + n + '/' + (d.error.max_retries || 3) + '）', 'warn');
@@ -206,6 +209,8 @@ async function searchPanelTakeoverAction(action) {
       searchPanelRenderError(d.error);
       searchPanelSetState('error');
       spToast('已放弃本次搜索', 'warn');
+      // v1.8.0 C 域：放弃终态同样通知（Agent 换引擎/告知用户）
+      if (typeof harborTakeoverNotify === 'function') harborTakeoverNotify(d);
     } else {
       searchPanelRenderError((d && d.error) || { code: 'INTERNAL', message: '操作失败' });
       searchPanelSetState('error');
