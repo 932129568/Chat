@@ -39,10 +39,10 @@ function navSwitch(zone) {
     const sp = document.getElementById('settingsPanel');
     if (sp && !sp.classList.contains('show') && typeof toggleSettings === 'function') toggleSettings();
     if (zone === 'sandbox') {
-      // 等浮层展开后滚动到沙箱区块（set-nav 锚点滚动同款体验）
+      // v4「一项对一项」：切到沙箱分区 = 激活沙箱区块（scrollIntoView 对
+      // display:none 的隐藏块无效，必须走 _showSetBlock 显隐切换）
       setTimeout(() => {
-        const b = document.getElementById('sandboxBlock');
-        if (b && b.scrollIntoView) b.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        if (typeof _showSetBlock === 'function') _showSetBlock('sandboxBlock');
       }, 80);
     }
   } else if (zone === 'audit') {
@@ -92,6 +92,8 @@ function navGuidePickSource() {
 function navGuideFillKey() {
   navSwitch('settings');
   setTimeout(() => {
+    // v4「一项对一项」：先确保连接与模型块处于激活态（focus 对 display:none 元素无效）
+    if (typeof _showSetBlock === 'function') _showSetBlock('cmBlock');
     const el = document.getElementById('providerPreset');
     if (el && el.focus) { try { el.focus(); } catch (e) {} }
   }, 100);

@@ -461,6 +461,12 @@ body.dark .eff-tag-s{background:var(--ok-bg);color:var(--ok);}
 /* 右内容（单列卡片流） */
 .set-content{overflow-y:auto;padding:20px 24px 32px;min-height:0}
 .set-content .set-grid{grid-template-columns:1fr;max-width:680px;margin:0;gap:14px}
+/* v4「一项对一项」（WorkBuddy 设置同款）：右栏一次只显示当前选中区块，
+   左导航点击切换（.active 显隐）；入场=组件层 200ms opacity+translateY(6px→0) */
+.set-content .set-block{display:none}
+.set-content .set-block.active{display:block;animation:v4SetBlockIn var(--dur-comp) var(--ease-out-soft)}
+@keyframes v4SetBlockIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+body.fx-off .set-content .set-block.active{animation:none}
 /* v4 布局精致化：更宽的内容列（原 290px 窄列拥挤割裂）→ 340px 起步、间距 18 */
 .set-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:18px;
   max-width:1040px;margin:0 auto;}

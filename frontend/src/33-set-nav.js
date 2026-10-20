@@ -1,15 +1,15 @@
-/* ================= UX-4 设置面板锚点导航（v1.4 → v4 设置窗口化重设计） =================
- * 设置窗口左竖排分组导航：按钮与 set-block 一一对应 → 点击 scrollIntoView 平滑滚动；
- * 滚动监听当前 section 高亮（rAF 节流，滚动容器 = .set-content）。
- * v4 重设计（2026-10-20）：顶部 sticky pills → 左分组列表（WorkBuddy 设置同款布局），
- * 带分组头（data-group）+ 图标（标题关键词映射）；动态注入块（software/hybrid/grant）
- * 无 data-group 时按标题关键词归组。DOM/CSS 纯新增（UI 契约只增不改）。
+/* ================= UX-4 设置面板锚点导航（v1.4 → v4「一项对一项」重设计） =================
+ * 设置窗口左竖排分组导航：点击一项 → 右栏只显示对应 set-block（WorkBuddy 设置同款
+ * 「一项对一项」），带组件层入场动效；不再滚动定位（v4 前的 scrollIntoView+scroll spy
+ * 模式随「全量滚动列」一同退役，_highlightSetNav 保留作选中态）。
+ * v4 重设计（2026-10-21）：
+ * - 显隐控制：.set-block.active（CSS：非 active 均 display:none）
+ * - 动态注入块（software/hybrid/grant）无 data-group 时按标题关键词归组
+ * - 首次构建默认激活第一项；navSwitch('sandbox') 等外部跳转走 _showSetBlock(id)
+ * DOM/CSS 纯新增（UI 契约只增不改）。
  */
 
-let _setNavBound = false;
-
 /* 分组归置：模板块用 data-group；动态块按标题关键词推断 */
-const SET_NAV_GROUPS = ['模型与端点', '对话', '数据', '系统'];
 function _groupOf(blk, title) {
   const g = blk.dataset && blk.dataset.group;
   if (g) return g;
@@ -43,6 +43,24 @@ function _iconOf(title) {
   return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><circle cx="12" cy="12" r="8"/></svg>';
 }
 
+/** 显示指定区块（一项对一项）：其余收 .active，目标重放入场动画并高亮导航。 */
+function _showSetBlock(id, opts) {
+  if (typeof document === 'undefined') return false;
+  const blocks = document.querySelectorAll('#settingsPanel .set-block');
+  let target = null;
+  for (const b of blocks) { if (b.id === id) { target = b; break; } }
+  if (!target) return false;
+  for (const b of blocks) b.classList.toggle('active', b === target);
+  // 重放入场：先禁再强制 reflow 再恢复（fx-off 下 CSS 已禁动画，无需特殊处理）
+  target.style.animation = 'none';
+  void target.offsetWidth;
+  target.style.animation = '';
+  _highlightSetNav(id);
+  const sc = document.querySelector('#settingsPanel .set-content');
+  if (sc && (!opts || opts.scroll !== false)) sc.scrollTop = 0;   // 切项回顶（长区块）
+  return true;
+}
+
 function buildSetNav() {
   const nav = document.getElementById('setNav');
   if (!nav) return;
@@ -73,35 +91,12 @@ function buildSetNav() {
     btn.title = label;
     btn.innerHTML = _iconOf(label) + '<span>' + label.replace(/（.*?）/g, '').trim() + '</span>';
     btn.dataset.target = blk.id;
-    btn.onclick = () => {
-      blk.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      _highlightSetNav(blk.id);
-    };
+    btn.onclick = () => _showSetBlock(blk.id);
     nav.appendChild(btn);
   });
-  if (!_setNavBound) {
-    _setNavBound = true;
-    // 滚动监听：设置内容列滚动时高亮当前 section（rAF 节流）
-    let raf = 0;
-    const onScroll = () => {
-      if (raf) return;
-      raf = requestAnimationFrame(() => {
-        raf = 0;
-        let best = null, bestTop = -Infinity;
-        for (const blk of document.querySelectorAll('#settingsPanel .set-block')) {
-          const r = blk.getBoundingClientRect();
-          if (r.top <= 90 && r.top > bestTop) { bestTop = r.top; best = blk.id; }
-        }
-        if (best) _highlightSetNav(best);
-      });
-    };
-    const sc = document.querySelector('#settingsPanel .set-content');
-    if (sc) sc.addEventListener('scroll', onScroll, { passive: true });
-    // 兜底：极端情况下内容列不可滚（外层滚）
-    const panel = document.getElementById('settingsPanel');
-    if (panel && panel !== sc) panel.addEventListener('scroll', onScroll, { passive: true });
-  }
-  _highlightSetNav(blocks[0].id);
+  // 首次构建（或动态块刚到）：无激活项时默认激活第一项
+  const anyActive = nav.querySelector('.set-nav-btn.on');
+  if (!anyActive && blocks[0]) _showSetBlock(blocks[0].id, { scroll: false });
 }
 
 function _highlightSetNav(id) {
