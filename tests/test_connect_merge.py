@@ -171,6 +171,9 @@ EXPECT = {
     'vllm':      (False, False, True,  False, True,  '↻ 探测本机'),
     'llamacpp':  (False, False, True,  False, True,  '↻ 探测本机'),
     'localai':   (False, False, True,  False, True,  '↻ 探测本机'),
+    # 实现 FreeToken preset：FreeToken Desktop（本地管理器，local:true 免 Key 零费，
+    # 单模型语义靠探测——按钮走本地系「探测本机」文案）
+    'freetoken': (False, False, True,  False, True,  '↻ 探测本机'),
     'custom':    (False, True,  False, True,  False, '↻ 识别模型'),
 }
 
@@ -182,9 +185,11 @@ class TestPresetTableAndVisibility:
         r = _run_node(_JS_APPLY_ALL, 'presets')
         ids = [p['id'] for p in r['presets']]
         # 实现 v1.6 T1：v4 设计 10 项 → 新增 github-models（免费层）为 11 项
-        assert len(ids) == 11, ids
+        # 实现 FreeToken preset：新增 freetoken（FreeToken Desktop 本地管理器）为 12 项
+        assert len(ids) == 12, ids
         assert ids == ['glm', 'deepseek', 'moonshot', 'qwen', 'github-models',
-                       'ollama', 'lmstudio', 'vllm', 'llamacpp', 'localai', 'custom']
+                       'ollama', 'lmstudio', 'vllm', 'llamacpp', 'localai',
+                       'freetoken', 'custom']
         assert r['order'] == ids
         for p in r['presets']:
             assert p['name'], p['id']
@@ -210,7 +215,7 @@ class TestPresetTableAndVisibility:
 
     def test_visibility_matrix_cell_by_cell(self):
         r = _run_node(_JS_APPLY_ALL, 'matrix')
-        assert len(r['matrix']) == 11   # 实现 v1.6 T1：10 → 11 预设
+        assert len(r['matrix']) == 12   # 实现 v1.6 T1：10 → 11；实现 FreeToken preset：11 → 12
         for row in r['matrix']:
             exp = EXPECT[row['id']]
             assert row['reasoning'] is exp[0], '推理力度显隐错: %s' % row['id']

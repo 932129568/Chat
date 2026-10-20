@@ -112,6 +112,17 @@ const PRESETS = {
       { id: 'qwen3.8-27b', text: 'qwen3.8-27b', badge: '128k' }
     ]
   },
+  // 实现 FreeToken preset：本地模型管理器 FreeToken Desktop（GGUF/llama.cpp 系），
+  // API 代理完全 OpenAI 兼容（127.0.0.1:1919/v1，免 Key）；**单模型语义**——一次
+  // 只暴露当前启动的引擎，故静态 models 为空，靠「探测模型」动态获取（切换模型
+  // 需在 FreeToken Desktop 里操作）。2026-10-20 真机取证：/v1/models +
+  // /v1/chat/completions 实测通，usage 计费字段完整。
+  freetoken: {
+    name: 'FreeToken Desktop', base_url: 'http://127.0.0.1:1919/v1',
+    key_required: false, glm_capable: false, local: true, prices: { in: 0, out: 0, cache: 0 },
+    key_hint: '免 Key（本地代理）。在 FreeToken Desktop 启动模型后点「探测模型」获取当前模型名；一次只运行一个模型',
+    models: []
+  },
   custom: {
     name: '自定义', base_url: '',
     key_required: true, glm_capable: false, local: false,
@@ -161,8 +172,8 @@ const PROVIDER_HOT_MODELS = [
 ];
 
 const CONNECT_PRESET_ORDER = ['glm', 'deepseek', 'moonshot', 'qwen', 'github-models',
-  'ollama', 'lmstudio', 'vllm', 'llamacpp', 'localai', 'custom'];
-const CONNECT_LOCAL_IDS = ['ollama', 'lmstudio', 'vllm', 'llamacpp', 'localai'];
+  'ollama', 'lmstudio', 'vllm', 'llamacpp', 'localai', 'freetoken', 'custom'];
+const CONNECT_LOCAL_IDS = ['ollama', 'lmstudio', 'vllm', 'llamacpp', 'localai', 'freetoken'];
 const CONNECT_DEBOUNCE_MS = 800;      // D2：Base URL / Key 变化后的自动识别防抖
 const CONNECT_AUTO_IDENTIFY = true;   // 风险对冲（设计书 §10）：自动识别开关位，默认开
 const CONNECT_MANUAL_VALUE = '__manual__';
