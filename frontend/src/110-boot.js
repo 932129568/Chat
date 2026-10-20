@@ -42,6 +42,9 @@ async function loadAll() {
   });
   /* v4「连接与模型」合并块：预设切换 / 单一 URL·Key·模型流 / 识别与测试按钮 */
   try { connectInit(); } catch (e) { console.warn('连接与模型初始化失败', e); }
+  /* v1.8.0 B 域：搜索面板挂载（纯新增 #searchPanel；功能分级开关默认开，
+   * 关闭时 searchPanelInit 内部短路——try/catch 防单模块异常拖垮启动） */
+  try { searchPanelInit(); } catch (e) { console.warn('搜索面板初始化失败', e); }
   document.getElementById('enableSearch').addEventListener('change', function () {
     document.getElementById('searchEngineWrap').style.display = this.checked ? 'flex' : 'none';
     queueSaveConfig();

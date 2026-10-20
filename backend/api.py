@@ -32,6 +32,7 @@ from .services.process_service import ProcessService
 from .services.provider_service import ProviderService
 from .services.sandbox_service import SandboxService
 from .services.screenshot_service import ScreenshotService
+from .services.search_service import SearchService
 from .services.toolcache_service import ToolcacheService
 from .services.update_service import UpdateService
 from .services.webdav_service import WebDAVService
@@ -67,6 +68,10 @@ _V12_EXTRA = frozenset({
     # v1.6 HF-P0：本地 CORS 代理桥方法（file:// 页面直连不输出 CORS 头的本地
     # 模型服务器必被 Chromium 拒；前端 local 模式经此后端代理转发）
     'get_local_proxy',
+    # v1.8.0 B 域·浏览器搜索（5 个；§8 两建议新增方法评审通过后追加。
+    # get_api_info 零漂移同款隐身；build_tools include_agent 工具面属 C 域批次）
+    'browser_search', 'browser_open', 'search_cache_stats',
+    'search_status', 'browser_takeover',
 })
 
 
@@ -104,6 +109,9 @@ class Api:
         self._webdav = WebDAVService()
         # v1.6 沙箱（Job Object 进程隔离 + 资源限制；fail-closed）
         self._sandbox = SandboxService()
+        # v1.8.0 B 域·浏览器搜索（search_cache/ 独立目录，config.json 零污染；
+        # 审计复用同一 GuardService 实例保持 audit_log.jsonl 单一口径）
+        self._search = SearchService(guard=self._guard)
         # 修复 W6（二轮）：自更新强退（os._exit 绕过 atexit）前先关 MCP 子进程，防孤儿残留
         _update_mod.set_before_exit_hook(self._mcp.shutdown)
 
@@ -615,6 +623,40 @@ class Api:
         端口随机（127.0.0.1:0），Api 装配时已启动（幂等单例）。
         """
         return ok(get_proxy().info())
+
+    # ============ v1.8.0 B 域·浏览器搜索（_V12_EXTRA 隐身）============
+    def browser_search(self, params=None):
+        """B1：浏览器搜索——检索式构造 → 缓存层（TTL 30min）→ 双通道取数
+        （次窗优先/urllib 兜底）→ 解析提取 → 校验缓存 → 审计（op=web_search）。
+
+        请求字段/成功响应/错误码见联调规范 §3.1；检出验证页 fail-fast 返回
+        CAPTCHA_REQUIRED（error.takeover_id 交前端 63-search-panel 接管 UI，
+        流程 2）。params 可为 dict 或 JSON 字符串（service 层归一）。
+        """
+        return ok(self._search.browser_search(params))
+
+    def browser_open(self, params=None):
+        """B2：打开 URL 提取正文（selector 覆盖/密度提取；超长截断落 toolcache，
+        full_ref 经 read_more 续读）。审计 op=web_open；契约 §3.1。"""
+        return ok(self._search.browser_open(params))
+
+    def search_cache_stats(self):
+        """B3：搜索缓存统计 {entries, hits, misses, ttl_minutes, size_kb}。
+        读取类不落审计（面板脚注/设置区刷新，同 refreshWsCard 模式）。"""
+        return ok(self._search.search_cache_stats())
+
+    def search_status(self, task_id=''):
+        """B4：搜索进度回报通道（面板 1s 轮询，规范 §2.4 方案 A）。
+        task_id 缺省 = 当前活跃搜索；传入时校验归属（任务 id 或 takeover_id）。
+        读取类不落审计（1s 轮询不灌爆审计文件）。"""
+        return ok(self._search.search_status(str(task_id or '') or None))
+
+    def browser_takeover(self, takeover_id, action):
+        """B5：人工接管续跑/放弃（ux-flows 流程 2 步骤 4a/4b）。
+        continue = 复检通过后续跑原管线，返回与 browser_search 同构的成功
+        载荷（resumed:true）；仍验证页 → CAPTCHA_REQUIRED（retry ≤3）；
+        abort → CAPTCHA_ABORTED。审计 op=search_takeover。"""
+        return ok(self._search.browser_takeover(takeover_id, action))
 
     # ============ v1.6 WebDAV 数据主权（预留接口，_V12_EXTRA 隐身）============
     def webdav_get_config(self):
