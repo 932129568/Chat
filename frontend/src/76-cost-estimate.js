@@ -10,7 +10,7 @@ const ERROR_HUMANIZE = [
   [/\b401\b|invalid.*key|unauthorized/i, 'API Key 无效或未授权：请检查设置中的 Key 是否正确、是否属于所选服务商。'],
   [/\b403\b/i, '无权访问该端点（Key 权限不足或 IP 受限）。'],
   [/\b404\b/i, '端点地址不存在：请检查 Base URL（OpenAI 兼容端点通常需要 /v1 后缀）。'],
-  [/\b429\b|rate.?limit/i, '请求过于频繁或额度耗尽：稍等片刻重试，或检查账户余额。'],
+  [/\b429\b|rate.?limit/i, '请求过于频繁或额度耗尽：\n① 智谱 GLM：请到 open.bigmodel.cn 检查账户余额与调用配额（免费层有 RPM/RPD 限制）；\n② 稍等 30-60 秒重试；③ 或切换其他服务商预设（设置 → 连接与模型）。'],
   [/failed to fetch|networkerror|ENOTFOUND|timeout/i, '网络连接失败：检查网络或代理；GLM 端点在国内直连通常无需代理。'],
 ];
 

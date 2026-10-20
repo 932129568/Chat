@@ -38,6 +38,15 @@ async function fetchGLMStream(payload, signal) {
         await _sleepAbortable(LOADING_BACKOFF[attempt]); attempt++; continue;   // 模型加载中：退避重试
       }
       if ((resp.status === 429 || resp.status >= 500) && attempt < 1) {
+        // 429 读错误体分流：余额/欠费/配额类（重试无益）→ 立即返回交上层人话；
+        // 频率类（RPM/RPD，等一秒有意义）→ 保持原重试一次。5xx 维持原策略。
+        if (resp.status === 429) {
+          let body429 = '';
+          try { body429 = await resp.clone().text().catch(() => ''); } catch (e) { body429 = ''; }
+          if (/余额|欠费|arrears|insufficient|quota|exhaust|billing|账户|充值/i.test(body429)) {
+            return resp;   // fail-fast：账号侧问题重试无意义
+          }
+        }
         attempt++; await _sleepAbortable(resp.status === 429 ? 2000 : 1200, signal); continue;
       }
       return resp;

@@ -376,6 +376,8 @@ class TestNormalizeWiring:
         covered = {
             '60-agent-loop.js': 'messages: reqMsgs',   # reqMsgs 由 normalizeSystemMessages 产出
             '45-request-debounce.js': 'normalizeSystemMessages(_body.messages)',
+            # v1.8.0 M3 计划生成：planMsgs 由 normalizeSystemMessages 产出（同 reqMsgs 模式）
+            '100-send.js': 'const planMsgs = normalizeSystemMessages(',
         }
         for name, needle in covered.items():
             assert needle in _fe(name), '%s 未按约定接线: 期待 %r' % (name, needle)

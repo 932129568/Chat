@@ -850,7 +850,8 @@ body.theming .code-copy,body.theming .token-stat,
 body.theming .set-window,body.theming .set-win-head,body.theming .set-nav-btn,
 body.theming .set-content,body.theming .set-nav-group,body.theming .set-win-close,
 body.theming .sp-root,body.theming .sp-head,body.theming .sp-item,body.theming .sp-input,
-body.theming .sp-search-btn,body.theming .sp-takeover,body.theming .sp-pill,body.theming .sp-foot{
+body.theming .sp-search-btn,body.theming .sp-takeover,body.theming .sp-pill,body.theming .sp-foot,
+body.theming .plan-card,body.theming .plan-step,body.theming .dev-bar,body.theming .clr-form,body.theming .clr-opt,body.theming .ckpt-row,body.theming .ckpt-prog{
   transition-property:background-color,color,border-color,box-shadow,fill,stroke;
   transition-duration:var(--dur-theme);
   transition-timing-function:var(--ease-out-soft);}
@@ -1169,6 +1170,98 @@ body.fx-off .panel,body.fx-off .message,body.fx-off .settings-panel.show{animati
 .sp-btn-primary{background:var(--primary);border-color:var(--primary);color:#fff;font-weight:600}
 .sp-btn-primary:hover{background:var(--primary-hover);border-color:var(--primary-hover);color:#fff;box-shadow:var(--glow)}
 .sp-btn:disabled{opacity:.55;cursor:default;transform:none}
+
+/* ============================================================
+   v1.8.0 M3 域·Plan-Act 计划卡 / 澄清 / 检查点（67-plan-card.js）
+   设计：design/v18/motion-spec.md §1-10/11/13/14 + prototype.html；
+   动效全部落 v4 四层令牌；纯新增类（UI 契约只增不改）。
+   ============================================================ */
+.plan-card{border:1px solid var(--border);border-radius:var(--radius-lg);background:var(--card-bg);
+  box-shadow:var(--shadow-md);overflow:hidden;animation:v4MsgIn var(--dur-narr) var(--ease-out-soft)}
+.plan-head{display:flex;align-items:center;gap:8px;padding:11px 14px;border-bottom:1px solid var(--border)}
+.plan-badge{font-size:10.5px;padding:1px 9px;border-radius:var(--radius-full);font-weight:600;
+  transition:background-color var(--dur-comp) var(--ease-out-soft),color var(--dur-comp) var(--ease-out-soft)}
+.plan-badge.pending{background:var(--warn-bg);color:var(--warn)}
+.plan-badge.running{background:var(--primary-soft);color:var(--primary)}
+.plan-badge.done{background:var(--ok-bg);color:var(--ok)}
+.plan-title{font-size:13px;font-weight:600;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.plan-files{padding:8px 14px;font-size:11px;color:var(--text-3);font-family:var(--font-mono);
+  border-bottom:1px solid var(--border);line-height:1.7}
+.plan-steps{display:flex;flex-direction:column}
+.plan-step{display:flex;align-items:flex-start;gap:10px;padding:9px 14px;border-bottom:1px solid var(--border);
+  animation:v4PlanStepIn var(--dur-comp) var(--ease-out-soft) both}
+@keyframes v4PlanStepIn{from{opacity:0;transform:translateY(-2px)}to{opacity:1;transform:none}}
+.plan-step .st{width:16px;height:16px;border-radius:50%;border:1.5px solid var(--border-strong);flex-shrink:0;
+  margin-top:1px;display:flex;align-items:center;justify-content:center;font-size:10px;color:transparent}
+.plan-step.pending .st{border-color:var(--border-strong)}
+.plan-step.doing .st{border-color:var(--primary);border-top-color:var(--primary-soft);animation:v4Spin var(--dur-stream) linear infinite}
+.plan-step.done .st{border-color:var(--ok);background:var(--ok);color:#fff}
+.plan-step.done .st::after{content:"\2713";animation:v4CheckPop var(--dur-comp) var(--ease-spring)}
+@keyframes v4CheckPop{from{transform:scale(.4);opacity:0}to{transform:scale(1);opacity:1}}
+.plan-step.blocked .st{border-color:var(--err)}
+.plan-step.skipped .st{border-color:var(--border)}
+.plan-step .txt{font-size:12.5px;color:var(--text);line-height:1.5;flex:1;min-width:0}
+.plan-step.done .txt{color:var(--text-3);transition:color var(--dur-comp) var(--ease-out-soft)}
+.plan-step .risk{font-size:10px;padding:0 7px;border-radius:var(--radius-full);flex-shrink:0;margin-top:2px}
+.plan-step .risk.l0{background:var(--err-bg);color:var(--err)}
+.plan-step .risk.l2{background:var(--warn-bg);color:var(--warn)}
+.plan-acts{display:flex;gap:8px;padding:11px 14px;transition:opacity var(--dur-comp-out) var(--ease-in-soft)}
+.plan-acts.gone{opacity:0;pointer-events:none}
+.plan-summary{padding:11px 14px;font-size:12px;color:var(--text-2);border-top:1px solid var(--border);
+  background:var(--surface-2);display:none}
+.plan-summary.show{display:block;animation:v4LineIn var(--dur-comp) var(--ease-out-soft)}
+.plan-rollback{color:var(--primary);cursor:pointer;text-decoration:none}
+.plan-rollback:hover{text-decoration:underline}
+/* 偏差暂停条（L2 流级：自上切入=系统层打断） */
+.dev-bar{display:flex;align-items:center;gap:10px;padding:10px 14px;border-radius:var(--radius-lg);
+  background:var(--err-bg);border:1px solid var(--err);
+  animation:v4DevIn var(--dur-panel) var(--ease-out-soft)}
+@keyframes v4DevIn{from{opacity:0;transform:translateY(calc(-1*var(--shift-panel)))}to{opacity:1;transform:none}}
+.dev-bar.flash{animation:v4DevIn var(--dur-panel) var(--ease-out-soft),v4DevFlash var(--dur-comp) var(--ease-out-soft) 1}
+@keyframes v4DevFlash{0%{box-shadow:0 0 0 1px var(--err),0 0 14px -4px var(--err)}100%{box-shadow:0 0 0 1px var(--err),0 0 0 -4px var(--err)}}
+.dev-bar .t{font-size:12.5px;color:var(--text);font-weight:600;flex:1}
+.dev-bar .ic{color:var(--err);flex-shrink:0}
+.dev-bar .a{display:flex;gap:6px}
+/* 澄清表单（inline 不遮罩；题目错落 5x40ms 封顶内） */
+.clr-form{border:1px solid var(--border);border-radius:var(--radius-lg);background:var(--card-bg);
+  box-shadow:var(--shadow-md);padding:14px;animation:v4MsgIn var(--dur-narr) var(--ease-out-soft);
+  animation-delay:var(--stagger-sm)}
+.clr-q{padding:8px 0;border-bottom:1px solid var(--border);animation:v4LineIn var(--dur-comp) var(--ease-out-soft) both}
+.clr-q:last-of-type{border-bottom:none}
+.clr-q .q{font-size:12.5px;font-weight:500;margin-bottom:6px}
+.clr-q .q .def{font-size:10.5px;color:var(--text-3);margin-left:6px}
+.clr-opt{display:inline-block;font-size:11.5px;padding:3px 11px;border-radius:var(--radius-full);
+  border:1px solid var(--border);color:var(--text-2);margin-right:6px;background:var(--card-bg);
+  transition:background-color var(--dur-comp) var(--ease-out-soft),border-color var(--dur-comp) var(--ease-out-soft),color var(--dur-comp) var(--ease-out-soft),transform var(--dur-press) var(--ease-out-soft)}
+.clr-opt:hover{border-color:var(--primary);color:var(--primary)}
+.clr-opt:active{transform:scale(.97)}
+.clr-opt.on{background:var(--primary-soft);border-color:var(--primary);color:var(--primary)}
+.clr-acts{display:flex;gap:8px;margin-top:12px;align-items:center}
+.clr-limit{font-size:10.5px;color:var(--text-3);margin-left:auto}
+/* 检查点进度 + 回滚清单 */
+.ckpt-prog{display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:var(--radius-md);
+  background:var(--surface-2);animation:v4LineIn var(--dur-comp) var(--ease-out-soft)}
+.ckpt-bar{flex:1;height:4px;border-radius:var(--radius-full);background:var(--border);overflow:hidden}
+.ckpt-fill{height:100%;background:var(--primary);transform:scaleX(0);transform-origin:left;
+  transition:transform var(--dur-comp) var(--ease-out-soft),background-color var(--dur-comp) var(--ease-out-soft)}
+.ckpt-prog.indet .ckpt-fill{animation:v4CkptSweep var(--dur-stream) var(--ease-out-soft) infinite}
+@keyframes v4CkptSweep{0%{transform:scaleX(.15) translateX(-30%)}50%{transform:scaleX(.55) translateX(30%)}100%{transform:scaleX(.15) translateX(110%)}}
+.ckpt-prog.done .ckpt-fill{background:var(--ok);transform:scaleX(1)}
+.ckpt-count{font-size:11px;color:var(--text-3);font-family:var(--font-mono);white-space:nowrap}
+.ckpt-list{display:flex;flex-direction:column;gap:4px;margin-top:10px}
+.ckpt-row{display:flex;align-items:center;gap:8px;font-size:12px;padding:6px 10px;border-radius:var(--radius-sm);
+  background:var(--surface-2);font-family:var(--font-mono);
+  animation:v4PlanStepIn var(--dur-comp) var(--ease-out-soft) both}
+.ckpt-row .f{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ckpt-row .s{font-size:10.5px;color:var(--text-3)}
+.ckpt-row.restored .s{color:var(--ok)}
+.ckpt-row.failed .s{color:var(--err)}
+.ckpt-more{font-size:11px;color:var(--text-3);padding:2px 10px}
+/* fx-off 显式停列（无限循环对变量级降级无效） */
+body.fx-off .plan-step.doing .st,body.fx-off .ckpt-prog.indet .ckpt-fill,
+body.fx-off .wait-dot,body.fx-off .sw-light.probing,body.fx-off .gr-light,
+body.fx-off .wait-line::after,body.fx-off .wait-prog.indet .wait-prog-fill,
+body.fx-off .sp-take-guide,body.fx-off .wait-dots::after,body.fx-off #auroraBg div{animation:none}
 </style>
 </head>
 <body>

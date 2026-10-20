@@ -41,6 +41,21 @@ async function sendMessage() {
     isStreaming = false;     // 修复 S20：/compact 不进入生成循环，复位后走压缩
     await compactNow(s, apiKey); return;
   }
+  /* ================= v1.8.0 M3：/plan 计划模式入口 =================
+   * /plan <任务> → 生成计划（LLM JSON / 模板兜底）→ 计划卡待批准 →
+   * 批准 → 建检查点 → 以任务文本走原 Agent 循环（todo 由 60-agent-loop 推进）。 */
+  if (text.indexOf('/plan') === 0) {
+    input.value = ''; attachments = []; renderPreview();
+    const task = text.slice(5).trim() || (text ? '' : '');
+    if (!task) {
+      isStreaming = false;
+      addMessage('assistant', '用法：/plan <任务描述>\n例：/plan 查一下 Qwen3 发布信息并整理成笔记保存到工作区');
+      return;
+    }
+    isStreaming = false;   // 计划阶段不占流式；批准后由内层发送逻辑重新置位
+    await planModeRun(task);
+    return;
+  }
   const images = attachments.filter(a => a.type === 'image');
   const videos = attachments.filter(a => a.type === 'video');
   const textFiles = attachments.filter(a => a.type === 'text');
@@ -174,3 +189,104 @@ function toggleSettings() {
   try { buildSetNav(); } catch (e) {}
 }
 function toggleSidebar() { document.getElementById('sidebar').classList.toggle('collapsed'); }
+
+
+/* ================= v1.8.0 M3：计划模式主流程 =================
+ * 计划生成策略（ux-flows 流程 8）：LLM 输出 JSON 计划为主，解析失败/
+ * 桥不可用回落模板计划（按句读/分号/换行拆分，3-7 步）——任何情况下
+ * 都不阻断「先看计划再执行」的核心体验。 */
+let _planGenSeq = 0;
+async function planModeRun(task) {
+  addMessage('user', '/plan ' + task);
+  const plan = await planGenerate(task);
+  if (!plan || !plan.steps || !plan.steps.length) {
+    addMessage('assistant', '计划生成失败，请直接发送任务描述让 Agent 执行。');
+    return;
+  }
+  let created = null;
+  try {
+    const raw = await pcCall('plan_create', [plan.title, plan.steps], 20000);
+    created = JSON.parse(raw || '{}');
+  } catch (e) { created = null; }
+  const full = (created && created.ok && created.plan) ? created.plan
+    : { task_id: 'local_' + Date.now(), title: plan.title, steps: plan.steps, status: 'planning' };
+  if (plan.files && plan.files.length) full.files = plan.files;
+  try {
+    await planShow(full);   // 等用户批准；拒绝 → AbortError
+  } catch (e) {
+    return;   // 已拒绝（toast 已提示）
+  }
+  // 批准：建检查点（git 锚点 + 计划涉及文件快照；空 files 时 git HEAD 仍记录）
+  try {
+    let ws = '';
+    try {
+      const eff = JSON.parse(await callApi('get_effective_ws', []) || '{}');
+      ws = (eff && eff.ws) || '';
+    } catch (e) {}
+    const raw = await pcCall('checkpoint_create', [full.task_id, full.files || [], ws], 60000);
+    const r = JSON.parse(raw || '{}');
+    if (r && r.ok) ckptShow(full.task_id, r);
+    else if (r && r.error) pcToast('检查点创建失败：' + r.error + '（任务继续，但无法回滚）', 'warn');
+  } catch (e) {
+    pcToast('检查点创建失败（任务继续，但无法回滚）', 'warn');
+  }
+  // 以任务文本走原发送链（isStreaming 由 sendMessage 内部管理）
+  const input = document.getElementById('userInput');
+  if (input) input.value = task;
+  sendMessage();
+}
+
+/** 生成计划：LLM JSON 优先，模板兜底。steps: [{text, risk}]。 */
+async function planGenerate(task) {
+  const seq = ++_planGenSeq;
+  const sysPrompt = '你是任务规划器。把用户任务拆成 3-7 个可执行步骤，只输出 JSON：' +
+    '{"title":"计划标题","steps":[{"text":"步骤描述","risk":"l2|l0|"}],"files":["涉及的相对路径"]}。' +
+    'risk 标注：会写文件/执行命令的步骤标 l2（授权内），删除/越界/提权标 l0（需确认），只读不标。' +
+    '只输出 JSON，不要解释。';
+  // HF-1 约定：所有 messages 构造点必须过 normalizeSystemMessages（防多 system
+  // 被 Qwen/Ollama Jinja 模板拒；fetchGLMStream 内部虽也归一，构造点显式过是铁律）
+  const planMsgs = normalizeSystemMessages([
+    { role: 'system', content: sysPrompt },
+    { role: 'user', content: task }
+  ]);
+  try {
+    const resp = await fetchGLMStream({
+      apiKey: (typeof effectiveApiKey === 'function') ? effectiveApiKey() : '',
+      body: {
+        model: (typeof connectModelValue === 'function' && connectModelValue()) || 'glm-5.3-flash',
+        messages: planMsgs,
+        temperature: 0.3, max_tokens: 800, stream: false
+      }
+    }, undefined);
+    if (resp && resp.ok) {
+      const txt = await resp.text();
+      const m = txt.match(/\{[\s\S]*\}/);
+      if (m) {
+        const d = JSON.parse(m[0]);
+        if (d && Array.isArray(d.steps) && d.steps.length) {
+          if (seq !== _planGenSeq) return null;
+          return { title: d.title || task.slice(0, 40), steps: d.steps.map(x => ({
+            text: String(x.text || x.step || '').slice(0, 200),
+            risk: String(x.risk || '').slice(0, 4)
+          })), files: Array.isArray(d.files) ? d.files.slice(0, 20) : [] };
+        }
+      }
+    }
+  } catch (e) { /* 回落模板 */ }
+  if (seq !== _planGenSeq) return null;
+  return planGenerateFallback(task);
+}
+
+/** 模板兜底计划：按句读/分号/换行拆 3-7 步（本地零依赖，断网可用）。 */
+function planGenerateFallback(task) {
+  const parts = String(task || '')
+    .split(/[。；;\n]+|\s+然后\s+|\s+接着\s+|\s+再\s+/)
+    .map(x => x.trim()).filter(x => x.length >= 2);
+  const steps = (parts.length >= 2 ? parts.slice(0, 7) : [
+    '理解任务：' + task.slice(0, 60),
+    '执行核心操作',
+    '验证结果并汇报'
+  ]).map(t => ({ text: t.slice(0, 200), risk: /删|除|reset|push|force|提权|admin/i.test(t) ? 'l0'
+    : (/写|保存|提交|commit|生成|创建|修改/i.test(t) ? 'l2' : '') }));
+  return { title: '任务计划 · ' + task.slice(0, 30), steps: steps, files: [] };
+}

@@ -25,6 +25,7 @@ from .services.cmd_service import CmdService
 from .services.file_service import FileService
 from .services.guard_service import GuardService
 from .services.hybrid_router import HybridRouter
+from .services.plan_service import PlanService
 from .services.local_model_service import LocalModelService
 from .services.local_proxy import get_proxy
 from .services.mcp_config_service import McpConfigService
@@ -86,6 +87,10 @@ _V12_EXTRA = frozenset({
     'hybrid_get_config', 'hybrid_save_config',
     'guard_task_grant', 'guard_task_revoke', 'guard_task_status',
     'guard_rule_list', 'guard_rule_add', 'guard_rule_remove',
+    # v1.8.0 M3 域·Plan-Act 计划执行与检查点（9 个；plans//checkpoints/ 独立目录）
+    'plan_create', 'plan_get', 'plan_update', 'plan_list',
+    'checkpoint_create', 'checkpoint_rollback', 'checkpoint_list',
+    'clarify_collect',
 })
 
 
@@ -133,6 +138,8 @@ class Api:
                                              self._runtime.get_current_sid()))
         # v1.8.0 H 域·混合路由（hybrid.json 独立文件；决策 + 成本分账）
         self._hybrid = HybridRouter()
+        # v1.8.0 M3 域·计划执行与检查点（plans//checkpoints/ 独立目录，config.json 零污染）
+        self._plan = PlanService()
         # 修复 W6（二轮）：自更新强退（os._exit 绕过 atexit）前先关 MCP 子进程，防孤儿残留
         _update_mod.set_before_exit_hook(self._mcp.shutdown)
 
@@ -800,6 +807,48 @@ class Api:
         if r.get('error'):
             return err(r['error'])
         return ok(r)
+
+    # ============ v1.8.0 M3 域·Plan-Act 计划执行与检查点（_V12_EXTRA 隐身）============
+    def plan_create(self, title, steps, task_id=''):
+        """M3-B1：创建计划。steps: [{'text','risk'}] 或 [str]。
+        落盘 plans/<task_id>.json；status=planning 待用户批准。"""
+        return ok(self._plan.create(title, steps, task_id or None))
+
+    def plan_get(self, task_id):
+        """M3-B1：读计划（前端刷新/断线重连用）。"""
+        r = self._plan.get(task_id)
+        return r if r.get('ok') else err(r.get('error', '计划不存在'))
+
+    def plan_update(self, task_id, status='', step_index=None, step_status=''):
+        """M3-B1/B2：改计划状态或步骤状态（批准=status approved；todo 推进=step_status）。"""
+        r = self._plan.update(task_id,
+                              status=(status or None),
+                              step_index=step_index,
+                              step_status=(step_status or None))
+        return r if r.get('ok') else err(r.get('error', '计划更新失败'))
+
+    def plan_list(self, limit=20):
+        """M3：计划清单（最近优先；完成摘要/回滚入口数据源）。"""
+        return ok(self._plan.list(limit))
+
+    def checkpoint_create(self, task_id, files, ws_dir=''):
+        """M3-D1：任务开始建检查点（git HEAD 锚点 / 非 git 文件快照，上限 200MB/500）。"""
+        r = self._plan.checkpoint_create(task_id, files, ws_dir or None)
+        return r if r.get('ok') else err(r.get('error', '检查点创建失败'))
+
+    def checkpoint_rollback(self, task_id, ws_dir=''):
+        """M3-D1：回滚到任务开始前（调用方须已完成清单二次确认——前端 inline 确认）。"""
+        r = self._plan.checkpoint_rollback(task_id, ws_dir or None)
+        return r if r.get('ok') else err(r.get('error', '回滚失败'))
+
+    def checkpoint_list(self, task_id):
+        """M3-D1：检查点清单（回滚确认浮层展示「将恢复的文件」）。"""
+        return ok(self._plan.checkpoint_list(task_id))
+
+    def clarify_collect(self, questions, answers):
+        """M3-C1：批量澄清答案收集（缺项用默认值；返回 [{q, answer}]）。
+        纯前端状态机的后端数据源（ux-flows 流程 9）。"""
+        return ok(self._plan.clarify_collect(questions, answers))
 
     # ============ v1.6 WebDAV 数据主权（预留接口，_V12_EXTRA 隐身）============
     def webdav_get_config(self):

@@ -1,0 +1,178 @@
+# -*- coding: utf-8 -*-
+"""v1.8.0 M3 域·plan_service 单测（计划 CRUD / 检查点 / 回滚 / 澄清）。
+
+fixture 驱动：临时目录造假工作区 + 假文件；git 锚点用真实 git init
+（环境无 git 时相关用例 skip——本机已装 git，正常路径全绿）。
+"""
+import json
+import os
+import subprocess
+
+import pytest
+
+from backend.services.plan_service import PlanService, CKPT_MAX_FILES
+
+
+@pytest.fixture
+def svc(fresh_home):
+    return PlanService()
+
+
+@pytest.fixture
+def ws(tmp_path):
+    d = tmp_path / 'ws'
+    d.mkdir()
+    (d / 'a.txt').write_text('A-original', encoding='utf-8')
+    (d / 'sub').mkdir()
+    (d / 'sub' / 'b.md').write_text('B-original', encoding='utf-8')
+    return str(d)
+
+
+def _plan_payload():
+    return {
+        'title': '测试计划',
+        'steps': [
+            {'text': '读文件', 'risk': ''},
+            {'text': '写文件', 'risk': 'l2'},
+            {'text': '删除系统路径', 'risk': 'l0'},
+        ],
+    }
+
+
+# ---------------- 计划 CRUD ----------------
+
+def test_create_get_update(svc):
+    r = svc.create('测试计划', _plan_payload()['steps'])
+    assert r['ok'], r
+    tid = r['task_id']
+    g = svc.get(tid)
+    assert g['ok'] and g['plan']['status'] == 'planning'
+    assert len(g['plan']['steps']) == 3
+    u = svc.update(tid, status='approved')
+    assert u['ok'] and u['plan']['status'] == 'approved'
+    u2 = svc.update(tid, step_index=1, step_status='done')
+    assert u2['ok'] and u2['plan']['steps'][1]['status'] == 'done'
+    bad = svc.update(tid, step_index=99, step_status='done')
+    assert not bad['ok'] and '越界' in bad['error']
+
+
+def test_create_rejects_empty(svc):
+    r = svc.create('空', [])
+    assert not r['ok']
+
+
+def test_get_missing(svc):
+    r = svc.get('nope')
+    assert not r['ok']
+
+
+def test_list_recent_first(svc):
+    svc.create('T1', ['s1'])
+    import time
+    time.sleep(0.01)
+    svc.create('T2', ['s2'])
+    lst = svc.list()
+    assert lst['ok'] and len(lst['plans']) >= 2
+    assert lst['plans'][0]['title'] == 'T2'
+
+
+def test_steps_accept_plain_strings(svc):
+    r = svc.create('简写', ['步骤一', '步骤二'])
+    assert r['ok'] and r['plan']['steps'][0]['text'] == '步骤一'
+
+
+# ---------------- 检查点：非 git 快照 ----------------
+
+def test_checkpoint_snapshot_and_rollback(svc, ws):
+    r = svc.create('计划', _plan_payload()['steps'])
+    tid = r['task_id']
+    c = svc.checkpoint_create(tid, ['a.txt', 'sub/b.md'], ws)
+    assert c['ok'] and c['mode'] == 'snapshot' and c['snapshot_count'] == 2, c
+    # 改动文件
+    with open(os.path.join(ws, 'a.txt'), 'w', encoding='utf-8') as f:
+        f.write('A-modified')
+    rb = svc.checkpoint_rollback(tid, ws)
+    assert rb['ok'] and rb['mode'] == 'snapshot'
+    assert set(rb['restored']) == {'a.txt', 'sub/b.md'}
+    with open(os.path.join(ws, 'a.txt'), encoding='utf-8') as f:
+        assert f.read() == 'A-original'
+    # 当前版有 .rollback-bak 备份
+    assert os.path.exists(os.path.join(ws, 'a.txt.rollback-bak'))
+
+
+def test_checkpoint_skips_missing_and_outside(svc, ws, tmp_path):
+    r = svc.create('计划', ['s'])
+    tid = r['task_id']
+    c = svc.checkpoint_create(tid, ['a.txt', 'ghost.txt', '../outside.txt'], ws)
+    assert c['ok']
+    warns = ' '.join(c['warnings'])
+    assert 'ghost.txt' in warns and 'outside.txt' in warns
+
+
+def test_checkpoint_list(svc, ws):
+    r = svc.create('计划', ['s'])
+    tid = r['task_id']
+    svc.checkpoint_create(tid, ['a.txt'], ws)
+    lst = svc.checkpoint_list(tid)
+    assert lst['ok'] and len(lst['files']) == 1 and lst['files'][0]['path'] == 'a.txt'
+
+
+def test_checkpoint_max_files_cap(svc, ws):
+    # 造 CKPT_MAX_FILES+2 个小文件 → 超限降级（仅记录清单）+ warn
+    for i in range(CKPT_MAX_FILES + 2):
+        with open(os.path.join(ws, 'f%04d.txt' % i), 'w', encoding='utf-8') as f:
+            f.write('x')
+    r = svc.create('计划', ['s'])
+    tid = r['task_id']
+    files = ['f%04d.txt' % i for i in range(CKPT_MAX_FILES + 2)]
+    c = svc.checkpoint_create(tid, files, ws)
+    assert c['ok'] and c['snapshot_count'] == CKPT_MAX_FILES
+    assert any('上限' in w for w in c['warnings'])
+
+
+# ---------------- 检查点：git 锚点 ----------------
+
+def _git_init(ws):
+    subprocess.run(['git', 'init'], cwd=ws, capture_output=True)
+    subprocess.run(['git', 'config', 'user.email', 't@t'], cwd=ws, capture_output=True)
+    subprocess.run(['git', 'config', 'user.name', 't'], cwd=ws, capture_output=True)
+    subprocess.run(['git', 'add', '-A'], cwd=ws, capture_output=True)
+    subprocess.run(['git', 'commit', '-m', 'init'], cwd=ws, capture_output=True)
+
+
+def test_checkpoint_git_head_and_rollback(svc, ws):
+    if subprocess.run(['git', '--version'], capture_output=True).returncode != 0:
+        pytest.skip('git 不可用')
+    _git_init(ws)
+    r = svc.create('计划', _plan_payload()['steps'])
+    tid = r['task_id']
+    c = svc.checkpoint_create(tid, ['a.txt'], ws)
+    assert c['ok'] and c['mode'] == 'git' and c['git_head'], c
+    with open(os.path.join(ws, 'a.txt'), 'w', encoding='utf-8') as f:
+        f.write('A-after-commit')
+    rb = svc.checkpoint_rollback(tid, ws)
+    assert rb['ok'] and rb['mode'] == 'git'
+    with open(os.path.join(ws, 'a.txt'), encoding='utf-8') as f:
+        assert f.read() == 'A-original'
+
+
+# ---------------- 澄清 ----------------
+
+def test_clarify_collect_defaults_and_answers(svc):
+    qs = [
+        {'q': '语言？', 'options': ['中文', '英文'], 'default': 0},
+        {'q': '范围？', 'options': ['全部', '部分'], 'default': 1},
+    ]
+    r = svc.clarify_collect(qs, {})
+    assert r['ok']
+    assert r['resolved'][0]['answer'] == '中文'   # 默认
+    assert r['resolved'][1]['answer'] == '部分'   # 默认
+    r2 = svc.clarify_collect(qs, {'0': 1})
+    assert r2['resolved'][0]['answer'] == '英文'
+    r3 = svc.clarify_collect(qs, {'1': 99})   # 越界回退默认
+    assert r3['resolved'][1]['answer'] == '部分'
+
+
+def test_clarify_plain_string_questions(svc):
+    r = svc.clarify_collect(['要我做什么？'], {})
+    assert r['ok'] and r['resolved'][0]['q'] == '要我做什么？'

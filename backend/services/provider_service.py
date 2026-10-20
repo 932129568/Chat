@@ -98,7 +98,9 @@ class ProviderService:
                 except Exception:
                     pass
                 hint = humanize_http_error(e.code, snippet)
-                return json.dumps({'ok': False, 'error': 'HTTP %d: %s' % (e.code, hint or snippet),
+                # 429/1113 等账号侧错误：人话与服务端原文并列（用户可分辨是限流还是余额）
+                detail = ('%s；服务端返回：%s' % (hint, snippet[:160])) if (hint and snippet) else (hint or snippet)
+                return json.dumps({'ok': False, 'error': 'HTTP %d: %s' % (e.code, detail),
                                    'status': e.code}, ensure_ascii=False)
         except Exception as e:
             return json.dumps({'ok': False, 'error': '连接失败: %s' % e}, ensure_ascii=False)

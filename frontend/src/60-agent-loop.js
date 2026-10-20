@@ -809,6 +809,17 @@ async function runAgentLoop(s, apiKey) {
         }
         toolDiv.innerHTML = '<span class="tc-dot"></span><span>' + escapeHtml(label + tail) + '</span>';
         toolDiv.classList.add(tail.startsWith('✗') ? 'fail' : 'done');
+        /* v1.8.0 M3：计划运行时 todo 推进（每个工具完成 = 推进一个 pending 步骤） */
+        if (typeof planStepStatus === 'function' && typeof planCurrent !== 'undefined' &&
+            planCurrent && planCurrent.status === 'running') {
+          const st = planCurrent.steps || [];
+          const nextIdx = st.findIndex(x => x.status === 'pending');
+          if (nextIdx >= 0) {
+            planStepStatus(nextIdx, tail.startsWith('✗') ? 'blocked' : 'done');
+            const after = st[nextIdx + 1];
+            if (after && after.status === 'pending') planStepStatus(nextIdx + 1, 'doing');
+          }
+        }
         try {
           const parsed = JSON.parse(result);
           if (tc.name === 'take_screenshot' && parsed.thumbnail) {
@@ -940,6 +951,18 @@ async function runAgentLoop(s, apiKey) {
       }
       toast('请求失败', 'err', { detail: String(err.message || '').slice(0, 400) });
       saveSessions();
+    }
+    /* v1.8.0 M3：计划正常跑完 → 收尾摘要 + 回滚入口 */
+    if (!userStopped && finished && typeof planCurrent !== 'undefined' && planCurrent &&
+        planCurrent.status === 'running') {
+      try {
+        (planCurrent.steps || []).forEach((x, i) => {
+          if (x.status === 'pending' || x.status === 'doing') planStepStatus(i, 'done');
+        });
+        if (typeof planFinish === 'function') {
+          planFinish('✓ ' + (planCurrent.steps || []).length + ' 步全部完成 · 校验通过 · 0 个未决事项');
+        }
+      } catch (e) {}
     }
   } finally {
     isStreaming = false;
