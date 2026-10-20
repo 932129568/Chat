@@ -6270,7 +6270,10 @@ async function fetchGLMStream(payload, signal) {
     try {
       const resp = await fetch(resolveApiEndpoint(), {   // v1.2 R6：GLM 默认 / 自定义 OpenAI 兼容端点
         method: 'POST', signal,
-        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + payload.apiKey },
+        // v1.6 HF-P0：local 模式经后端 CORS 代理时附 X-Harbor-Target（真实本地
+        // base_url）；typeof 守卫保 node vm 单模块沙箱可测（71-provider 未加载时跳过）
+        headers: Object.assign({ 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + payload.apiKey },
+          (typeof localProxyHeaders === 'function') ? localProxyHeaders() : {}),
         body: JSON.stringify(payload.body || payload)
       });
       if (_isLocal && resp.status === 503 && attempt < LOADING_BACKOFF.length) {
@@ -7762,6 +7765,15 @@ function localModeActive() {
   return !!(localState && localState.mode && localState.base_url);
 }
 
+/** 本地 CORS 代理基址（v1.6 HF-P0）：页面加载时经 js_api get_local_proxy 取一次，
+ *  缓存于 window.__localProxyBase；空 = 代理不可用（回落直连，行为不劣化）。
+ *  存在原因：EdgeWebView（Chromium）对跨源 fetch 强制 CORS——不输出 CORS 头的
+ *  本地模型服务器（FreeToken / 裸 llama.cpp / vLLM 默认配置）直连必被拒。 */
+function localProxyBase() {
+  return (typeof window !== 'undefined' && window.__localProxyBase)
+    ? String(window.__localProxyBase) : '';
+}
+
 /** chat/completions 拼接（base 已含则原样）。 */
 function chatCompletionsOf(base) {
   const b = String(base || '').trim().replace(/\/+$/, '');
@@ -7770,15 +7782,27 @@ function chatCompletionsOf(base) {
 }
 
 /** 端点地址解析：45-request-debounce / 97-compact 的 fetch 目标。
- *  本地系预设 → localState.base_url；其余 → providerState.base_url；都空 → 官方 API_URL。 */
+ *  本地系预设 → 本地 CORS 代理（CORS 头由后端补齐；真实目标经
+ *    localProxyHeaders() 的 X-Harbor-Target 头传递）；代理不可用 → 回落直连；
+ *  其余 → providerState.base_url；都空 → 官方 API_URL。 */
 function resolveApiEndpoint() {
   if (localModeActive()) {
+    const proxied = chatCompletionsOf(localProxyBase());
+    if (proxied) return proxied;                    // 代理模式（HF-P0 主路径）
     const local = chatCompletionsOf(localState.base_url);
-    if (local) return local;
+    if (local) return local;                        // 回落：代理不可用时直连（行为不劣化）
   }
   const base = chatCompletionsOf((providerState && providerState.base_url) || '');
   if (base) return base;
   return API_URL;
+}
+
+/** 代理模式附加请求头：X-Harbor-Target = 真实本地 base_url（后端代理据此转发，
+ *  且仅放行回环目标）。非代理模式 / 无目标返回 {}——调用处 Object.assign 合并。 */
+function localProxyHeaders() {
+  if (!localModeActive() || !localProxyBase()) return {};
+  const target = String((localState && localState.base_url) || '').trim();
+  return target ? { 'X-Harbor-Target': target } : {};
 }
 
 /** 当前端点是否智谱 GLM（GLM 专属能力总开关）。
@@ -9256,7 +9280,10 @@ async function compactNow(s, apiKey, opts = {}) {
     }
     if (_glm) _cmpBody.thinking = { type: 'disabled' };
     const resp = await fetch(resolveApiEndpoint(), { method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + apiKey },
+      // v1.6 HF-P0：local 模式经后端 CORS 代理时附 X-Harbor-Target（真实本地
+      // base_url）；typeof 守卫保 node vm 单模块沙箱可测（71-provider 未加载时跳过）
+      headers: Object.assign({ 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + apiKey },
+        (typeof localProxyHeaders === 'function') ? localProxyHeaders() : {}),
       signal: AbortSignal.timeout(30000),
       body: JSON.stringify(_cmpBody) });
     const data = await resp.json();
@@ -9726,6 +9753,13 @@ async function loadAll() {
   /* v4「连接与模型」单块：预设 + 单一 URL/Key/模型流回填（含旧配置一次性 seed 迁移，幂等） */
   try { connectLoadFromConfig(cfg); } catch (e) { console.warn('连接与模型回填失败', e); }
   try { loadLocalUI(cfg); } catch (e) {}   // v1.5 本地专属项（ctx 覆盖 / 工具调用；local_* 键回填）
+  // 实现 v1.6 HF-P0：本地 CORS 代理基址——后端补齐 ACAO 头，EdgeWebView 才读得到
+  // 不输出 CORS 头的本地服务器（FreeToken/裸 llama.cpp/vLLM）响应；取不到静默
+  // （resolveApiEndpoint 回落直连，行为不劣化）。须在 loadLocalUI 后（localState 就绪）
+  try {
+    const pr = JSON.parse(await callApi('get_local_proxy', []) || '{}');
+    if (pr && pr.ok && pr.base_url) window.__localProxyBase = pr.base_url;
+  } catch (e) {}
   try { await loadGuardConfig(); } catch (e) {}
   // 实现 v1.6 T6：沙箱设置面板 + 状态灯（加载配置/状态；失败不阻塞启动）
   try { await loadSandboxPanel(); } catch (e) {}

@@ -12,6 +12,7 @@ import sys
 from backend import paths
 from backend.api import API_VERSION, Api
 from backend.logging_setup import setup_logging
+from backend.services.local_proxy import shutdown_proxy
 from backend.services.update_service import APP_VERSION, cleanup_old_backup
 
 
@@ -97,6 +98,8 @@ def main():
 
         # v1.3 MCP：进程退出时按规范关停全部 stdio 子进程（关 stdin→等→TERM→KILL）
         atexit.register(api.mcp_shutdown)
+        # v1.6 HF-P0：本地 CORS 代理随进程退出关停（daemon 线程，双保险）
+        atexit.register(shutdown_proxy)
 
         window = webview.create_window(
             # 修复（2026-10-17）：窗口标题显示**应用版本**（APP_VERSION，用户感知版本），

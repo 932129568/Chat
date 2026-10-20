@@ -134,6 +134,13 @@ async function loadAll() {
   /* v4「连接与模型」单块：预设 + 单一 URL/Key/模型流回填（含旧配置一次性 seed 迁移，幂等） */
   try { connectLoadFromConfig(cfg); } catch (e) { console.warn('连接与模型回填失败', e); }
   try { loadLocalUI(cfg); } catch (e) {}   // v1.5 本地专属项（ctx 覆盖 / 工具调用；local_* 键回填）
+  // 实现 v1.6 HF-P0：本地 CORS 代理基址——后端补齐 ACAO 头，EdgeWebView 才读得到
+  // 不输出 CORS 头的本地服务器（FreeToken/裸 llama.cpp/vLLM）响应；取不到静默
+  // （resolveApiEndpoint 回落直连，行为不劣化）。须在 loadLocalUI 后（localState 就绪）
+  try {
+    const pr = JSON.parse(await callApi('get_local_proxy', []) || '{}');
+    if (pr && pr.ok && pr.base_url) window.__localProxyBase = pr.base_url;
+  } catch (e) {}
   try { await loadGuardConfig(); } catch (e) {}
   // 实现 v1.6 T6：沙箱设置面板 + 状态灯（加载配置/状态；失败不阻塞启动）
   try { await loadSandboxPanel(); } catch (e) {}

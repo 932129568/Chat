@@ -155,7 +155,10 @@ async function compactNow(s, apiKey, opts = {}) {
     }
     if (_glm) _cmpBody.thinking = { type: 'disabled' };
     const resp = await fetch(resolveApiEndpoint(), { method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + apiKey },
+      // v1.6 HF-P0：local 模式经后端 CORS 代理时附 X-Harbor-Target（真实本地
+      // base_url）；typeof 守卫保 node vm 单模块沙箱可测（71-provider 未加载时跳过）
+      headers: Object.assign({ 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + apiKey },
+        (typeof localProxyHeaders === 'function') ? localProxyHeaders() : {}),
       signal: AbortSignal.timeout(30000),
       body: JSON.stringify(_cmpBody) });
     const data = await resp.json();
