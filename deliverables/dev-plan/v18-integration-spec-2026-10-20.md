@@ -539,6 +539,8 @@ sequenceDiagram
 
 **响应**：`{ok:true, config:{...合并后全量...}}`；字段级校验失败 → `BAD_PARAMS`（hint 指明字段与合法域）。写 `~/.glm-chat/hybrid.json`（独立文件，config.json 零污染）。策略切换即时生效于**下一回合**，当回合不中断（ux-flows 流程 5⑤）。
 
+**saver 提示口径**（R3 裁决，2026-10-20 产品负责人采纳「按主理人建议」）：saver 是用户显式选择的省钱模式，**不设常驻「质量可能下降」chip、不做每次降级打扰**；改为——首次切换到 saver 时一次性轻提示（「已切省 token 模式，本地不可用时自动回退云端」）+ 会话头 `#costSplit` 分账 chip 常驻可见（本地/云端 token 与费用占比，用户自查）。降级 toast（§5.4）**仅在违背用户当前策略意图时保留**（如 auto 模式下本地意外不可用已回退——这属于预期外路径需告知）。
+
 ### 3.4 A 组（v1.8.5）
 
 #### `guard_task_grant` / `guard_task_revoke` / `guard_task_status`（A1/A2/A3）
@@ -548,9 +550,9 @@ sequenceDiagram
 | 字段 | 类型 | 必填 | 默认 | 边界 |
 |---|---|---|---|---|
 | `scope` | string[] | 是 | — | 枚举数组：`workspace_write` / `exec` / …；空数组或非法枚举 → `BAD_PARAMS` |
-| `ttl_seconds` | int | 否 | `7200` | 60-86400；超界 → `BAD_PARAMS`（hint 列合法域，安全参数不静默夹逼） |
+| `ttl_seconds` | int | 否 | `7200` | 60-86400；超界 → `BAD_PARAMS`（hint 列合法域，安全参数不静默夹逼）。**叠加空闲收回（R6 裁决，2026-10-20 产品负责人采纳）**：授权后 30min（1800s）无 grant 内操作即自动失效，每次 grant 内操作刷新空闲计时；TTL 与空闲**先到者生效** |
 
-**grant 响应**：`{ok:true, grant_id:"g_xxx", expires_at:"ISO8601", remaining_s:7200, scope:[...], granted_by:"user"}`。
+**grant 响应**：`{ok:true, grant_id:"g_xxx", expires_at:"ISO8601", idle_deadline:"ISO8601", remaining_s:7200, scope:[...], granted_by:"user"}`（`idle_deadline` 为建议新增字段：空闲收回时刻 = 最后操作 + 1800s；授权建立瞬间与 `expires_at` 可能相同或更短）。
 
 **revoke 请求**：`{grant_id?: string（缺省=当前）}` → `{ok:true, revoked:bool}`（`false`=本就无授权，**幂等**）。
 
@@ -561,7 +563,8 @@ sequenceDiagram
 | 字段 | 语义 | 前端消费 |
 |---|---|---|
 | `expires_at` | `granted_at + ttl_seconds`（ISO8601 UTC） | 授权建立时记录 |
-| `remaining_s` | `max(0, expires_at - now)`（后端权威） | **校准源**：本地每 1s 递减，每 30s 重新 `guard_task_status` 校准一次（防本地时钟漂移） |
+| `idle_deadline` | 最后 grant 内操作 + 1800s（ISO8601 UTC；建议新增字段） | 与 `expires_at` 取较早者为**实际失效点** |
+| `remaining_s` | `max(0, min(expires_at, idle_deadline) - now)`（后端权威，含空闲收回语义） | **校准源**：本地每 1s 递减，每 30s 重新 `guard_task_status` 校准一次（防本地时钟漂移） |
 | `scope` | 授权范围枚举数组 | `#taskGrantBar` 副文案 `.gr-scope` |
 | 剩余 <600s | 后端在 status 附 `expiring_soon:true`【建议新增字段】 | 灯变黄 + 倒计时高亮 + 「重新授权」入口 |
 
@@ -662,22 +665,26 @@ sequenceDiagram
 ### 5.1 显式降级链（三条，联调必测）
 
 ```
-① GLM 端点双通道（R1 缓解 + 架构 §5 行为兼容）：
-   GLM 端点 + enableSearch ──► 内置 web_search（黑盒）与 browser_search（受控）双通道并存，按端点自动选
+① GLM 端点搜索通道（R11 裁决后口径：按端点过滤，单通道无歧义）：
+   GLM 端点 + enableSearch ──► 工具面只出现内置 web_search（云端原生、无窗口开销、无反爬）
+                                  │
+   非 GLM（第三方/本地）+ enableSearch ──► 工具面只出现 browser_search（受控：次窗+提取+缓存）
                                   │
                                   └─ browser_search 遇反爬/引擎不可达 ──► Agent 可换路：换引擎 / 改告知用户
-                                     （Gap-3 备选分支：include_agent 下 GLM 场景只下发 browser_search，见 §7 R11）
+                                     （旧「双通道并存」表述已由 R11 裁决取代——见 §7 R11）
 
 ② 混合路由本地不可用（ux-flows 流程 6，机制=现行为静默降级）：
    本地请求超 5s/3s 预算 或 连接失败（快速失败，不等满预算）
         │
         ▼
-   静默降级云端（当前步骤）── 告知边界（流程 6 表）：
+   静默降级云端（当前步骤）── 告知边界（流程 6 表，R3/R10 裁决后口径）：
        本会话首次降级 → toast warn（隐私：谁在处理数据）
        重复降级 → 静默（首次已建立认知）
        3 连败 → unavailable：灯灰 + toast + 60s 周期探测
        探测恢复 → toast ok + 灯绿
-       saver 策略下任何降级 → 每次必提示（违背省钱意图且产生费用）
+       saver 策略下降级 → **静默**（用户已显式选择省钱模式，本地不可用回退云端是该模式的预期内行为；
+       预期外路径例外：auto 策略下降级、或降级后云端也失败——这两种违背用户当前意图，按上面首次/3 连败规则告知）
+       分账可见性 → `#costSplit` chip 常驻（本地/云端 token 与费用占比，用户自查）
 
 ③ browser_search 次窗失败回落 urllib（R2 缓解）：
    次窗 load_url 超 8s / 窗口不可用 / evaluate_js 时序不稳
@@ -822,15 +829,15 @@ L3 失败 ──► 回工程师（复现步骤）＋契约缺口 → 回架构�
 |---|---|---|---|---|---|
 | R1 | 搜索默认引擎 + U1 首批范围 | A：默认 Bing + U1 随首批 / B：默认 DuckDuckGo 或 U1 延后 v1.8.1 | `browser_search.engine` 默认值；`63-search-panel` 接管 UI 是否本期交付 | **A**（Bing + U1 随首批，迭代方案 §13.1 建议已采纳为 P1） | 后端：`search_service.py` 默认引擎常量 + `search_adapters.py` 模板注册；前端：`110-boot.js` 功能分级开关挂载 `63-search-panel.js` |
 | R2 | software_call 默认风险档位 | A：预设分级（read→session / mutate→session+审计 / dangerous→always） / B：dangerous 降档 | `software_call` 护栏映射（§3.2 末）；`guard_check` 定档输入 | **A**（用户可调，迭代方案 §13.2 建议） | 后端：`software_service.py` 预设表 `risk` 字段 + `guard.json` 档位 |
-| R3 | 混合路由默认策略 + saver 提示 | A：默认 auto + saver 长驻「质量可能下降」chip / B：saver 无提示 | `hybrid_get_config.config.strategy` 默认值；`65-hybrid.js` saver chip | **A**（auto 默认，架构 §5 行为兼容） | 后端：`hybrid_router.py` 默认策略常量；前端：`65-hybrid.js` chip 渲染条件 |
+| R3 | 混合路由默认策略 + saver 提示 | A：默认 auto + saver 长驻「质量可能下降」chip / B：saver 无提示 | `hybrid_get_config.config.strategy` 默认值；`65-hybrid.js` saver chip | **A'（2026-10-20 产品负责人裁决：默认 auto 不变；saver 不设常驻 chip、不每次打扰——改首次切换一次性轻提示 + `#costSplit` 分账常驻自查；降级 toast 仅限预期外路径）** | 前端：`65-hybrid.js` 删除常驻 chip 渲染条件，改一次性提示分支（localStorage 标记已提示）+ `#costSplit` chip 渲染条件；`hybrid_router.py` 默认策略常量仍为 auto（无代码面） |
 | R4 | 版本合发或拆分 | A：合发 v1.8.0 / B：拆 v1.8.0（搜索+软件）+ v1.8.1（混合） | §1 版本列；S/H 组方法进 `_V12_EXTRA` 的批次 | **A**（APP_VERSION 1.8.0，架构 §5 版本策略） | 后端：`api.py` `_V12_EXTRA` 分两批注册；前端：`100-send.js`/`110-boot.js` 功能分级开关 |
 | R5 | A1/A2 是否提前插 v1.8.5 | A：维持 v1.8.5 / B：提前进 v1.8.0 | A 组 6 方法注册时间；`66-guard-grant.js` 交付批次 | **A**（v1.8.5，架构文档既定范围） | 后端：`api.py` `_V12_EXTRA`；前端：`110-boot.js` 挂载批次 |
-| R6 | L2 授权 TTL 语义 | A：2h 固定（默认 7200s）/ B：任务生命周期 + 空闲 30min 收回 | `guard_task_grant.ttl_seconds` 默认值；`guard_task_status.remaining_s` 语义；`#taskGrantBar` 倒计时校准源 | **A**（架构 §3.4 既定默认 7200） | 后端：`guard_service.py` grant TTL 策略分支；前端：`66-guard-grant.js` 倒计时与「重新授权」入口 |
+| R6 | L2 授权 TTL 语义 | A：2h 固定（默认 7200s）/ B：任务生命周期 + 空闲 30min 收回 | `guard_task_grant.ttl_seconds` 默认值；`guard_task_status.remaining_s` 语义；`#taskGrantBar` 倒计时校准源 | **A'（2026-10-20 产品负责人裁决：TTL 2h 上限不变，叠加空闲 30min 自动收回，grant 内操作刷新空闲计时，先到者生效；`idle_deadline` 建议新增字段）** | 后端：`guard_service.py` grant TTL 策略分支（`idle_deadline = last_granted_op + 1800`，`remaining_s = min(expires_at, idle_deadline) - now`）；前端：`66-guard-grant.js` 倒计时与「重新授权」入口（沿用 A 的 UI，数据源含 idle） |
 | R7 | 检查点保留策略 | A：保留至下个任务开始 / B：完成即清 | v1.9.0 `checkpoint_*` 预留位语义（本期仅文档约定）；`~/.glm-chat/checkpoints/` 清理时机 | **A**（ux-flows Gap-10 按此设计，策略留 v1.9.0 配置文件） | v1.9.0 `checkpoint_service.py` 保留策略配置项（**本期无代码面**） |
 | R8 | 【UX Gap】L2 进行中调用竞态（到期/收回 vs 在途执行） | A：进行中允许完成（写入宽限），新调用需确认 / B：立即中断在途 | `guard_task_revoke`/TTL 到期对在途 `software_call`/`run_command` 的处理（§5.5 竞态行） | **A**（ux-flows Gap-1 建议） | 后端：`guard_service.py` grant 失效时的在途调用处理分支；前端：`66-guard-grant.js` 收回时的进行中条目提示文案 |
 | R9 | 【UX Gap】browser_search 进度回报通道 | A：`search_status` 轮询（1s） / B：evaluate_js 事件推送 | `search_status` 是否存在（§2.4/§8）；`63-search-panel` 阶段渲染数据源；`browser_takeover` 是否需要 | **A**（本规范推荐：可本环境自动化验证，架构 §4.2 方向一致） | 后端：删 `search_status` 注册，改 `search_service` 持窗口引用调 `win.evaluate_js('window.__onSearchProgress(...)')`（装配点 `main.py` `_set_window`）；前端：`63-search-panel.js` 改监听 `window.__onSearchProgress` 钩子 |
-| R10 | 【UX Gap】saver 下降级必提示 vs 省钱意图 | A：saver 下降级每次必提示 / B：弱化（合并/静默） | §5.4 H 域降级行；`65-hybrid.js` degrade toast 触发条件 | **A**（ux-flows 流程 6 边界表铁律：违背用户意图且产生费用必告知） | 前端：`65-hybrid.js` degrade toast 条件分支（`strategy==='saver'` 判定） |
-| R11 | 【UX Gap】GLM 端点双通道工具选择歧义 | A：双通道并存按端点自动选（架构 §5 行为兼容既定） / B：include_agent 下 GLM 场景只下发 browser_search | `build_tools(role, include_agent=True)` 在 GLM 端点的工具集（内置 `web_search` 是否出现）；`60-agent-loop.js` 工具选择 | **A**（红线「行为兼容」优先；内置 web_search 保留） | 后端：`api.py build_tools` include_agent 分支加端点判据（`isGlmEndpoint` 同款判据下沉或经参传入）；前端：`60-agent-loop.js` 系统提示二选一指引 |
+| R10 | 【UX Gap】saver 下降级必提示 vs 省钱意图 | A：saver 下降级每次必提示 / B：弱化（合并/静默） | §5.4 H 域降级行；`65-hybrid.js` degrade toast 触发条件 | **B'（2026-10-20 产品负责人裁决：saver 预期内降级静默 + `#costSplit` 分账常驻自查；与 R3 同源——「预期外才告知」：auto 策略降级/云端也失败仍按首次+3 连败规则提示）** | 前端：`65-hybrid.js` degrade toast 条件分支（去掉 `strategy==='saver'` 强制提示，保留 auto 与双失败路径） |
+| R11 | 【UX Gap】GLM 端点双通道工具选择歧义 | A：双通道并存按端点自动选（架构 §5 行为兼容既定） / B：include_agent 下 GLM 场景只下发 browser_search | `build_tools(role, include_agent=True)` 在 GLM 端点的工具集（内置 `web_search` 是否出现）；`60-agent-loop.js` 工具选择 | **B'（2026-10-20 产品负责人裁决「按主理人建议」：构建时按端点过滤——GLM 端点工具面只出现内置 `web_search`（云端原生、无窗口开销无反爬）；非 GLM（第三方/本地）只出现 `browser_search`。两个搜索工具永不并存，模型无得选即无歧义）** | 后端：`api.py build_tools` include_agent 分支加端点判据（`isGlmEndpoint` 同款判据经参传入），GLM 时 browser_search 定义不进工具集、非 GLM 时 web_search 不进（**仅 include_agent=True 路径受影响，默认路径逐字节不变**）；前端：`60-agent-loop.js` 删除双通道二选一系统提示分支 |
 
 **矩阵行数：11**（R1-R7 = 源文档 7 问；R8-R11 = README §7 四项 UX Gap）。所有默认分支均已在 §1-§5 正文按该分支书写，工程师无需等待裁决即可开工；裁决变更只需按「改面」列定点修改 + 契约变更单。
 
