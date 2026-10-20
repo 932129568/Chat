@@ -136,10 +136,29 @@ function exportChat() {
   a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 }
+/* 一次性绑定标记挂函数属性（勿用模块级 let——vm harness 抽函数体会丢外层声明） */
 function toggleSettings() {
   const panel = document.getElementById('settingsPanel');
+  if (!panel) return;
+  if (!toggleSettings._bound) {
+    toggleSettings._bound = true;
+    // 点遮罩（窗口外空白）关闭；Esc 关闭（v4 设置窗口化交互补全）。
+    // typeof 守卫：vm 沙箱的 panel/document 桩可能无 addEventListener（test_v13_qa）
+    if (panel.addEventListener) {
+      panel.addEventListener('click', (e) => { if (e.target === panel) toggleSettings(); });
+    }
+    if (typeof document !== 'undefined' && document.addEventListener) {
+      document.addEventListener('keydown', (e) => {
+        if (e.key !== 'Escape') return;
+        if (!panel.classList.contains('show')) return;
+        const tag = (e.target && e.target.tagName) || '';
+        if (tag === 'TEXTAREA' || tag === 'INPUT') return;   // 输入中不误关
+        toggleSettings();
+      });
+    }
+  }
   if (panel.classList.contains('show')) {
-    // v4：关=播退场（v4SetOut 140ms in-soft）再撤 .show——不再生硬瞬消
+    // v4：关=播退场（v4SetWinOut 140ms in-soft）再撤 .show——不再生硬瞬消
     if (panel.classList.contains('hiding')) return;   // 防重入
     panel.classList.add('hiding');
     const done = () => { try { panel.classList.remove('show', 'hiding'); } catch (e) {} };

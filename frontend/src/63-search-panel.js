@@ -87,7 +87,8 @@ function searchPanelInit() {
     '<div class="sp-head">' +
       '<span class="sp-title">浏览器搜索</span>' +
       '<span class="sp-pill" id="spPill">就绪</span>' +
-      '<button class="sp-close" id="spClose" title="关闭面板">×</button>' +
+      '<button class="sp-fold" id="spFold" title="折叠/展开面板" aria-label="折叠/展开面板">▾</button>' +
+      '<button class="sp-close" id="spClose" title="关闭面板（Esc）" aria-label="关闭面板">×</button>' +
     '</div>' +
     '<div class="sp-progress"><div class="sp-progress-bar" id="spProgressBar"></div></div>' +
     '<div class="sp-query">' +
@@ -113,6 +114,8 @@ function searchPanelInit() {
 function searchPanelWire() {
   const close = spEl('spClose');
   if (close) close.addEventListener('click', () => searchPanelClose());
+  const fold = spEl('spFold');
+  if (fold) fold.addEventListener('click', () => searchPanelToggleFold());
   const btn = spEl('spSearchBtn');
   if (btn) btn.addEventListener('click', () => {
     const input = spEl('spInput');
@@ -122,13 +125,54 @@ function searchPanelWire() {
   if (cont) cont.addEventListener('click', () => searchPanelTakeoverAction('continue'));
   const ab = spEl('spTakeoverAbort');
   if (ab) ab.addEventListener('click', () => searchPanelTakeoverAction('abort'));
+  /* v1.8.0 交互补全：Esc 关闭（captcha 态除外，与 × 同规则）+ 点面板外关闭。
+     typeof 守卫：vm 沙箱 document 桩可能无 addEventListener（§2.5） */
+  if (typeof document !== 'undefined' && document.addEventListener) {
+    document.addEventListener('keydown', (e) => {
+      if (e.key !== 'Escape') return;
+      const panel = searchPanelEl();
+      if (!panel || !panel.classList.contains('show')) return;
+      if (searchPanelState === 'captcha') {
+        spToast('请先完成验证或点击「放弃」', 'warn');
+        return;
+      }
+      searchPanelClose();
+    });
+    document.addEventListener('mousedown', (e) => {
+      const panel = searchPanelEl();
+      if (!panel || !panel.classList.contains('show')) return;
+      if (e.target && e.target.closest && e.target.closest('#searchPanel')) return;
+      if (searchPanelState === 'captcha') return;   // 接管中不误关
+      searchPanelClose();
+    });
+  }
   searchPanelRefreshStats();
 }
 
+/* ---------- 折叠（只留头部+查询行；治「不能缩回去」） ---------- */
+function searchPanelToggleFold() {
+  const panel = searchPanelEl();
+  if (!panel) return;
+  panel.classList.toggle('sp-collapsed');
+  const fold = spEl('spFold');
+  if (fold) fold.title = panel.classList.contains('sp-collapsed') ? '展开面板' : '折叠面板';
+}
+
 /* ---------- 开/关（面板打开起轮询、关闭停；captcha 态不可关闭） ---------- */
+function spManualOpen() {
+  if (!searchPanelEl()) searchPanelInit();
+  const panel = searchPanelEl();
+  if (panel && panel.classList.contains('show')) { searchPanelClose(); return; }  // 再点=收起
+  searchPanelOpen();
+  const input = spEl('spInput');
+  if (input) setTimeout(() => input.focus(), 60);
+}
 function searchPanelOpen() {
   const panel = searchPanelEl();
   if (!panel) return;
+  if (panel.classList.contains('hiding')) {
+    panel.classList.remove('hiding');   // 退场中途重开：直接落位
+  }
   panel.classList.add('show');
   searchPanelRefreshStats();
   searchPanelStartPolling();
@@ -141,8 +185,15 @@ function searchPanelClose() {
     return;
   }
   const panel = searchPanelEl();
-  if (panel) panel.classList.remove('show');
   searchPanelStopPolling();
+  if (!panel || !panel.classList.contains('show')) return;
+  panel.classList.add('hiding');
+  const done = () => {
+    try { panel.classList.remove('show', 'hiding'); } catch (e) {}
+  };
+  if (typeof MOTION !== 'undefined' && !MOTION.instant()) {
+    MOTION.onAnimEnd(panel, 'animationend', MOTION.compOut()).then(done);
+  } else { done(); }
 }
 
 /* ---------- 三态 + last-wins 主入口（C 域 25-tool-exec 分发亦走此函数） ---------- */
@@ -150,6 +201,10 @@ async function searchPanelRunSearch(params) {
   const seq = ++searchReqSeq;                       // ②序号登记
   searchPanelSetState('pending');
   searchPanelOpen();                                // 打开即起轮询（≥3s 可见等待）
+  const btn = spEl('spSearchBtn');
+  if (btn) btn.disabled = true;                     // pending 防连点
+  const bar = spEl('spProgressBar');
+  if (bar) { bar.classList.add('indet'); bar.style.transform = ''; }   // 不确定进度扫光
   try {
     const raw = await spCallApi('browser_search', [params || {}],
       (params && params.extract === 'full') ? 150000 : SP_SEARCH_TIMEOUT_MS);  // ③竞速
@@ -173,6 +228,10 @@ async function searchPanelRunSearch(params) {
       message: (e && e.message) || String(e) });
     searchPanelSetState('error');
   } finally {
+    const btn2 = spEl('spSearchBtn');
+    if (btn2) btn2.disabled = false;                // 终态恢复（pending 防连点）
+    const bar2 = spEl('spProgressBar');
+    if (bar2) bar2.classList.remove('indet');       // 停不确定扫光（确定进度由 phase 驱动）
     searchPanelRefreshStats();
   }
 }
@@ -326,16 +385,24 @@ function searchPanelRenderResults(d) {
     box.appendChild(empty);
     return;
   }
-  list.forEach(r => {
+  list.forEach((r, i) => {
     const item = document.createElement('div');
     item.className = 'sp-item';
+    const top = document.createElement('div');
+    top.className = 'sp-item-top';
+    const pos = document.createElement('span');
+    pos.className = 'sp-pos';
+    pos.textContent = String(r.position || (i + 1));
+    top.appendChild(pos);
     const a = document.createElement('a');
     a.className = 'sp-item-title';
     a.href = r.url || '#';
     a.target = '_blank';
     a.rel = 'noopener';
     a.textContent = r.title || r.url || '（无标题）';
-    item.appendChild(a);
+    a.title = r.title || r.url || '';   // 截断时悬浮全称
+    top.appendChild(a);
+    item.appendChild(top);
     if (r.snippet) {
       const sn = document.createElement('div');
       sn.className = 'sp-item-snippet';
@@ -351,8 +418,16 @@ function searchPanelRenderResults(d) {
     }
     const foot = document.createElement('div');
     foot.className = 'sp-item-foot';
-    foot.textContent = (r.position || '') + '. ' + (r.domain || '') +
-      (r.date ? ' · ' + r.date : '');
+    const dom = document.createElement('span');
+    dom.className = 'sp-item-domain';
+    dom.textContent = r.domain || '';
+    foot.appendChild(dom);
+    if (r.date) {
+      const dt = document.createElement('span');
+      dt.className = 'sp-item-date';
+      dt.textContent = r.date;
+      foot.appendChild(dt);
+    }
     item.appendChild(foot);
     box.appendChild(item);
   });

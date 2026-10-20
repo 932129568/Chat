@@ -416,23 +416,51 @@ body.dark .eff-tag-s{background:var(--ok-bg);color:var(--ok);}
 .panel-sub{font-size:13px;color:var(--text-2);margin-top:2px;}
 .panel-scroll{flex:1;overflow-y:auto;padding:var(--panel-gap) var(--panel-pad) 24px;
   display:flex;flex-direction:column;gap:var(--panel-gap);}
-/* ===== 设置面板 ===== */
-/* v4 重设计：由「文档流内挤压聊天区」改为「覆盖层」——打开不再推挤输入框，
-   聊天原样停在后面；开=下滑淡入，关=上滑淡出（.hiding 走 v4SetOut） */
-.panel{position:relative;}
-/* v4 修复 sticky 包含块陷阱：原 padding-top:18px 使 sticky 导航条被约束在内容盒
-   （18px 起）——上滑时导航条吸到 18px 处，上方留出 18px 滚动视口空白带，模块卡片
-   卷进带子里「浮在功能名字上方」。拆掉顶部 padding（内容盒顶边=视口顶边），
-   呼吸感改由导航条自身 padding 提供，导航条完整吸顶无空档 */
+/* ===== 设置面板 · v4 重设计：独立设置窗口（遮罩 + 居中窗口 + 左右分栏 + 弹簧入场） =====
+   布局基准：WorkBuddy 设置窗（左分组导航 / 右内容单列）；视觉：新编辑部语言
+   （冷调纸底 / 深墨 / 蓝强调 / 结构化行）。交互：开=遮罩淡入+窗口弹簧落入，
+   关=整体淡出（.hiding + onAnimEnd）；Esc / 点遮罩 / × 均可关。 */
 .settings-panel{position:absolute;inset:0;z-index:400;
-  background:linear-gradient(var(--glass-bg),var(--glass-bg)),var(--glass-fallback);
-  backdrop-filter:blur(var(--glass-blur));-webkit-backdrop-filter:blur(var(--glass-blur));
-  padding:0 26px 32px;
-  display:none;overflow-y:auto;}
-.settings-panel.show{display:block;animation:v4SetIn var(--dur-comp) var(--ease-out-soft);}
+  display:none;align-items:center;justify-content:center;
+  background:rgba(16,18,28,.32);backdrop-filter:blur(3px);-webkit-backdrop-filter:blur(3px);}
+.settings-panel.show{display:flex;animation:v4MaskIn var(--dur-comp) var(--ease-out-soft)}
+.settings-panel.show.hiding{animation:v4SetWinOut var(--dur-comp-out) var(--ease-in-soft) forwards}
+@keyframes v4SetWinOut{from{opacity:1}to{opacity:0}}
+@keyframes v4MaskIn{from{opacity:0}to{opacity:1}}
+/* v4SetIn/v4SetOut 保留（v4 端口规则被测试钉住；设置窗口弹簧落入/淡出为叠加层） */
 @keyframes v4SetIn{from{opacity:0;transform:translateY(calc(-1*var(--shift-comp)))}to{opacity:1;transform:none}}
-.settings-panel.show.hiding{animation:v4SetOut var(--dur-comp-out) var(--ease-in-soft) forwards;}
 @keyframes v4SetOut{from{opacity:1;transform:none}to{opacity:0;transform:translateY(calc(-1*var(--shift-comp)))}}
+.set-window{width:min(940px,94%);height:min(86%,780px);min-height:420px;
+  background:var(--card-bg);border:1px solid var(--border);border-radius:var(--radius-xl);
+  box-shadow:var(--shadow-lg);display:flex;flex-direction:column;overflow:hidden;
+  animation:v4SetWinIn var(--dur-panel) var(--ease-spring)}
+@keyframes v4SetWinIn{from{opacity:0;transform:translateY(8px) scale(.97)}to{opacity:1;transform:none}}
+.set-win-head{display:flex;align-items:center;gap:10px;padding:13px 18px;flex-shrink:0;
+  border-bottom:1px solid var(--border);background:var(--surface-2)}
+.set-win-t{font-size:15px;font-weight:700;letter-spacing:-.01em}
+.set-win-sub{font-size:11.5px;color:var(--text-3);font-weight:400;margin-left:10px}
+.set-win-close{margin-left:auto;width:30px;height:30px;border-radius:var(--radius-sm);
+  display:flex;align-items:center;justify-content:center;color:var(--text-3);font-size:16px;line-height:1;
+  transition:background-color var(--dur-micro) var(--ease-out-soft),color var(--dur-micro) var(--ease-out-soft)}
+.set-win-close:hover{background:var(--err-bg);color:var(--err)}
+.set-win-body{flex:1;display:grid;grid-template-columns:208px 1fr;min-height:0}
+/* 左导航（竖排分组列表，替代原顶部 pills） */
+.set-nav{display:flex;flex-direction:column;gap:2px;padding:12px 10px;overflow-y:auto;
+  border-right:1px solid var(--border);background:var(--surface-2);position:static;}
+.set-nav-group{font-size:10.5px;font-weight:600;color:var(--text-3);letter-spacing:.05em;
+  padding:12px 10px 5px;text-transform:uppercase}
+.set-nav-group:first-child{padding-top:2px}
+.set-nav-btn{width:100%;height:32px;padding:0 11px;border-radius:var(--radius-md);
+  display:flex;align-items:center;gap:9px;font-size:12.5px;text-align:left;white-space:nowrap;
+  border:1px solid transparent;background:transparent;color:var(--text-2);font-family:inherit;cursor:pointer;
+  overflow:hidden;text-overflow:ellipsis;
+  transition:background-color var(--dur-micro) var(--ease-out-soft),color var(--dur-micro) var(--ease-out-soft),border-color var(--dur-micro) var(--ease-out-soft)}
+.set-nav-btn svg{width:15px;height:15px;flex-shrink:0}
+.set-nav-btn:hover{background:var(--hover);color:var(--text)}
+.set-nav-btn.on{background:var(--primary-soft);color:var(--primary);font-weight:600;border-color:var(--primary)}
+/* 右内容（单列卡片流） */
+.set-content{overflow-y:auto;padding:20px 24px 32px;min-height:0}
+.set-content .set-grid{grid-template-columns:1fr;max-width:680px;margin:0;gap:14px}
 /* v4 布局精致化：更宽的内容列（原 290px 窄列拥挤割裂）→ 340px 起步、间距 18 */
 .set-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:18px;
   max-width:1040px;margin:0 auto;}
@@ -442,17 +470,8 @@ body.dark .eff-tag-s{background:var(--ok-bg);color:var(--ok);}
 /* 连接块是主块：横跨全宽 */
 .cm-block{grid-column:1/-1;}
 /* ===== 修复 UX-4（v1.4）：设置锚点导航（DOM/CSS 纯新增）===== */
-/* v4 修复割裂感：sticky 导航条改不透明底色（原 --header-bg 78% 半透明+毛玻璃，
-   上滑时卡片会透上来形成「模块浮在功能名字上方空余区」的幽灵效果）；
-   不透明 card-bg 完全遮挡滚动内容，导航条成为一整块实体 */
-.set-nav{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px;position:sticky;top:0;
-  z-index:5;padding:10px 2px 8px;background:var(--card-bg);
-  border-bottom:1px solid var(--border);}
-.set-nav-btn{height:26px;padding:0 11px;border:1px solid var(--border);border-radius:var(--radius-full);
-  background:var(--card-bg);color:var(--text-2);font-size:12px;font-family:inherit;cursor:pointer;
-  white-space:nowrap;}
-.set-nav-btn:hover{border-color:var(--primary);color:var(--primary);}
-.set-nav-btn.on{background:var(--primary);border-color:var(--primary);color:#fff;}
+/* v4 二次重设计：顶部 sticky pills → 左竖排分组导航（设置窗口化，见设置面板节）；
+   旧 pills 规则已由设置窗口节的 .set-nav/.set-nav-btn 覆盖（同 file 后定义优先）。 */
 /* 实现 v1.6 T6：沙箱状态灯（纯新增类） */
 .sb-light{display:inline-block;width:10px;height:10px;border-radius:50%;flex-shrink:0;background:var(--text-2);}
 .sb-light.ok{background:var(--ok);}
@@ -820,7 +839,12 @@ body.theming .modal-card,body.theming .ctx-menu,body.theming .tool-call-item,
 body.theming .session-item,body.theming .message .content,body.theming .attach-item,
 body.theming .ws-card,body.theming .mcp-row,body.theming .search-hit,body.theming .eff-row,
 body.theming .set-nav,body.theming .header-badge,body.theming .pill-btn,body.theming .seg,
-body.theming .code-copy,body.theming .token-stat{
+body.theming .code-copy,body.theming .token-stat,
+/* v4 设置窗口化 + 搜索面板：新表面类入 theming 白名单（主题切换同速过渡） */
+body.theming .set-window,body.theming .set-win-head,body.theming .set-nav-btn,
+body.theming .set-content,body.theming .set-nav-group,body.theming .set-win-close,
+body.theming .sp-root,body.theming .sp-head,body.theming .sp-item,body.theming .sp-input,
+body.theming .sp-search-btn,body.theming .sp-takeover,body.theming .sp-pill,body.theming .sp-foot{
   transition-property:background-color,color,border-color,box-shadow,fill,stroke;
   transition-duration:var(--dur-theme);
   transition-timing-function:var(--ease-out-soft);}
@@ -1027,6 +1051,118 @@ body.fx-off .panel,body.fx-off .message,body.fx-off .settings-panel.show{animati
 .cs-opt{display:flex;align-items:center;}
 .cs-badge{margin-left:7px;font-size:10px;font-family:var(--font-mono);color:var(--primary);
   background:var(--primary-soft);padding:1px 6px;border-radius:var(--radius-full);flex-shrink:0;}
+/* ============================================================
+   v1.8.0 B 域搜索面板 · 新编辑部设计语言（deep-research 报告同源）
+   冷调纸底 / 深墨文本 / 蓝强调 / 结构化行 / 着色 callout；纯新增类（UI 契约只增不改）
+   交互：浮层固定定位 · 头部折叠（.sp-collapsed 只留查询行）· ×/Esc/点外关闭
+   ============================================================ */
+.sp-root{position:fixed;top:64px;right:20px;width:min(440px,calc(100vw - 40px));z-index:450;
+  max-height:calc(100vh - 100px);display:none;flex-direction:column;
+  background:var(--card-bg);border:1px solid var(--border);border-radius:var(--radius-lg);
+  box-shadow:var(--shadow-lg);overflow:hidden;
+  font-family:var(--font-sans);color:var(--text);}
+.sp-root.show{display:flex;animation:v4SpRootIn var(--dur-comp) var(--ease-out-soft)}
+@keyframes v4SpRootIn{from{opacity:0;transform:translateY(calc(-1*var(--shift-comp))) scale(.98)}to{opacity:1;transform:none}}
+.sp-root.hiding{animation:v4SpRootOut var(--dur-comp-out) var(--ease-in-soft) forwards}
+@keyframes v4SpRootOut{from{opacity:1;transform:none}to{opacity:0;transform:translateY(calc(-1*var(--shift-comp))) scale(.98)}}
+/* 头部：标题 + 状态 pill + 折叠钮 + 关闭钮 */
+.sp-head{display:flex;align-items:center;gap:8px;padding:10px 12px;flex-shrink:0;
+  border-bottom:1px solid var(--border);background:var(--surface-2);}
+.sp-title{font-size:13px;font-weight:700;letter-spacing:.02em;flex:1;min-width:0;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.sp-pill{font-size:10.5px;font-weight:600;padding:2px 9px;border-radius:var(--radius-full);
+  background:var(--chip-bg);color:var(--text-2);white-space:nowrap;flex-shrink:0;
+  transition:background-color var(--dur-comp) var(--ease-out-soft),color var(--dur-comp) var(--ease-out-soft)}
+.sp-pill-ok{background:var(--ok-bg);color:var(--ok)}
+.sp-pill-err{background:var(--err-bg);color:var(--err)}
+.sp-pill-warn{background:var(--warn-bg);color:var(--warn)}
+.sp-fold{width:26px;height:26px;border:none;background:transparent;border-radius:var(--radius-sm);
+  color:var(--text-3);font-size:11px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;
+  transition:background-color var(--dur-micro) var(--ease-out-soft),color var(--dur-micro) var(--ease-out-soft),transform var(--dur-comp) var(--ease-out-soft)}
+.sp-fold:hover{background:var(--hover);color:var(--text)}
+.sp-close{width:26px;height:26px;border:none;background:transparent;border-radius:var(--radius-sm);
+  color:var(--text-3);font-size:15px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;
+  transition:background-color var(--dur-micro) var(--ease-out-soft),color var(--dur-micro) var(--ease-out-soft)}
+.sp-close:hover{background:var(--err-bg);color:var(--err)}
+/* 折叠态：只留头部+查询行 */
+.sp-root.sp-collapsed .sp-progress,.sp-root.sp-collapsed .sp-meta,.sp-root.sp-collapsed .sp-takeover,
+.sp-root.sp-collapsed .sp-results,.sp-root.sp-collapsed .sp-foot{display:none}
+.sp-root.sp-collapsed .sp-fold{transform:rotate(-90deg)}
+.sp-root.sp-collapsed{border-bottom-left-radius:var(--radius-lg);border-bottom-right-radius:var(--radius-lg)}
+/* 进度条（scaleX，白名单） */
+.sp-progress{height:3px;background:var(--surface-2);flex-shrink:0;overflow:hidden}
+.sp-progress-bar{height:100%;width:100%;background:var(--primary);transform:scaleX(0);transform-origin:left;
+  transition:transform var(--dur-comp) var(--ease-out-soft)}
+.sp-progress-bar.indet{animation:v4SpSweep var(--dur-stream) var(--ease-out-soft) infinite}
+@keyframes v4SpSweep{0%{transform:scaleX(.15) translateX(-30%)}50%{transform:scaleX(.55) translateX(30%)}100%{transform:scaleX(.15) translateX(110%)}}
+/* 查询行 */
+.sp-query{display:flex;gap:8px;padding:10px 12px;flex-shrink:0}
+.sp-input{flex:1;min-width:0;height:32px;padding:0 11px;font-size:13px;font-family:inherit;
+  border:1px solid var(--border);border-radius:var(--radius-md);background:var(--bg);color:var(--text);outline:none;
+  transition:border-color var(--dur-micro) var(--ease-out-soft),box-shadow var(--dur-micro) var(--ease-out-soft)}
+.sp-input:focus{border-color:var(--primary);box-shadow:var(--glow-focus)}
+.sp-input::placeholder{color:var(--text-3)}
+.sp-search-btn{height:32px;padding:0 15px;border:none;border-radius:var(--radius-md);cursor:pointer;
+  background:var(--primary);color:#fff;font-size:12.5px;font-weight:600;font-family:inherit;flex-shrink:0;
+  transition:background-color var(--dur-micro) var(--ease-out-soft),box-shadow var(--dur-micro) var(--ease-out-soft),transform var(--dur-press) var(--ease-out-soft)}
+.sp-search-btn:hover{background:var(--primary-hover);box-shadow:var(--glow)}
+.sp-search-btn:active{transform:scale(.97)}
+.sp-search-btn:disabled{opacity:.55;cursor:default;transform:none;box-shadow:none}
+/* meta 行：来源徽标 + 检索式 + 引擎 + 渠道 + 耗时（结构化 pill 行，治「杂乱」） */
+.sp-meta{display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding:0 12px 8px;flex-shrink:0;
+  font-size:11px;color:var(--text-3);min-height:0}
+.sp-meta:empty{display:none}
+.sp-src{font-size:10.5px;font-weight:600;padding:1px 8px;border-radius:var(--radius-full);
+  background:var(--primary-soft);color:var(--primary)}
+.sp-src.cache{background:var(--warn-bg);color:var(--warn)}
+.sp-src.err{background:var(--err-bg);color:var(--err)}
+.sp-q{font-family:var(--font-mono);color:var(--text-2);max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sp-e,.sp-ch,.sp-t,.sp-deep,.sp-trunc{padding:1px 7px;border-radius:var(--radius-full);background:var(--chip-bg);white-space:nowrap}
+/* 人工接管（琥珀 callout） */
+.sp-takeover{margin:0 12px 8px;padding:11px 12px;border-radius:var(--radius-md);flex-shrink:0;
+  background:var(--warn-bg);border:1px solid var(--warn);
+  animation:v4SpTakeIn var(--dur-comp) var(--ease-out-soft)}
+@keyframes v4SpTakeIn{from{opacity:0;transform:translateY(calc(-1*var(--shift-comp)))}to{opacity:1;transform:none}}
+.sp-takeover-title{font-size:12.5px;font-weight:700;color:var(--warn)}
+.sp-takeover-desc{font-size:11.5px;color:var(--text-2);margin-top:3px;line-height:1.55}
+.sp-takeover-timer{font-size:11px;color:var(--text-3);font-family:var(--font-mono);margin-top:5px}
+.sp-takeover-btns{display:flex;gap:8px;margin-top:9px}
+/* 结果列表（结构化行：序号徽标 + 标题 + 域名 + 片段 + meta 行） */
+.sp-results{flex:1;min-height:60px;overflow-y:auto;padding:4px 0;border-top:1px solid var(--border)}
+.sp-item{display:block;padding:9px 12px;border-bottom:1px solid var(--border);cursor:default;
+  transition:background-color var(--dur-micro) var(--ease-out-soft)}
+.sp-item:last-child{border-bottom:none}
+.sp-item:hover{background:var(--hover)}
+.sp-item-top{display:flex;align-items:baseline;gap:7px;min-width:0}
+.sp-pos{flex-shrink:0;font-size:10px;font-weight:700;font-family:var(--font-mono);color:var(--primary);
+  background:var(--primary-soft);border-radius:var(--radius-sm);padding:1px 5px;min-width:18px;text-align:center}
+.sp-item-title{font-size:12.8px;font-weight:600;color:var(--primary);text-decoration:none;flex:1;min-width:0;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;line-height:1.45}
+.sp-item-title:hover{text-decoration:underline}
+.sp-item-snippet{font-size:12px;color:var(--text-2);line-height:1.55;margin-top:3px;
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.sp-item-content{font-size:11.5px;color:var(--text-3);line-height:1.55;margin-top:4px;
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.sp-item-foot{display:flex;align-items:center;gap:6px;margin-top:5px;font-size:10.5px;color:var(--text-3);font-family:var(--font-mono);min-width:0}
+.sp-item-domain{color:var(--text-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sp-item-date{flex-shrink:0}
+.sp-empty,.sp-error{padding:20px 14px;text-align:center;font-size:12px;color:var(--text-3);line-height:1.6}
+.sp-error{color:var(--err)}
+.sp-error-hint{font-size:11px;color:var(--text-3);margin-top:5px;text-align:center}
+/* 底部统计行 */
+.sp-foot{flex-shrink:0;padding:7px 12px;border-top:1px solid var(--border);background:var(--surface-2);
+  font-size:10.5px;color:var(--text-3);font-family:var(--font-mono);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* 接管区按钮（v4-h 家族同源） */
+.sp-btn{height:28px;padding:0 13px;border-radius:var(--radius-md);border:1px solid var(--border);
+  background:var(--card-bg);color:var(--text-2);font-size:12px;font-family:inherit;cursor:pointer;
+  transition:background-color var(--dur-micro) var(--ease-out-soft),color var(--dur-micro) var(--ease-out-soft),
+  border-color var(--dur-micro) var(--ease-out-soft),transform var(--dur-press) var(--ease-out-soft)}
+.sp-btn:hover{border-color:var(--primary);color:var(--primary);background:var(--primary-soft)}
+.sp-btn:active{transform:scale(.97)}
+.sp-btn-primary{background:var(--primary);border-color:var(--primary);color:#fff;font-weight:600}
+.sp-btn-primary:hover{background:var(--primary-hover);border-color:var(--primary-hover);color:#fff;box-shadow:var(--glow)}
+.sp-btn:disabled{opacity:.55;cursor:default;transform:none}
 </style>
 </head>
 <body>
@@ -1105,6 +1241,9 @@ body.fx-off .panel,body.fx-off .message,body.fx-off .settings-panel.show{animati
       <div class="header-badge">多模态 Agent</div>
     </div>
     <div class="header-right">
+      <button class="icon-btn" id="searchPanelBtn" title="浏览器搜索（Agent 受控检索）" onclick="spManualOpen()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.35-4.35"/></svg>
+      </button>
       <button class="pill-btn" onclick="toggleSettings()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1A1.7 1.7 0 0 0 8.9 19a1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1A1.7 1.7 0 0 0 5 8.9a1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3H9.5a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9v.1a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>设置</button>
     </div>
   </header>
@@ -1113,16 +1252,26 @@ body.fx-off .panel,body.fx-off .message,body.fx-off .settings-panel.show{animati
     <!-- 面板 1 · 对话（默认）：设置浮层 + 消息流 + 输入区 -->
     <section class="panel on" id="panelChat">
       <div class="settings-panel" id="settingsPanel">
-        <!-- 修复 UX-4（v1.4）：设置锚点导航条（纯新增；按钮与 set-block 一一对应，滚动高亮） -->
-        <nav class="set-nav" id="setNav" aria-label="设置分区导航"></nav>
-        <div class="set-grid">
+        <!-- v4 设置窗口化：遮罩 + 居中窗口 + 左分组导航/右内容单列（WorkBuddy 设置同款布局；
+             开=遮罩淡入+窗口弹簧落入，Esc/点遮罩/× 关闭） -->
+        <div class="set-window">
+          <div class="set-win-head">
+            <span class="set-win-t">设置</span>
+            <span class="set-win-sub">Harbor 首选项 · 改动即生效</span>
+            <button class="set-win-close" onclick="toggleSettings()" title="关闭设置（Esc）">×</button>
+          </div>
+          <div class="set-win-body">
+            <!-- 修复 UX-4（v1.4）：设置锚点导航（左竖排分组；按钮与 set-block 一一对应，滚动高亮） -->
+            <nav class="set-nav" id="setNav" aria-label="设置分区导航"></nav>
+            <div class="set-content" id="setContent">
+              <div class="set-grid">
           <!-- v4「连接与模型」完全单端点（设计书 v4/connect-merge-design.md）：
                原「连接与模型」「模型服务商（OpenAI 兼容端点）」「本地模型（v1.5）」三块合并为一块。
                预设下拉 = 唯一端点开关（GLM 官方只是 name='glm' 的预设，不再有独立模式）；
                单一 Base URL / Key / 模型流；GLM 专属（推理力度）与本地专属（工具调用 / 窗口覆盖）
                控件进「高级 ▾」折叠并按预设条件显隐（36-connect.js connectUpdateAdvanced）。
                契约钉住 id：apiKey / modelSelect / reasoningEffort 三者全部保留。 -->
-          <div class="set-block cm-block" id="cmBlock">
+          <div class="set-block cm-block" id="cmBlock" data-group="模型与端点">
             <div class="cm-head">
               <div class="set-title">连接与模型</div>
               <div class="cm-sub">一个 Key，连所有端点：选预设 → 填 Key → 识别模型，即填即用</div>
@@ -1240,7 +1389,7 @@ body.fx-off .panel,body.fx-off .message,body.fx-off .settings-panel.show{animati
             </div>
           </div>
 
-          <div class="set-block">
+          <div class="set-block" data-group="对话">
             <div class="set-title">省 Token 策略</div>
             <label>截图质量</label>
             <select id="shotQuality">
@@ -1266,7 +1415,7 @@ body.fx-off .panel,body.fx-off .message,body.fx-off .settings-panel.show{animati
             </div>
           </div>
 
-          <div class="set-block">
+          <div class="set-block" data-group="对话">
             <div class="set-title">生成参数</div>
             <label for="maxTokens">最大输出 tokens</label>
             <input type="number" id="maxTokens" value="16384" min="256" max="128000" step="256">
@@ -1280,7 +1429,7 @@ body.fx-off .panel,body.fx-off .message,body.fx-off .settings-panel.show{animati
             </div>
           </div>
 
-          <div class="set-block">
+          <div class="set-block" data-group="对话">
             <div class="set-title">角色与联网</div>
             <label for="systemPrompt">系统设定（角色 Prompt，长指令写在这里更省）</label>
             <textarea id="systemPrompt" rows="3" placeholder="例如: 你是一名专业的软件开发工程师，认真负责，不随口胡说。"></textarea>
@@ -1302,7 +1451,7 @@ body.fx-off .panel,body.fx-off .message,body.fx-off .settings-panel.show{animati
           </div>
 
           <!-- v1.6 WebDAV 数据主权（预留接口层 UI：校验/冲突判定就绪，IO 为 reserved 占位） -->
-          <div class="set-block">
+          <div class="set-block" data-group="数据">
             <div class="set-title">数据同步 · WebDAV（v1.6 预留）</div>
             <div class="set-hint" style="margin:2px 0 8px;">
               配置 + 会话 + 审计日志备份到 WebDAV（https）；三方冲突（本地/云端/备份）分类判定已就绪。<br>
@@ -1333,7 +1482,7 @@ body.fx-off .panel,body.fx-off .message,body.fx-off .settings-panel.show{animati
             </div>
           </div>
 
-          <div class="set-block">
+          <div class="set-block" data-group="系统">
             <div class="set-title">软件更新</div>
             <label for="updateManifestUrl">更新清单地址（留空使用默认源）</label>
             <div class="provider-row">
@@ -1346,7 +1495,7 @@ body.fx-off .panel,body.fx-off .message,body.fx-off .settings-panel.show{animati
             </div>
           </div>
 
-          <div class="set-block">
+          <div class="set-block" data-group="系统">
             <div class="set-title">外观与特效</div>
             <label class="check-row" for="fxToggle" style="margin-bottom:4px;">
               <input type="checkbox" id="fxToggle" onchange="toggleFx()"> 特效全开（极光背景 / 发光 / 数字滚动）
@@ -1358,7 +1507,7 @@ body.fx-off .panel,body.fx-off .message,body.fx-off .settings-panel.show{animati
           </div>
 
           <!-- 实现 v1.6 T13：免打扰（DND）设置项（独立开关，localStorage 持久，不污染 config.json） -->
-          <div class="set-block" id="dndBlock">
+          <div class="set-block" id="dndBlock" data-group="系统">
             <div class="set-title">免打扰（DND）</div>
             <label class="check-row" for="dndEnabled" style="margin-bottom:4px;">
               <input type="checkbox" id="dndEnabled" onchange="saveDndSetting()"> 窗口失焦时免打扰
@@ -1369,7 +1518,7 @@ body.fx-off .panel,body.fx-off .message,body.fx-off .settings-panel.show{animati
             </div>
           </div>
 
-          <div class="set-block">
+          <div class="set-block" data-group="系统">
             <div class="set-title">MCP 服务器（v1.3）</div>
             <div class="set-hint" style="margin:2px 0 8px;">
               接入 Model Context Protocol 工具生态：stdio 本地服务器 / Streamable HTTP 远程服务器。<br>
@@ -1386,7 +1535,7 @@ body.fx-off .panel,body.fx-off .message,body.fx-off .settings-panel.show{animati
 
           <!-- 实现 v1.6 T6：命令沙箱设置面板 + 状态灯（纯新增区块；新 id 全部唯一，
                接线既有 js_api sandbox_get_config/sandbox_save_config/sandbox_status） -->
-          <div class="set-block" id="sandboxBlock">
+          <div class="set-block" id="sandboxBlock" data-group="系统">
             <div class="set-title">命令沙箱（v1.6）</div>
             <div class="set-hint" style="margin:2px 0 8px;">
               Windows Job Object 进程隔离：每次命令一个独立 Job，收编整棵进程树，句柄关闭即清剿（防孤儿）。<br>
@@ -1471,8 +1620,11 @@ body.fx-off .panel,body.fx-off .message,body.fx-off .settings-panel.show{animati
               <button type="button" class="modal-btn" id="sandboxResetBtn" onclick="sandboxResetDefaults()">重置默认</button>
             </div>
           </div>
-        </div>
-      </div>
+              </div><!-- /set-grid -->
+            </div><!-- /set-content -->
+          </div><!-- /set-win-body -->
+        </div><!-- /set-window -->
+      </div><!-- /settings-panel -->
 
       <div class="chat-container" id="chatContainer">
         <div class="empty-state" id="emptyState">
@@ -3964,13 +4116,50 @@ function jumpToSearchHit(sessionId, midx) {
 }
 
 /* ===== 33-set-nav.js ===== */
-/* ================= UX-4 设置面板锚点导航（v1.4） =================
- * 设置浮层顶部导航条：按钮与 set-block 一一对应 → 点击 scrollIntoView 平滑滚动；
- * 滚动监听当前 section 高亮（sticky 导航条始终可见）。
- * DOM/CSS 纯新增（UI 契约只增不改）；set-block 未打 data 锚点时按出现顺序自动编号。
+/* ================= UX-4 设置面板锚点导航（v1.4 → v4 设置窗口化重设计） =================
+ * 设置窗口左竖排分组导航：按钮与 set-block 一一对应 → 点击 scrollIntoView 平滑滚动；
+ * 滚动监听当前 section 高亮（rAF 节流，滚动容器 = .set-content）。
+ * v4 重设计（2026-10-20）：顶部 sticky pills → 左分组列表（WorkBuddy 设置同款布局），
+ * 带分组头（data-group）+ 图标（标题关键词映射）；动态注入块（software/hybrid/grant）
+ * 无 data-group 时按标题关键词归组。DOM/CSS 纯新增（UI 契约只增不改）。
  */
 
 let _setNavBound = false;
+
+/* 分组归置：模板块用 data-group；动态块按标题关键词推断 */
+const SET_NAV_GROUPS = ['模型与端点', '对话', '数据', '系统'];
+function _groupOf(blk, title) {
+  const g = blk.dataset && blk.dataset.group;
+  if (g) return g;
+  if (/软件|混合|路由|端点|模型|连接/.test(title)) return '模型与端点';
+  if (/授权|白名单|同步|WebDAV|数据/.test(title)) return '数据';
+  if (/Token|参数|角色|联网|搜索/.test(title)) return '对话';
+  return '系统';
+}
+/* 标题关键词 → 内联 SVG（stroke=currentColor 1.7 圆帽圆角，与 rail 同图标语言） */
+const SET_NAV_ICONS = {
+  '连接': '<path d="M9 7H7a5 5 0 0 0 0 10h2M15 7h2a5 5 0 0 1 0 10h-2M8 12h8"/>',
+  'Token': '<path d="M13 2L4.5 13H11l-1 9 8.5-11H12l1-9z"/>',
+  '参数': '<path d="M4 6h10M8 12h8M4 18h10"/><circle cx="17" cy="6" r="2"/><circle cx="15" cy="12" r="2"/><circle cx="17" cy="18" r="2"/>',
+  '角色': '<path d="M12 2a4 4 0 0 1 4 4c0 2-2 3.5-4 4-2-.5-4-2-4-4a4 4 0 0 1 4-4z"/><path d="M5 21c0-3.5 3-6 7-6s7 2.5 7 6"/>',
+  '同步': '<path d="M21 12a9 9 0 0 1-15.5 6.4M3 12a9 9 0 0 1 15.5-6.4"/><path d="M18 3v5h-5M6 21v-5h5"/>',
+  '更新': '<path d="M12 3v12M6 11l6 6 6-6"/><path d="M4 21h16"/>',
+  '外观': '<circle cx="12" cy="12" r="9"/><circle cx="8.5" cy="10" r="1.2" fill="currentColor"/><circle cx="12" cy="7.5" r="1.2" fill="currentColor"/><circle cx="15.5" cy="10" r="1.2" fill="currentColor"/><path d="M8.5 15c1 1.5 4.5 1.5 5.5 0"/>',
+  '打扰': '<path d="M18 8a6 6 0 1 0-12 0c0 7-3 8-3 8h18s-3-1-3-8"/><path d="M4 4l16 16"/>',
+  'MCP': '<rect x="3" y="4" width="18" height="7" rx="2"/><rect x="3" y="13" width="18" height="7" rx="2"/><path d="M7 7.5h.01M7 16.5h.01"/>',
+  '沙箱': '<path d="M21 8v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7l2 3h5a2 2 0 0 1 2 2z"/><path d="M10 12h4M12 12v3"/>',
+  '软件': '<rect x="3" y="4" width="8" height="8" rx="1.5"/><rect x="13" y="4" width="8" height="8" rx="1.5"/><rect x="3" y="13" width="8" height="8" rx="1.5"/><rect x="13" y="13" width="8" height="8" rx="1.5"/>',
+  '授权': '<path d="M12 2l8 3v6c0 5-3.5 8.5-8 10-4.5-1.5-8-5-8-10V5z"/><path d="M9 12l2 2 4-4"/>'
+};
+function _iconOf(title) {
+  for (const k of Object.keys(SET_NAV_ICONS)) {
+    if (title.indexOf(k) >= 0) {
+      return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" ' +
+        'stroke-linecap="round" stroke-linejoin="round">' + SET_NAV_ICONS[k] + '</svg>';
+    }
+  }
+  return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><circle cx="12" cy="12" r="8"/></svg>';
+}
 
 function buildSetNav() {
   const nav = document.getElementById('setNav');
@@ -3978,21 +4167,29 @@ function buildSetNav() {
   const blocks = Array.from(document.querySelectorAll('#settingsPanel .set-block'));
   if (!blocks.length) return;
   nav.innerHTML = '';
+  let lastGroup = null;
   blocks.forEach((blk, i) => {
     const titleEl = blk.querySelector('.set-title');
     const label = titleEl ? titleEl.textContent.trim() : ('分区 ' + (i + 1));
-    // 修复 56（三轮）：自动编号避开已有 id——原直接 'setSec' + i，若模板/其他脚本
-    // 手写了同名 id（setSec0 等）则文档出现两个同 id 元素，scrollIntoView 与
-    // getElementById 恒命中第一个，导航跳错/高亮错。递增探测至未占用序号。
+    // 修复 56（三轮）：自动编号避开已有 id
     if (!blk.id) {
       let n = i;
       while (document.getElementById('setSec' + n)) n++;
       blk.id = 'setSec' + n;
     }
+    const group = _groupOf(blk, label);
+    if (group !== lastGroup) {
+      const gh = document.createElement('div');
+      gh.className = 'set-nav-group';
+      gh.textContent = group;
+      nav.appendChild(gh);
+      lastGroup = group;
+    }
     const btn = document.createElement('button');
     btn.className = 'set-nav-btn';
     btn.type = 'button';
-    btn.textContent = label;
+    btn.title = label;
+    btn.innerHTML = _iconOf(label) + '<span>' + label.replace(/（.*?）/g, '').trim() + '</span>';
     btn.dataset.target = blk.id;
     btn.onclick = () => {
       blk.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -4002,8 +4199,7 @@ function buildSetNav() {
   });
   if (!_setNavBound) {
     _setNavBound = true;
-    // 滚动监听：设置浮层滚动时高亮当前 section（rAF 节流）
-    const panel = document.getElementById('settingsPanel');
+    // 滚动监听：设置内容列滚动时高亮当前 section（rAF 节流）
     let raf = 0;
     const onScroll = () => {
       if (raf) return;
@@ -4012,15 +4208,16 @@ function buildSetNav() {
         let best = null, bestTop = -Infinity;
         for (const blk of document.querySelectorAll('#settingsPanel .set-block')) {
           const r = blk.getBoundingClientRect();
-          if (r.top <= 80 && r.top > bestTop) { bestTop = r.top; best = blk.id; }
+          if (r.top <= 90 && r.top > bestTop) { bestTop = r.top; best = blk.id; }
         }
         if (best) _highlightSetNav(best);
       });
     };
-    if (panel) panel.addEventListener('scroll', onScroll, { passive: true });
-    // 兜底：某些环境 settingsPanel 自身不滚动（外层 .panel-scroll 滚）
-    const sc = document.querySelector('#panelChat .panel-scroll') || panel;
-    if (sc && sc !== panel) sc.addEventListener('scroll', onScroll, { passive: true });
+    const sc = document.querySelector('#settingsPanel .set-content');
+    if (sc) sc.addEventListener('scroll', onScroll, { passive: true });
+    // 兜底：极端情况下内容列不可滚（外层滚）
+    const panel = document.getElementById('settingsPanel');
+    if (panel && panel !== sc) panel.addEventListener('scroll', onScroll, { passive: true });
   }
   _highlightSetNav(blocks[0].id);
 }
@@ -7729,7 +7926,8 @@ function searchPanelInit() {
     '<div class="sp-head">' +
       '<span class="sp-title">浏览器搜索</span>' +
       '<span class="sp-pill" id="spPill">就绪</span>' +
-      '<button class="sp-close" id="spClose" title="关闭面板">×</button>' +
+      '<button class="sp-fold" id="spFold" title="折叠/展开面板" aria-label="折叠/展开面板">▾</button>' +
+      '<button class="sp-close" id="spClose" title="关闭面板（Esc）" aria-label="关闭面板">×</button>' +
     '</div>' +
     '<div class="sp-progress"><div class="sp-progress-bar" id="spProgressBar"></div></div>' +
     '<div class="sp-query">' +
@@ -7755,6 +7953,8 @@ function searchPanelInit() {
 function searchPanelWire() {
   const close = spEl('spClose');
   if (close) close.addEventListener('click', () => searchPanelClose());
+  const fold = spEl('spFold');
+  if (fold) fold.addEventListener('click', () => searchPanelToggleFold());
   const btn = spEl('spSearchBtn');
   if (btn) btn.addEventListener('click', () => {
     const input = spEl('spInput');
@@ -7764,13 +7964,54 @@ function searchPanelWire() {
   if (cont) cont.addEventListener('click', () => searchPanelTakeoverAction('continue'));
   const ab = spEl('spTakeoverAbort');
   if (ab) ab.addEventListener('click', () => searchPanelTakeoverAction('abort'));
+  /* v1.8.0 交互补全：Esc 关闭（captcha 态除外，与 × 同规则）+ 点面板外关闭。
+     typeof 守卫：vm 沙箱 document 桩可能无 addEventListener（§2.5） */
+  if (typeof document !== 'undefined' && document.addEventListener) {
+    document.addEventListener('keydown', (e) => {
+      if (e.key !== 'Escape') return;
+      const panel = searchPanelEl();
+      if (!panel || !panel.classList.contains('show')) return;
+      if (searchPanelState === 'captcha') {
+        spToast('请先完成验证或点击「放弃」', 'warn');
+        return;
+      }
+      searchPanelClose();
+    });
+    document.addEventListener('mousedown', (e) => {
+      const panel = searchPanelEl();
+      if (!panel || !panel.classList.contains('show')) return;
+      if (e.target && e.target.closest && e.target.closest('#searchPanel')) return;
+      if (searchPanelState === 'captcha') return;   // 接管中不误关
+      searchPanelClose();
+    });
+  }
   searchPanelRefreshStats();
 }
 
+/* ---------- 折叠（只留头部+查询行；治「不能缩回去」） ---------- */
+function searchPanelToggleFold() {
+  const panel = searchPanelEl();
+  if (!panel) return;
+  panel.classList.toggle('sp-collapsed');
+  const fold = spEl('spFold');
+  if (fold) fold.title = panel.classList.contains('sp-collapsed') ? '展开面板' : '折叠面板';
+}
+
 /* ---------- 开/关（面板打开起轮询、关闭停；captcha 态不可关闭） ---------- */
+function spManualOpen() {
+  if (!searchPanelEl()) searchPanelInit();
+  const panel = searchPanelEl();
+  if (panel && panel.classList.contains('show')) { searchPanelClose(); return; }  // 再点=收起
+  searchPanelOpen();
+  const input = spEl('spInput');
+  if (input) setTimeout(() => input.focus(), 60);
+}
 function searchPanelOpen() {
   const panel = searchPanelEl();
   if (!panel) return;
+  if (panel.classList.contains('hiding')) {
+    panel.classList.remove('hiding');   // 退场中途重开：直接落位
+  }
   panel.classList.add('show');
   searchPanelRefreshStats();
   searchPanelStartPolling();
@@ -7783,8 +8024,15 @@ function searchPanelClose() {
     return;
   }
   const panel = searchPanelEl();
-  if (panel) panel.classList.remove('show');
   searchPanelStopPolling();
+  if (!panel || !panel.classList.contains('show')) return;
+  panel.classList.add('hiding');
+  const done = () => {
+    try { panel.classList.remove('show', 'hiding'); } catch (e) {}
+  };
+  if (typeof MOTION !== 'undefined' && !MOTION.instant()) {
+    MOTION.onAnimEnd(panel, 'animationend', MOTION.compOut()).then(done);
+  } else { done(); }
 }
 
 /* ---------- 三态 + last-wins 主入口（C 域 25-tool-exec 分发亦走此函数） ---------- */
@@ -7792,6 +8040,10 @@ async function searchPanelRunSearch(params) {
   const seq = ++searchReqSeq;                       // ②序号登记
   searchPanelSetState('pending');
   searchPanelOpen();                                // 打开即起轮询（≥3s 可见等待）
+  const btn = spEl('spSearchBtn');
+  if (btn) btn.disabled = true;                     // pending 防连点
+  const bar = spEl('spProgressBar');
+  if (bar) { bar.classList.add('indet'); bar.style.transform = ''; }   // 不确定进度扫光
   try {
     const raw = await spCallApi('browser_search', [params || {}],
       (params && params.extract === 'full') ? 150000 : SP_SEARCH_TIMEOUT_MS);  // ③竞速
@@ -7815,6 +8067,10 @@ async function searchPanelRunSearch(params) {
       message: (e && e.message) || String(e) });
     searchPanelSetState('error');
   } finally {
+    const btn2 = spEl('spSearchBtn');
+    if (btn2) btn2.disabled = false;                // 终态恢复（pending 防连点）
+    const bar2 = spEl('spProgressBar');
+    if (bar2) bar2.classList.remove('indet');       // 停不确定扫光（确定进度由 phase 驱动）
     searchPanelRefreshStats();
   }
 }
@@ -7968,16 +8224,24 @@ function searchPanelRenderResults(d) {
     box.appendChild(empty);
     return;
   }
-  list.forEach(r => {
+  list.forEach((r, i) => {
     const item = document.createElement('div');
     item.className = 'sp-item';
+    const top = document.createElement('div');
+    top.className = 'sp-item-top';
+    const pos = document.createElement('span');
+    pos.className = 'sp-pos';
+    pos.textContent = String(r.position || (i + 1));
+    top.appendChild(pos);
     const a = document.createElement('a');
     a.className = 'sp-item-title';
     a.href = r.url || '#';
     a.target = '_blank';
     a.rel = 'noopener';
     a.textContent = r.title || r.url || '（无标题）';
-    item.appendChild(a);
+    a.title = r.title || r.url || '';   // 截断时悬浮全称
+    top.appendChild(a);
+    item.appendChild(top);
     if (r.snippet) {
       const sn = document.createElement('div');
       sn.className = 'sp-item-snippet';
@@ -7993,8 +8257,16 @@ function searchPanelRenderResults(d) {
     }
     const foot = document.createElement('div');
     foot.className = 'sp-item-foot';
-    foot.textContent = (r.position || '') + '. ' + (r.domain || '') +
-      (r.date ? ' · ' + r.date : '');
+    const dom = document.createElement('span');
+    dom.className = 'sp-item-domain';
+    dom.textContent = r.domain || '';
+    foot.appendChild(dom);
+    if (r.date) {
+      const dt = document.createElement('span');
+      dt.className = 'sp-item-date';
+      dt.textContent = r.date;
+      foot.appendChild(dt);
+    }
     item.appendChild(foot);
     box.appendChild(item);
   });
@@ -11142,10 +11414,29 @@ function exportChat() {
   a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 }
+/* 一次性绑定标记挂函数属性（勿用模块级 let——vm harness 抽函数体会丢外层声明） */
 function toggleSettings() {
   const panel = document.getElementById('settingsPanel');
+  if (!panel) return;
+  if (!toggleSettings._bound) {
+    toggleSettings._bound = true;
+    // 点遮罩（窗口外空白）关闭；Esc 关闭（v4 设置窗口化交互补全）。
+    // typeof 守卫：vm 沙箱的 panel/document 桩可能无 addEventListener（test_v13_qa）
+    if (panel.addEventListener) {
+      panel.addEventListener('click', (e) => { if (e.target === panel) toggleSettings(); });
+    }
+    if (typeof document !== 'undefined' && document.addEventListener) {
+      document.addEventListener('keydown', (e) => {
+        if (e.key !== 'Escape') return;
+        if (!panel.classList.contains('show')) return;
+        const tag = (e.target && e.target.tagName) || '';
+        if (tag === 'TEXTAREA' || tag === 'INPUT') return;   // 输入中不误关
+        toggleSettings();
+      });
+    }
+  }
   if (panel.classList.contains('show')) {
-    // v4：关=播退场（v4SetOut 140ms in-soft）再撤 .show——不再生硬瞬消
+    // v4：关=播退场（v4SetWinOut 140ms in-soft）再撤 .show——不再生硬瞬消
     if (panel.classList.contains('hiding')) return;   // 防重入
     panel.classList.add('hiding');
     const done = () => { try { panel.classList.remove('show', 'hiding'); } catch (e) {} };
