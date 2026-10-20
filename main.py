@@ -114,6 +114,18 @@ def main():
         )
         api._set_window(window)  # Window 引用放 RuntimeState，不挂 js_api 实例（同时武装护栏）
 
+        # v1.8.0 B 域：搜索次窗装配（照 api._set_window 注入模式——680×520 隐藏
+        # 备用，CAPTCHA 接管时置顶；创建失败不阻塞启动：search_browser.open_url
+        # 自动回落 urllib 直连抓取，联调规范 §5.1③ 降级链）
+        try:
+            _search_win = webview.create_window(
+                'Harbor 搜索', url='about:blank', js_api=None,
+                width=680, height=520, hidden=True)
+            api._search.set_window(_search_win)
+            atexit.register(api._search.shutdown)   # 退出时停回收线程 + 销毁次窗
+        except Exception as e:
+            log.warning('搜索次窗装配失败（搜索将回落 urllib 直连抓取）: %r', e)
+
         window.events.loaded += lambda: _enable_context_menu(window)
 
         # 真机测试 CDP 开关（2026-10-17）：GLM_CDP_PORT 环境变量设置时才开启

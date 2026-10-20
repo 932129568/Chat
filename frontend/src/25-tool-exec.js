@@ -122,6 +122,22 @@ async function executeToolRaw(name, args) {
       } catch (e) { return JSON.stringify({error: '截图返回解析失败'}); }
     }
     if (name === 'append_memory')     return await callApi('append_memory', [typeof args === 'string' ? args : JSON.stringify(args)]);
+    // v1.8.0 B/S 域：Agent 工具族分发（C 域接线；参数透传，timeoutMs 口径见联调规范 §2.1）
+    if (name === 'browser_search') {
+      // §2.4：CAPTCHA_REQUIRED → 挂起标记（fail-fast + 前端挂起，browser_takeover
+      // 终态才由 60-agent-loop 注入上下文——Agent 循环永不挂死在人类动作上）
+      return browserToolWrapCaptcha(
+        await callApi('browser_search', [args], 90000));
+    }
+    if (name === 'browser_open') {
+      return await callApi('browser_open', [args], 60000);
+    }
+    if (name === 'software_call') {
+      // 后端执行上限 600s + 30s 缓冲（与 run_command 660000 同款口径）
+      const _swT = pickTimeout(args);
+      return await callApi('software_call', [args],
+        Math.min(660000, _swT * 1000 + 30000));
+    }
     // v1.3 R4：MCP 工具分发（后端二次 enforce + 审计 + 结果渲染）
     if (name.startsWith('mcp__')) {
       try {
@@ -142,4 +158,18 @@ async function executeTool(name, args) {
     if (d && typeof d === 'object' && !d.__ms) { d.__ms = Math.round(ms); return JSON.stringify(d); }
   } catch (e) { /* 非 JSON 返回：保持原样，图表侧按无耗时处理 */ }
   return result;
+}
+/* v1.8.0 C 域：browser_search 的 CAPTCHA_REQUIRED 挂起标记（联调规范 §2.4）。
+ * fail-fast 响应 → 结果串附 suspended:true；60-agent-loop 识别后挂起本工具
+ * 轮次（不往上下文塞错误、不换路），browser_takeover 终态才注入上下文。
+ * 非验证页响应原样返回（含成功载荷与其余错误码）。 */
+function browserToolWrapCaptcha(raw) {
+  try {
+    const d = JSON.parse(raw || '{}');
+    if (d && d.ok === false && d.error && d.error.code === 'CAPTCHA_REQUIRED') {
+      d.suspended = true;
+      return JSON.stringify(d);
+    }
+  } catch (e) { /* 非 JSON：原样返回 */ }
+  return raw;
 }

@@ -33,6 +33,67 @@ function fillMissingToolResults(s) {
   }
 }
 
+/* ================= v1.8.0 C 域：人工接管等待态（联调规范 §2.4） =================
+ * executeToolRaw 检出 CAPTCHA_REQUIRED → fail-fast 返回带 suspended:true 的
+ * 结果串；本模块识别后：工具条目转 warn「等待人工验证」+ 弹出 63-search-panel
+ * 接管 UI（既有函数），挂起本工具轮次（不往上下文塞错误、不换路），直到
+ * browser_takeover 终态（成功载荷 / CAPTCHA_ABORTED）由 63-search-panel 经
+ * harborTakeoverNotify 唤起，才把终态作为该工具轮次的结果注入上下文——
+ * Agent 循环永不挂死在人类动作上。
+ * last-wins：新挂起到来时旧等待以「已被取代」终态解放（防悬挂泄漏）；
+ * 用户「停止」：轮询 shouldAbort 以放弃终态解放（不等人类动作）。 */
+let harborTakeoverWaitResolve = null;
+let harborTakeoverStopPoll = null;
+function harborTakeoverNotify(payload) {
+  if (harborTakeoverStopPoll && typeof clearInterval !== 'undefined') {
+    clearInterval(harborTakeoverStopPoll);
+  }
+  harborTakeoverStopPoll = null;
+  if (harborTakeoverWaitResolve) {
+    const resolve = harborTakeoverWaitResolve;
+    harborTakeoverWaitResolve = null;
+    try { resolve(payload); } catch (e) {}
+  }
+}
+function harborTakeoverAwaitTerminal(shouldAbort) {
+  return new Promise((resolve) => {
+    harborTakeoverWaitResolve = resolve;
+    if (typeof shouldAbort !== 'function') return;
+    if (typeof setInterval === 'undefined') return;
+    harborTakeoverStopPoll = setInterval(() => {
+      let abort = false;
+      try { abort = !!shouldAbort(); } catch (e) { abort = false; }
+      if (abort) {
+        harborTakeoverNotify({ ok: false, error: { code: 'CAPTCHA_ABORTED',
+          message: '用户已停止，人工验证取消' } });
+      }
+    }, 500);
+  });
+}
+async function harborMaybeAwaitTakeover(result, toolDiv, label) {
+  let d = null;
+  try { d = JSON.parse(result); } catch (e) { return result; }
+  if (!d || !d.suspended || !d.error || d.error.code !== 'CAPTCHA_REQUIRED') return result;
+  // 挂起：接管 UI + 条目 warn（ux-flows 流程 2⑤：不塞错误、不换路）
+  try { if (typeof searchPanelOpen === 'function') searchPanelOpen(); } catch (e) {}
+  try { if (typeof searchPanelShowTakeover === 'function') searchPanelShowTakeover(d.error); } catch (e) {}
+  if (toolDiv) {
+    toolDiv.classList.remove('done', 'fail');
+    toolDiv.classList.add('warn');
+    toolDiv.innerHTML = '<span class="tc-dot"></span><span>' +
+      escapeHtml(label + ' · 等待人工验证') + '</span>';
+  }
+  try { if (typeof toast === 'function') toast('搜索引擎要求人机验证：请在面板中手动完成后点击「继续」', 'warn'); } catch (e) {}
+  if (harborTakeoverWaitResolve) {
+    // last-wins：旧等待以「已被取代」终态解放
+    harborTakeoverNotify({ ok: false, error: { code: 'CAPTCHA_ABORTED',
+      message: '已被新的验证请求取代' } });
+  }
+  const terminal = await harborTakeoverAwaitTerminal(() => userStopped);
+  return JSON.stringify(terminal || { ok: false,
+    error: { code: 'CAPTCHA_ABORTED', message: '人工验证未完成' } });
+}
+
 async function runAgentLoop(s, apiKey) {
   isStreaming = true;   // 修复 S20：同步置位移到最前（原在两个 await 之后，快速双发可起双循环）
   // 修复（2026-10-18）：暂停标志。原 abortController.abort() 只中止 fetch 流，
@@ -103,11 +164,21 @@ async function runAgentLoop(s, apiKey) {
     // 现在失败即显式报错，不再静默降级。
     const loadBackendTools = async (mode) => {
       const role = mode === 'readonly' ? 'ro' : (mode === 'off' ? 'chat' : 'full');
+      // v1.8.0 C 域：Agent 工具族（browser_*/software_*）经 build_tools
+      // include_agent 下发；R11 裁决——GLM 端点只出现前端追加的内置
+      // web_search（两个搜索工具永不并存），非 GLM 才出现 browser_*。
+      // 功能分级开关：关则对应工具族从工具面移除（L0-3 口径）。
+      const featSearch = (typeof spFeatureEnabled === 'function') ? spFeatureEnabled() : true;
+      const featSoftware = (typeof swFeatureEnabled === 'function') ? swFeatureEnabled() : true;
+      const includeAgent = mode === 'full' && (featSearch || featSoftware);
       // v1.3 R4：full 档才带 MCP 工具（Q3 裁决：MCP 仅进 full 角色）
-      const beTools = await callApi('build_tools', [role, mode === 'full']);
+      const beTools = await callApi('build_tools',
+        [role, mode === 'full', includeAgent, isGlmEndpoint()]);
       const parsed = beTools ? JSON.parse(beTools) : null;
       if (!Array.isArray(parsed)) throw new Error('build_tools 返回异常');
-      const tools = parsed.slice();
+      let tools = parsed.slice();
+      if (!featSearch) tools = tools.filter(t => !t.function || !/^browser_/.test(t.function.name));
+      if (!featSoftware) tools = tools.filter(t => !t.function || !/^software_/.test(t.function.name));
       if (enableSearch && isGlmEndpoint()) tools.push({ type: 'web_search',   // v1.2 R6：web_search 为 GLM 专属能力
         web_search: { enable: true, search_engine: document.getElementById('searchEngine').value, search_result: false } });
       return tools;
@@ -126,7 +197,9 @@ async function runAgentLoop(s, apiKey) {
     if (toolMode === 'full' && routedSet.size) {
       const allowed = new Set([...routedSet, ...taskUsed]);
       // v1.3 R4：mcp__ 工具 bypass 路由裁剪（用户显式启用的外部工具不参与域路由）
-      effectiveTools = effectiveTools.filter(t => !t.function || allowed.has(t.function.name) || t.function.name.startsWith('mcp__'));
+      // v1.8.0 C 域：browser_*/software_* 同样 bypass（Agent 工具族由功能分级
+      // 开关管控，不参与关键词域路由——「搜索/调软件」类意图关键词覆盖不全）
+      effectiveTools = effectiveTools.filter(t => !t.function || allowed.has(t.function.name) || t.function.name.startsWith('mcp__') || /^(browser_|software_)/.test(t.function.name));
     }
     // 智能档：按任务复杂度自动选模型与推理力度（思考 token 按输出计价，轻任务应关思考）
     const _route = resolveModelEffort(routeText, routedSet.size > ROUTE_ALWAYS.length);
@@ -234,7 +307,8 @@ async function runAgentLoop(s, apiKey) {
         if (toolMode === 'full' && routedSet.size) {
           const allowed = new Set([...routedSet, ...taskUsed]);
           // v1.3 R4：mcp__ 工具 bypass 路由裁剪（权限档热切换后同样放行）
-          effectiveTools = effectiveTools.filter(t => !t.function || allowed.has(t.function.name) || t.function.name.startsWith('mcp__'));
+          // v1.8.0 C 域：browser_*/software_* 同样 bypass（同首轮过滤口径）
+          effectiveTools = effectiveTools.filter(t => !t.function || allowed.has(t.function.name) || t.function.name.startsWith('mcp__') || /^(browser_|software_)/.test(t.function.name));
         }
       }
       await compactHistory(s);
@@ -479,6 +553,9 @@ async function runAgentLoop(s, apiKey) {
       }
       s.messages.push(assistantMsg);
       if (usage) accumulateUsage(s, assistantMsg.usage);   // 修复 S8（二轮）：单调累计到会话计数器（归档/compact 不归零）
+      // v1.8.0 H 域：混合路由成本分账（#costSplit chip 数据源；本地/云端
+      // token 分别累加——65-hybrid.js hybridOnUsage，架构 §4.2 usage 事件延长）
+      try { if (typeof hybridOnUsage === 'function') hybridOnUsage(usage, currentModel); } catch (e) {}
       if (aiContent && aiContent.dataset) aiContent.dataset.midx = s.messages.length - 1;   // 修复 UX-1/UX-3（v1.4）：live 气泡 stamp 下标（dataset 防御：桩/降级不抛错）
 
       if (toolCalls.length === 0) {
@@ -683,6 +760,9 @@ async function runAgentLoop(s, apiKey) {
           }
         } else {
           result = await executeTool(tc.name, args);
+          // v1.8.0 C 域：CAPTCHA_REQUIRED → 挂起本工具轮次，等 browser_takeover
+          // 终态注入上下文（联调规范 §2.4：fail-fast + 前端挂起）
+          result = await harborMaybeAwaitTakeover(result, toolDiv, label);
           if (['write_file','append_file','search_replace','run_command','run_powershell','move_path','delete_path'].includes(tc.name)) {
             try { if (JSON.parse(result).ok) taskFacts.push(tc.name + ': ' + String(args.path || args.cmd || args.src || '').slice(0, 60)); } catch (e) {}
           }

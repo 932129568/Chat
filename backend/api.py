@@ -24,6 +24,7 @@ from .services.clipboard_service import ClipboardService
 from .services.cmd_service import CmdService
 from .services.file_service import FileService
 from .services.guard_service import GuardService
+from .services.hybrid_router import HybridRouter
 from .services.local_model_service import LocalModelService
 from .services.local_proxy import get_proxy
 from .services.mcp_config_service import McpConfigService
@@ -32,6 +33,8 @@ from .services.process_service import ProcessService
 from .services.provider_service import ProviderService
 from .services.sandbox_service import SandboxService
 from .services.screenshot_service import ScreenshotService
+from .services.search_service import SearchService
+from .services.software_service import SoftwareService
 from .services.toolcache_service import ToolcacheService
 from .services.update_service import UpdateService
 from .services.webdav_service import WebDAVService
@@ -39,6 +42,12 @@ from .services.workspace_service import WorkspaceService
 from .services import update_service as _update_mod
 
 API_VERSION = 'v1.0.0'
+
+# rpc 通用分发通道的私有方法白名单（v1.8.0 S 域）：用户自定义软件条目的
+# CRUD 经 rpc 暴露（契约 js_api 方法面恰为 software×3——联调规范 §1.2，
+# 不新增 _V12_EXTRA 方法、不进 get_api_info 自省面）。仅限这两个已知
+# 安全的注册表写入入口，其余私有方法仍一律拒绝（原有防护不放松）。
+_RPC_PRIVATE_OK = frozenset({'_software_save', '_software_remove'})
 
 # v1.2 新增的 js_api 方法（guard / update / provider）+ v1.3 MCP（10 个）。
 # 它们对 get_api_info() 的方法清单【隐身】：该输出与 legacy 逐字节比对（契约差分测试），
@@ -67,6 +76,16 @@ _V12_EXTRA = frozenset({
     # v1.6 HF-P0：本地 CORS 代理桥方法（file:// 页面直连不输出 CORS 头的本地
     # 模型服务器必被 Chromium 拒；前端 local 模式经此后端代理转发）
     'get_local_proxy',
+    # v1.8.0 B 域·浏览器搜索（5 个；§8 两建议新增方法评审通过后追加。
+    # get_api_info 零漂移同款隐身；build_tools include_agent 工具面属 C 域批次）
+    'browser_search', 'browser_open', 'search_cache_stats',
+    'search_status', 'browser_takeover',
+    # v1.8.0 S 域·外部软件调用（3 个）+ H 域·混合路由（2 个）
+    # + v1.8.5 A 域·任务授权与白名单（6 个，R5 裁决提前插）
+    'software_list', 'software_probe', 'software_call',
+    'hybrid_get_config', 'hybrid_save_config',
+    'guard_task_grant', 'guard_task_revoke', 'guard_task_status',
+    'guard_rule_list', 'guard_rule_add', 'guard_rule_remove',
 })
 
 
@@ -104,6 +123,16 @@ class Api:
         self._webdav = WebDAVService()
         # v1.6 沙箱（Job Object 进程隔离 + 资源限制；fail-closed）
         self._sandbox = SandboxService()
+        # v1.8.0 B 域·浏览器搜索（search_cache/ 独立目录，config.json 零污染；
+        # 审计复用同一 GuardService 实例保持 audit_log.jsonl 单一口径）
+        self._search = SearchService(guard=self._guard)
+        # v1.8.0 S 域·外部软件调用（software.json 独立文件；审计复用同一
+        # GuardService 实例；沙箱档位经 sandbox_service.limits_for_profile）
+        self._software = SoftwareService(guard=self._guard, sandbox=self._sandbox,
+                                         ws_root=lambda: self._workspace.effective_root(
+                                             self._runtime.get_current_sid()))
+        # v1.8.0 H 域·混合路由（hybrid.json 独立文件；决策 + 成本分账）
+        self._hybrid = HybridRouter()
         # 修复 W6（二轮）：自更新强退（os._exit 绕过 atexit）前先关 MCP 子进程，防孤儿残留
         _update_mod.set_before_exit_hook(self._mcp.shutdown)
 
@@ -178,7 +207,8 @@ class Api:
             args = {}
         name = str(name)
         func = getattr(self, name, None)
-        if name == 'rpc' or name.startswith('_') or not callable(func):
+        if name == 'rpc' or name.startswith('_') and name not in _RPC_PRIVATE_OK \
+                or not callable(func):
             return ok({'error': '未知方法: %s' % name})
         try:
             return func(**args)
@@ -491,14 +521,24 @@ class Api:
             '3. 超长命令输出会截断并给缓存 id, 需要全文用 read_more 分段取。' + tail)
 
     # ============ 工具 schema（唯一数据源 tools_schema.py）============
-    def build_tools(self, role='full', include_mcp=False):
+    def build_tools(self, role='full', include_mcp=False, include_agent=False,
+                    is_glm_endpoint=False):
         """v1.3：include_mcp=True 且 role='full' 时尾部追加 MCP 工具定义；
-        默认路径（include_mcp=False）输出与 legacy 逐字节一致（契约红线）。"""
+        默认路径（include_mcp=False）输出与 legacy 逐字节一致（契约红线）。
+
+        v1.8.0 C 域：include_agent=True 且 role='full' 时尾部追加 Agent
+        工具族（browser_search/browser_open/software_call）。R11 裁决
+        （端点过滤）：is_glm_endpoint=True 时 browser_* 定义不进工具集
+        （GLM 端点只出现前端追加的内置 web_search，两个搜索工具永不并存）；
+        非 GLM 全量追加。include_agent=False 默认路径逐字节不变。
+        """
         ws_on = self._runtime.ws_enabled_for(self._runtime.get_current_sid(), True)
         mcp_tools = None
         if include_mcp and role == 'full':
             mcp_tools = self._mcp.tool_schemas()
-        return tools_schema.build(role, ws_on, mcp_tools)
+        return tools_schema.build(role, ws_on, mcp_tools,
+                                  include_agent=include_agent,
+                                  is_glm_endpoint=bool(is_glm_endpoint))
 
     # ============ v1.2 安全护栏（R2，_V12_EXTRA 隐身）============
     def guard_get_config(self):
@@ -615,6 +655,151 @@ class Api:
         端口随机（127.0.0.1:0），Api 装配时已启动（幂等单例）。
         """
         return ok(get_proxy().info())
+
+    # ============ v1.8.0 B 域·浏览器搜索（_V12_EXTRA 隐身）============
+    def browser_search(self, params=None):
+        """B1：浏览器搜索——检索式构造 → 缓存层（TTL 30min）→ 双通道取数
+        （次窗优先/urllib 兜底）→ 解析提取 → 校验缓存 → 审计（op=web_search）。
+
+        请求字段/成功响应/错误码见联调规范 §3.1；检出验证页 fail-fast 返回
+        CAPTCHA_REQUIRED（error.takeover_id 交前端 63-search-panel 接管 UI，
+        流程 2）。params 可为 dict 或 JSON 字符串（service 层归一）。
+        """
+        return ok(self._search.browser_search(params))
+
+    def browser_open(self, params=None):
+        """B2：打开 URL 提取正文（selector 覆盖/密度提取；超长截断落 toolcache，
+        full_ref 经 read_more 续读）。审计 op=web_open；契约 §3.1。"""
+        return ok(self._search.browser_open(params))
+
+    def search_cache_stats(self):
+        """B3：搜索缓存统计 {entries, hits, misses, ttl_minutes, size_kb}。
+        读取类不落审计（面板脚注/设置区刷新，同 refreshWsCard 模式）。"""
+        return ok(self._search.search_cache_stats())
+
+    def search_status(self, task_id=''):
+        """B4：搜索进度回报通道（面板 1s 轮询，规范 §2.4 方案 A）。
+        task_id 缺省 = 当前活跃搜索；传入时校验归属（任务 id 或 takeover_id）。
+        读取类不落审计（1s 轮询不灌爆审计文件）。"""
+        return ok(self._search.search_status(str(task_id or '') or None))
+
+    def browser_takeover(self, takeover_id, action):
+        """B5：人工接管续跑/放弃（ux-flows 流程 2 步骤 4a/4b）。
+        continue = 复检通过后续跑原管线，返回与 browser_search 同构的成功
+        载荷（resumed:true）；仍验证页 → CAPTCHA_REQUIRED（retry ≤3）；
+        abort → CAPTCHA_ABORTED。审计 op=search_takeover。"""
+        return ok(self._search.browser_takeover(takeover_id, action))
+
+    # ============ v1.8.0 S 域·外部软件调用（实现 v1.8.0 S1，_V12_EXTRA 隐身）============
+    def software_list(self, status='all'):
+        """S1：外部软件注册表列表（status=all|probed|missing；读取类不落审计）。
+        响应 {ok, software:[{name, kind, status, version?, source,
+        risk_default, actions:[{name, risk, arg_schema}]}]}——联调规范 §3.2。"""
+        return ok(self._software.software_list(status))
+
+    def software_probe(self, name=None):
+        """S2：探测（PATH 扫描 + winreg 补探测 + --version 验身份）。
+        缺省全部；name 未注册 → BAD_PARAMS（hint 回显可用名）。
+        审计 op=software_probe。"""
+        return ok(self._software.software_probe(name))
+
+    def software_call(self, params=None):
+        """S3：外部软件调用三形态（CLI 沙箱执行 / GUI 标题核验 / URI 协议）。
+        参数按 action.arg_schema 硬校验（SCHEMA_INVALID + violations/example
+        自校正回显）；exit_code≠0 仍走成功形状。审计 op=software_call。
+        params 可为 dict 或 JSON 字符串（service 层归一）。"""
+        return ok(self._software.software_call(params))
+
+    def _software_save(self, name, entry=None):
+        """S 域用户自定义条目 CRUD 之写（私有：经 rpc 通用分发通道暴露——
+        契约方法面恰为 software×3（联调规范 §1.2），故不进 _V12_EXTRA、
+        也不进 get_api_info 自省面）。entry 为 dict 或 JSON 字符串。"""
+        if isinstance(entry, str):
+            try:
+                entry = json.loads(entry or '{}')
+            except Exception as e:
+                return err('条目解析失败: %s' % e)
+        r = self._software.save(name, entry or {})
+        if r.get('error'):
+            return err(r['error'])
+        return ok(r)
+
+    def _software_remove(self, name):
+        """S 域用户自定义条目 CRUD 之删（私有，经 rpc 暴露；预设不可删）。"""
+        r = self._software.remove(name)
+        if r.get('error'):
+            return err(r['error'])
+        return ok(r)
+
+    # ============ v1.8.0 H 域·混合路由（实现 v1.8.0 H1，_V12_EXTRA 隐身）============
+    def hybrid_get_config(self):
+        """H1：读混合路由配置（hybrid.json 独立文件；缺失/损坏返回默认 +
+        source=default——首启零配置可用，不报错）。读取类不落审计。"""
+        return ok(self._hybrid.get_config())
+
+    def hybrid_save_config(self, cfg_json):
+        """H2：保存混合路由配置（部分更新语义；字段级校验失败 → BAD_PARAMS，
+        hint 指明字段与合法域）。审计 op=hybrid_save_config。"""
+        r = self._hybrid.save_config(cfg_json)
+        if r.get('error'):
+            field = r.get('field')
+            hint = ('字段 %s 合法域：strategy auto|saver|quality；'
+                    'local_budget_understand_s/local_budget_validate_s 1-30；'
+                    'confidence_gate 0.5-0.95；cost_split_display true/false'
+                    % field if field else None)
+            e = {'code': 'BAD_PARAMS', 'message': r['error']}
+            if hint:
+                e['hint'] = hint
+            return ok({'ok': False, 'error': e})
+        return ok(r)
+
+    # ============ v1.8.5 A 域·任务授权与白名单（实现 v1.8.0 A1，R5 裁决提前插；_V12_EXTRA 隐身）============
+    def guard_task_grant(self, scope, ttl_seconds=7200):
+        """A1：任务授权（进程内状态，不入 guard.json；TTL 默认 7200s（2h 上限
+        口径）+ 空闲 30min 自动收回，先到者生效）。scope 枚举数组；
+        ttl 60-86400，越界 → BAD_PARAMS（安全参数不静默夹逼）。"""
+        r = self._guard.task_grant(scope, ttl_seconds)
+        if r.get('error'):
+            return err(r['error'])
+        return ok(r)
+
+    def guard_task_revoke(self, grant_id=None):
+        """A2：收回授权（缺省=当前；幂等）。审计 op=guard_revoke。"""
+        r = self._guard.task_revoke(grant_id)
+        if r.get('error'):
+            return err(r['error'])
+        return ok(r)
+
+    def guard_task_status(self):
+        """A3：授权状态（#grantIndicator 倒计时校准源；含 idle_deadline 与
+        remaining_s=min(expires_at,idle_deadline)-now，剩余 <600s 黄牌）。
+        读取类不落审计。"""
+        r = self._guard.task_status()
+        if r.get('error'):
+            return err(r['error'])
+        return ok(r)
+
+    def guard_rule_list(self):
+        """A4：白名单规则列表（读取类不落审计）。"""
+        r = self._guard.rule_list()
+        if r.get('error'):
+            return err(r['error'])
+        return ok(r)
+
+    def guard_rule_add(self, op_pattern, detail_pattern=None, note=None):
+        """A5：添加白名单规则（窄规则优先；deny 清单覆盖的创建即拒 →
+        GUARD_DENIED；detail 含写动词 → warn 不阻断）。"""
+        r = self._guard.rule_add(op_pattern, detail_pattern, note)
+        if r.get('error'):
+            return err(r['error'])
+        return ok(r)
+
+    def guard_rule_remove(self, rule_id):
+        """A6：删除白名单规则（幂等；删除即时生效）。"""
+        r = self._guard.rule_remove(rule_id)
+        if r.get('error'):
+            return err(r['error'])
+        return ok(r)
 
     # ============ v1.6 WebDAV 数据主权（预留接口，_V12_EXTRA 隐身）============
     def webdav_get_config(self):

@@ -42,6 +42,15 @@ async function loadAll() {
   });
   /* v4「连接与模型」合并块：预设切换 / 单一 URL·Key·模型流 / 识别与测试按钮 */
   try { connectInit(); } catch (e) { console.warn('连接与模型初始化失败', e); }
+  /* v1.8.0 B 域：搜索面板挂载（纯新增 #searchPanel；功能分级开关默认开，
+   * 关闭时 searchPanelInit 内部短路——try/catch 防单模块异常拖垮启动） */
+  try { searchPanelInit(); } catch (e) { console.warn('搜索面板初始化失败', e); }
+  /* v1.8.0 S 域·外部软件 + H 域·混合路由 + v1.8.5 A 域·任务授权/白名单
+   * （纯新增 #softwareBlock / #hybridBlock / #grantIndicator / #grantRulesBlock；
+   * 各自 Init 内部幂等 + typeof 守卫，失败不阻塞启动） */
+  try { softwarePanelInit(); } catch (e) { console.warn('外部软件面板初始化失败', e); }
+  try { hybridInit(); } catch (e) { console.warn('混合路由初始化失败', e); }
+  try { guardGrantInit(); } catch (e) { console.warn('任务授权面板初始化失败', e); }
   document.getElementById('enableSearch').addEventListener('change', function () {
     document.getElementById('searchEngineWrap').style.display = this.checked ? 'flex' : 'none';
     queueSaveConfig();

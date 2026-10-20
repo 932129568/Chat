@@ -6,6 +6,14 @@ ws_on 由调用方（Api 门面）从 RuntimeState 取后传入，本模块无�
 
 v1.3：新增可选参数 mcp_tools——仅当 role=='full' 且 mcp_tools 非空时在列表尾部追加
 （mcp_tools=None 默认 → 与 legacy 逐字节一致，契约差分测试天然通过）。
+
+v1.8.0 C 域（实现 v1.8.0 C1）：新增可选参数 include_agent（+ is_glm_endpoint 端点判据）——
+include_agent=True 且 role=='full' 时追加 Agent 工具族（browser_search /
+browser_open / software_call 三条定义；B 域 5 个 js_api 中面向模型侧的即
+此三条——面板面 software_list/probe 不进工具集）。R11 裁决（端点过滤）：
+GLM 端点（is_glm_endpoint=True）时 browser_* 定义不进工具集（云端原生
+web_search 由前端按既有口径追加，两个搜索工具永不并存）；非 GLM 全量追加。
+默认路径（include_agent=False）输出逐字节不变（契约红线）。
 """
 
 import json
@@ -16,8 +24,48 @@ _S_READ_MORE = {'type': 'function', 'function': {'name': 'read_more',
         'cache_id': {'type': 'string'}, 'offset': {'type': 'integer'},
         'limit': {'type': 'integer'}}, 'required': ['cache_id']}}}
 
+# ---- v1.8.0 C 域：Agent 工具族（include_agent=True 时追加；R11 端点过滤见 build）----
+# browser_search / browser_open 请求字段照联调规范 §3.1；software_call 照 §3.2。
+_AGENT_BROWSER_SEARCH = {'type': 'function', 'function': {'name': 'browser_search',
+    'description': '浏览器搜索(受控次窗+正文提取+缓存;遇验证页返回 CAPTCHA_REQUIRED 等待人工)',
+    'parameters': {'type': 'object', 'properties': {
+        'query': {'type': 'string'}, 'engine': {'type': 'string'},
+        'site': {'type': 'string'}, 'filetype': {'type': 'string'},
+        'time_range': {'type': 'string'}, 'lang': {'type': 'string'},
+        'max_results': {'type': 'integer'}, 'extract': {'type': 'string'}},
+        'required': ['query']}}}
 
-def build(role='full', ws_on=True, mcp_tools=None):
+_AGENT_BROWSER_OPEN = {'type': 'function', 'function': {'name': 'browser_open',
+    'description': '打开网页提取正文(readability/selector;超长截断落盘)',
+    'parameters': {'type': 'object', 'properties': {
+        'url': {'type': 'string'}, 'selector': {'type': 'string'},
+        'max_chars': {'type': 'integer'}}, 'required': ['url']}}}
+
+_AGENT_SOFTWARE_CALL = {'type': 'function', 'function': {'name': 'software_call',
+    'description': '调用外部软件(git/ffmpeg/7z/python/node 等;action 按注册表,'
+                   '参数不符返回 SCHEMA_INVALID+修正示例)',
+    'parameters': {'type': 'object', 'properties': {
+        'software': {'type': 'string'}, 'action': {'type': 'string'},
+        'args': {'type': 'object'}, 'timeout': {'type': 'integer'},
+        'source': {'type': 'string'}},
+        'required': ['software', 'action']}}}
+
+# include_agent=True 的增量全集（R11 过滤前）——L0-3 契约差分断言「增量恰为
+# browser_*/software_* 工具族」即以此常量为基准
+AGENT_TOOLS = (_AGENT_BROWSER_SEARCH, _AGENT_BROWSER_OPEN, _AGENT_SOFTWARE_CALL)
+
+
+def build(role='full', ws_on=True, mcp_tools=None, include_agent=False,
+          is_glm_endpoint=False):
+    """构建工具 schema JSON 字符串。
+
+    v1.8.0 C 域：include_agent=True 且 role=='full' 时尾部追加 Agent 工具族
+    （browser_search / browser_open / software_call）。R11 裁决（端点过滤）：
+    is_glm_endpoint=True（GLM 端点）时 browser_* 定义不进工具集——云端原生
+    web_search 由前端按既有口径追加，两个搜索工具永不并存；software_call
+    与搜索通道正交，两端点都保留。默认路径（include_agent=False）与 legacy
+    逐字节一致（契约差分测试锁定）。
+    """
     if role == 'chat':
         return json.dumps([], ensure_ascii=False)
     tools = [dict(_S_READ_MORE)]
@@ -167,4 +215,12 @@ def build(role='full', ws_on=True, mcp_tools=None):
     # v1.3 MCP：仅 full 角色且调用方显式传入时尾部追加（默认路径零变化）
     if role == 'full' and mcp_tools:
         tools += list(mcp_tools)
+    # v1.8.0 C 域：Agent 工具族（仅 full 角色且显式开启；R11 端点过滤）
+    if role == 'full' and include_agent:
+        agent = list(AGENT_TOOLS)
+        if is_glm_endpoint:
+            # R11：GLM 端点只留内置 web_search（前端追加）——browser_* 不进工具集
+            agent = [t for t in agent
+                     if not str(t['function']['name']).startswith('browser_')]
+        tools += agent
     return json.dumps(tools, ensure_ascii=False)

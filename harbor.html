@@ -2450,6 +2450,22 @@ async function executeToolRaw(name, args) {
       } catch (e) { return JSON.stringify({error: '截图返回解析失败'}); }
     }
     if (name === 'append_memory')     return await callApi('append_memory', [typeof args === 'string' ? args : JSON.stringify(args)]);
+    // v1.8.0 B/S 域：Agent 工具族分发（C 域接线；参数透传，timeoutMs 口径见联调规范 §2.1）
+    if (name === 'browser_search') {
+      // §2.4：CAPTCHA_REQUIRED → 挂起标记（fail-fast + 前端挂起，browser_takeover
+      // 终态才由 60-agent-loop 注入上下文——Agent 循环永不挂死在人类动作上）
+      return browserToolWrapCaptcha(
+        await callApi('browser_search', [args], 90000));
+    }
+    if (name === 'browser_open') {
+      return await callApi('browser_open', [args], 60000);
+    }
+    if (name === 'software_call') {
+      // 后端执行上限 600s + 30s 缓冲（与 run_command 660000 同款口径）
+      const _swT = pickTimeout(args);
+      return await callApi('software_call', [args],
+        Math.min(660000, _swT * 1000 + 30000));
+    }
     // v1.3 R4：MCP 工具分发（后端二次 enforce + 审计 + 结果渲染）
     if (name.startsWith('mcp__')) {
       try {
@@ -2470,6 +2486,20 @@ async function executeTool(name, args) {
     if (d && typeof d === 'object' && !d.__ms) { d.__ms = Math.round(ms); return JSON.stringify(d); }
   } catch (e) { /* 非 JSON 返回：保持原样，图表侧按无耗时处理 */ }
   return result;
+}
+/* v1.8.0 C 域：browser_search 的 CAPTCHA_REQUIRED 挂起标记（联调规范 §2.4）。
+ * fail-fast 响应 → 结果串附 suspended:true；60-agent-loop 识别后挂起本工具
+ * 轮次（不往上下文塞错误、不换路），browser_takeover 终态才注入上下文。
+ * 非验证页响应原样返回（含成功载荷与其余错误码）。 */
+function browserToolWrapCaptcha(raw) {
+  try {
+    const d = JSON.parse(raw || '{}');
+    if (d && d.ok === false && d.error && d.error.code === 'CAPTCHA_REQUIRED') {
+      d.suspended = true;
+      return JSON.stringify(d);
+    }
+  } catch (e) { /* 非 JSON：原样返回 */ }
+  return raw;
 }
 
 /* ===== 26-guard.js ===== */
@@ -6561,6 +6591,67 @@ function fillMissingToolResults(s) {
   }
 }
 
+/* ================= v1.8.0 C 域：人工接管等待态（联调规范 §2.4） =================
+ * executeToolRaw 检出 CAPTCHA_REQUIRED → fail-fast 返回带 suspended:true 的
+ * 结果串；本模块识别后：工具条目转 warn「等待人工验证」+ 弹出 63-search-panel
+ * 接管 UI（既有函数），挂起本工具轮次（不往上下文塞错误、不换路），直到
+ * browser_takeover 终态（成功载荷 / CAPTCHA_ABORTED）由 63-search-panel 经
+ * harborTakeoverNotify 唤起，才把终态作为该工具轮次的结果注入上下文——
+ * Agent 循环永不挂死在人类动作上。
+ * last-wins：新挂起到来时旧等待以「已被取代」终态解放（防悬挂泄漏）；
+ * 用户「停止」：轮询 shouldAbort 以放弃终态解放（不等人类动作）。 */
+let harborTakeoverWaitResolve = null;
+let harborTakeoverStopPoll = null;
+function harborTakeoverNotify(payload) {
+  if (harborTakeoverStopPoll && typeof clearInterval !== 'undefined') {
+    clearInterval(harborTakeoverStopPoll);
+  }
+  harborTakeoverStopPoll = null;
+  if (harborTakeoverWaitResolve) {
+    const resolve = harborTakeoverWaitResolve;
+    harborTakeoverWaitResolve = null;
+    try { resolve(payload); } catch (e) {}
+  }
+}
+function harborTakeoverAwaitTerminal(shouldAbort) {
+  return new Promise((resolve) => {
+    harborTakeoverWaitResolve = resolve;
+    if (typeof shouldAbort !== 'function') return;
+    if (typeof setInterval === 'undefined') return;
+    harborTakeoverStopPoll = setInterval(() => {
+      let abort = false;
+      try { abort = !!shouldAbort(); } catch (e) { abort = false; }
+      if (abort) {
+        harborTakeoverNotify({ ok: false, error: { code: 'CAPTCHA_ABORTED',
+          message: '用户已停止，人工验证取消' } });
+      }
+    }, 500);
+  });
+}
+async function harborMaybeAwaitTakeover(result, toolDiv, label) {
+  let d = null;
+  try { d = JSON.parse(result); } catch (e) { return result; }
+  if (!d || !d.suspended || !d.error || d.error.code !== 'CAPTCHA_REQUIRED') return result;
+  // 挂起：接管 UI + 条目 warn（ux-flows 流程 2⑤：不塞错误、不换路）
+  try { if (typeof searchPanelOpen === 'function') searchPanelOpen(); } catch (e) {}
+  try { if (typeof searchPanelShowTakeover === 'function') searchPanelShowTakeover(d.error); } catch (e) {}
+  if (toolDiv) {
+    toolDiv.classList.remove('done', 'fail');
+    toolDiv.classList.add('warn');
+    toolDiv.innerHTML = '<span class="tc-dot"></span><span>' +
+      escapeHtml(label + ' · 等待人工验证') + '</span>';
+  }
+  try { if (typeof toast === 'function') toast('搜索引擎要求人机验证：请在面板中手动完成后点击「继续」', 'warn'); } catch (e) {}
+  if (harborTakeoverWaitResolve) {
+    // last-wins：旧等待以「已被取代」终态解放
+    harborTakeoverNotify({ ok: false, error: { code: 'CAPTCHA_ABORTED',
+      message: '已被新的验证请求取代' } });
+  }
+  const terminal = await harborTakeoverAwaitTerminal(() => userStopped);
+  return JSON.stringify(terminal || { ok: false,
+    error: { code: 'CAPTCHA_ABORTED', message: '人工验证未完成' } });
+}
+
 async function runAgentLoop(s, apiKey) {
   isStreaming = true;   // 修复 S20：同步置位移到最前（原在两个 await 之后，快速双发可起双循环）
   // 修复（2026-10-18）：暂停标志。原 abortController.abort() 只中止 fetch 流，
@@ -6631,11 +6722,21 @@ async function runAgentLoop(s, apiKey) {
     // 现在失败即显式报错，不再静默降级。
     const loadBackendTools = async (mode) => {
       const role = mode === 'readonly' ? 'ro' : (mode === 'off' ? 'chat' : 'full');
+      // v1.8.0 C 域：Agent 工具族（browser_*/software_*）经 build_tools
+      // include_agent 下发；R11 裁决——GLM 端点只出现前端追加的内置
+      // web_search（两个搜索工具永不并存），非 GLM 才出现 browser_*。
+      // 功能分级开关：关则对应工具族从工具面移除（L0-3 口径）。
+      const featSearch = (typeof spFeatureEnabled === 'function') ? spFeatureEnabled() : true;
+      const featSoftware = (typeof swFeatureEnabled === 'function') ? swFeatureEnabled() : true;
+      const includeAgent = mode === 'full' && (featSearch || featSoftware);
       // v1.3 R4：full 档才带 MCP 工具（Q3 裁决：MCP 仅进 full 角色）
-      const beTools = await callApi('build_tools', [role, mode === 'full']);
+      const beTools = await callApi('build_tools',
+        [role, mode === 'full', includeAgent, isGlmEndpoint()]);
       const parsed = beTools ? JSON.parse(beTools) : null;
       if (!Array.isArray(parsed)) throw new Error('build_tools 返回异常');
-      const tools = parsed.slice();
+      let tools = parsed.slice();
+      if (!featSearch) tools = tools.filter(t => !t.function || !/^browser_/.test(t.function.name));
+      if (!featSoftware) tools = tools.filter(t => !t.function || !/^software_/.test(t.function.name));
       if (enableSearch && isGlmEndpoint()) tools.push({ type: 'web_search',   // v1.2 R6：web_search 为 GLM 专属能力
         web_search: { enable: true, search_engine: document.getElementById('searchEngine').value, search_result: false } });
       return tools;
@@ -6654,7 +6755,9 @@ async function runAgentLoop(s, apiKey) {
     if (toolMode === 'full' && routedSet.size) {
       const allowed = new Set([...routedSet, ...taskUsed]);
       // v1.3 R4：mcp__ 工具 bypass 路由裁剪（用户显式启用的外部工具不参与域路由）
-      effectiveTools = effectiveTools.filter(t => !t.function || allowed.has(t.function.name) || t.function.name.startsWith('mcp__'));
+      // v1.8.0 C 域：browser_*/software_* 同样 bypass（Agent 工具族由功能分级
+      // 开关管控，不参与关键词域路由——「搜索/调软件」类意图关键词覆盖不全）
+      effectiveTools = effectiveTools.filter(t => !t.function || allowed.has(t.function.name) || t.function.name.startsWith('mcp__') || /^(browser_|software_)/.test(t.function.name));
     }
     // 智能档：按任务复杂度自动选模型与推理力度（思考 token 按输出计价，轻任务应关思考）
     const _route = resolveModelEffort(routeText, routedSet.size > ROUTE_ALWAYS.length);
@@ -6762,7 +6865,8 @@ async function runAgentLoop(s, apiKey) {
         if (toolMode === 'full' && routedSet.size) {
           const allowed = new Set([...routedSet, ...taskUsed]);
           // v1.3 R4：mcp__ 工具 bypass 路由裁剪（权限档热切换后同样放行）
-          effectiveTools = effectiveTools.filter(t => !t.function || allowed.has(t.function.name) || t.function.name.startsWith('mcp__'));
+          // v1.8.0 C 域：browser_*/software_* 同样 bypass（同首轮过滤口径）
+          effectiveTools = effectiveTools.filter(t => !t.function || allowed.has(t.function.name) || t.function.name.startsWith('mcp__') || /^(browser_|software_)/.test(t.function.name));
         }
       }
       await compactHistory(s);
@@ -7007,6 +7111,9 @@ async function runAgentLoop(s, apiKey) {
       }
       s.messages.push(assistantMsg);
       if (usage) accumulateUsage(s, assistantMsg.usage);   // 修复 S8（二轮）：单调累计到会话计数器（归档/compact 不归零）
+      // v1.8.0 H 域：混合路由成本分账（#costSplit chip 数据源；本地/云端
+      // token 分别累加——65-hybrid.js hybridOnUsage，架构 §4.2 usage 事件延长）
+      try { if (typeof hybridOnUsage === 'function') hybridOnUsage(usage, currentModel); } catch (e) {}
       if (aiContent && aiContent.dataset) aiContent.dataset.midx = s.messages.length - 1;   // 修复 UX-1/UX-3（v1.4）：live 气泡 stamp 下标（dataset 防御：桩/降级不抛错）
 
       if (toolCalls.length === 0) {
@@ -7211,6 +7318,9 @@ async function runAgentLoop(s, apiKey) {
           }
         } else {
           result = await executeTool(tc.name, args);
+          // v1.8.0 C 域：CAPTCHA_REQUIRED → 挂起本工具轮次，等 browser_takeover
+          // 终态注入上下文（联调规范 §2.4：fail-fast + 前端挂起）
+          result = await harborMaybeAwaitTakeover(result, toolDiv, label);
           if (['write_file','append_file','search_replace','run_command','run_powershell','move_path','delete_path'].includes(tc.name)) {
             try { if (JSON.parse(result).ok) taskFacts.push(tc.name + ': ' + String(args.path || args.cmd || args.src || '').slice(0, 60)); } catch (e) {}
           }
@@ -7529,6 +7639,1120 @@ async function mcpExecTool(name, args, decision, token) {
   }
 }
 
+/* ===== 63-search-panel.js ===== */
+/* ================= 搜索面板（v1.8.0 B 域 U1，实现 v1.8.0 B2） =================
+ * #searchPanel + .sp-*（纯新增 DOM，UI 契约只增不改——check_contract 验）：
+ * 结果列表 / 原文预览 / 缓存来源标注 / 人工接管区 / 阶段 pill + 进度。
+ * 契约口径（联调规范 §2/§3.1 + ux-flows 流程 1/2/3）：
+ * - 三态状态机 idle/pending/success/error + 请求序号 last-wins
+ *   （searchReqSeq，同 36-connect connectIdentifySeq 先例；pending 期间新
+ *   触发 → seq+1 覆盖，旧请求返回后 seq!==searchReqSeq 静默丢弃）；
+ * - ≥3s 可见等待：browser_search 在途期间 1s 轮询 search_status（§2.4 方案
+ *   A：面板打开起、关闭/终态停；phase → 阶段 pill 文案轮换，P2 最短展示
+ *   400ms 由 CSS 过渡承担）；
+ * - CAPTCHA 接管（流程 2）：CAPTCHA_REQUIRED → 接管区（「请完成验证」+
+ *   继续/放弃，面板不可关闭）→ browser_takeover continue 成功载荷渲染 /
+ *   abort → CAPTCHA_ABORTED 人话；
+ * - typeof 守卫（§2.5 vm 沙箱可测）：模块顶层不直接引用 window/document/
+ *   localStorage，一律函数体内守卫或注入；callApi 统一经 spCallApi 四步
+ *   （入口守卫 → 序号登记 → 竞速调用 → 序号校验）。
+ * 挂载：110-boot.js loadAll 内 try{ searchPanelInit(); }catch（功能分级
+ * 开关「浏览器搜索」默认开——spFeatureEnabled，localStorage 持久化）。
+ * C 域批次：25-tool-exec.js executeToolRaw 新分支将调 searchPanelRunSearch
+ * 驱动 Agent 工具循环的进度与结果渲染（本批只提供面板侧能力）。
+ */
+const SP_POLL_INTERVAL_MS = 1000;      // search_status 轮询间隔（§2.4）
+const SP_STATUS_TIMEOUT_MS = 15000;    // 纯内存状态读，快失败（§2.1 表）
+const SP_SEARCH_TIMEOUT_MS = 90000;    // browser_search（extract=full 时前端可传 150000）
+const SP_OPEN_TIMEOUT_MS = 60000;      // browser_open（§2.1 表）
+const SP_TAKEOVER_TIMEOUT_MS = 90000;  // browser_takeover（§2.1 表）
+const SP_STATS_TIMEOUT_MS = 15000;     // search_cache_stats
+// 后端 phase → 阶段文案（§2.3 四件套映射表；motion-spec §2.1 为动效真相源）
+const SP_PHASE_TEXT = {
+  understanding: '正在理解检索意图…',
+  cache_check: '正在检查缓存…',
+  window_loading: '正在打开搜索引擎…',
+  urllib_fallback: '已切换轻量抓取（降级）…',
+  extracting: '正在提取搜索结果…',
+  filtering: '正在整理结果…',
+  deep_extract: '正在读取正文…',
+  validating: '正在校验结果…',
+  reformulate: '正在改写检索式重试…',
+  captcha: '需要人工验证',
+  done: '搜索完成',
+  failed: '搜索失败'
+};
+// 功能分级开关键（设置可单独关搜索；默认开——架构 §5 行为兼容）
+const SP_FEATURE_KEY = 'glm_feat_search_v18';
+
+let searchReqSeq = 0;          // last-wins 请求序号（每次触发递增，旧请求失效）
+let searchPanelState = 'idle'; // idle|pending|success|error|captcha
+let searchPollTimer = null;    // 1s 轮询定时器句柄
+let searchTakeoverId = null;   // 当前接管会话（captcha 态非空）
+let searchLastPayload = null;  // 最近一次成功载荷（原文预览/重渲染用）
+
+/* ---------- typeof 守卫取值（§2.5：vm 沙箱无 DOM 不炸） ---------- */
+function searchPanelEl() {
+  return (typeof document !== 'undefined') ? document.getElementById('searchPanel') : null;
+}
+function spEl(id) {
+  return (typeof document !== 'undefined') ? document.getElementById(id) : null;
+}
+function spFeatureEnabled() {
+  try {
+    if (typeof localStorage === 'undefined') return true;
+    const v = localStorage.getItem(SP_FEATURE_KEY);
+    return v === null || v === '1';   // 缺省 = 开（默认开）
+  } catch (e) { return true; }
+}
+function spCallApi(name, args, timeoutMs) {
+  // §2.1 四步之①入口守卫（与 callApi 既有口径一致，vm 下显式抛可断言）
+  if (typeof callApi !== 'function') {
+    throw new Error('pywebview bridge 未就绪: ' + name);
+  }
+  return callApi(name, args, timeoutMs);
+}
+function spToast(msg, kind) {
+  if (typeof toast === 'function') toast(msg, kind || 'info');
+}
+
+/* ---------- 面板骨架（纯新增 DOM；动态创建，不碰 index.template.html） ---------- */
+function searchPanelInit() {
+  if (!spFeatureEnabled()) return false;          // 功能分级开关：关则不挂载
+  if (searchPanelEl()) { searchPanelWire(); return true; }   // 幂等
+  if (typeof document === 'undefined') return false;
+  const panel = document.createElement('div');
+  panel.id = 'searchPanel';
+  panel.className = 'sp-root';
+  panel.setAttribute('data-state', 'idle');
+  panel.innerHTML =
+    '<div class="sp-head">' +
+      '<span class="sp-title">浏览器搜索</span>' +
+      '<span class="sp-pill" id="spPill">就绪</span>' +
+      '<button class="sp-close" id="spClose" title="关闭面板">×</button>' +
+    '</div>' +
+    '<div class="sp-progress"><div class="sp-progress-bar" id="spProgressBar"></div></div>' +
+    '<div class="sp-query">' +
+      '<input class="sp-input" id="spInput" placeholder="输入检索词，如 python 教程" maxlength="500">' +
+      '<button class="sp-search-btn" id="spSearchBtn">搜索</button>' +
+    '</div>' +
+    '<div class="sp-meta" id="spMeta"></div>' +
+    '<div class="sp-takeover" id="spTakeover" style="display:none">' +
+      '<div class="sp-takeover-title">🔒 搜索引擎要求人机验证</div>' +
+      '<div class="sp-takeover-desc">请在弹出的窗口中完成验证，然后点击「继续」。</div>' +
+      '<div class="sp-takeover-timer" id="spTakeoverTimer">已等待 0:00</div>' +
+      '<div class="sp-takeover-btns">' +
+        '<button class="sp-btn sp-btn-primary" id="spTakeoverContinue">继续</button>' +
+        '<button class="sp-btn" id="spTakeoverAbort">放弃</button>' +
+      '</div>' +
+    '</div>' +
+    '<div class="sp-results" id="spResults"></div>' +
+    '<div class="sp-foot" id="spFoot"></div>';
+  document.body.appendChild(panel);
+  searchPanelWire();
+  return true;
+}
+function searchPanelWire() {
+  const close = spEl('spClose');
+  if (close) close.addEventListener('click', () => searchPanelClose());
+  const btn = spEl('spSearchBtn');
+  if (btn) btn.addEventListener('click', () => {
+    const input = spEl('spInput');
+    searchPanelRunSearch({ query: input ? input.value : '' });
+  });
+  const cont = spEl('spTakeoverContinue');
+  if (cont) cont.addEventListener('click', () => searchPanelTakeoverAction('continue'));
+  const ab = spEl('spTakeoverAbort');
+  if (ab) ab.addEventListener('click', () => searchPanelTakeoverAction('abort'));
+  searchPanelRefreshStats();
+}
+
+/* ---------- 开/关（面板打开起轮询、关闭停；captcha 态不可关闭） ---------- */
+function searchPanelOpen() {
+  const panel = searchPanelEl();
+  if (!panel) return;
+  panel.classList.add('show');
+  searchPanelRefreshStats();
+  searchPanelStartPolling();
+}
+function searchPanelClose() {
+  // ux-flows 流程 2④：takeover_prompting 面板不可关闭（只能继续/放弃）——
+  // 防用户忽略后 Agent 永久挂起
+  if (searchTakeoverId && searchPanelState === 'captcha') {
+    spToast('请先完成验证或点击「放弃」', 'warn');
+    return;
+  }
+  const panel = searchPanelEl();
+  if (panel) panel.classList.remove('show');
+  searchPanelStopPolling();
+}
+
+/* ---------- 三态 + last-wins 主入口（C 域 25-tool-exec 分发亦走此函数） ---------- */
+async function searchPanelRunSearch(params) {
+  const seq = ++searchReqSeq;                       // ②序号登记
+  searchPanelSetState('pending');
+  searchPanelOpen();                                // 打开即起轮询（≥3s 可见等待）
+  try {
+    const raw = await spCallApi('browser_search', [params || {}],
+      (params && params.extract === 'full') ? 150000 : SP_SEARCH_TIMEOUT_MS);  // ③竞速
+    if (seq !== searchReqSeq) return;               // ④last-wins：旧请求静默失效
+    const d = JSON.parse(raw || '{}');
+    if (d && d.ok) {
+      searchLastPayload = d;
+      searchPanelRenderResults(d);
+      searchPanelSetState('success');
+    } else if (d && d.error && d.error.code === 'CAPTCHA_REQUIRED') {
+      searchTakeoverId = d.error.takeover_id || null;
+      searchPanelShowTakeover(d.error);
+      searchPanelSetState('captcha');
+    } else {
+      searchPanelRenderError((d && d.error) || { code: 'INTERNAL', message: '搜索失败' });
+      searchPanelSetState('error');
+    }
+  } catch (e) {
+    if (seq !== searchReqSeq) return;
+    searchPanelRenderError({ code: 'BRIDGE_TIMEOUT',
+      message: (e && e.message) || String(e) });
+    searchPanelSetState('error');
+  } finally {
+    searchPanelRefreshStats();
+  }
+}
+
+/* ---------- 接管动作（流程 2 步骤 4a/4b） ---------- */
+async function searchPanelTakeoverAction(action) {
+  if (!searchTakeoverId) return;
+  const seq = ++searchReqSeq;
+  const cont = spEl('spTakeoverContinue');
+  const ab = spEl('spTakeoverAbort');
+  if (cont) cont.disabled = true;                   // 防连点（后端亦幂等）
+  if (ab) ab.disabled = true;
+  try {
+    const raw = await spCallApi('browser_takeover', [searchTakeoverId, action],
+      SP_TAKEOVER_TIMEOUT_MS);
+    if (seq !== searchReqSeq) return;
+    const d = JSON.parse(raw || '{}');
+    if (d && d.ok) {
+      searchTakeoverId = null;
+      searchPanelHideTakeover();
+      searchLastPayload = d;
+      searchPanelRenderResults(d);
+      searchPanelSetState('success');
+      spToast('验证通过，继续搜索', 'ok');
+      // v1.8.0 C 域：接管终态通知 Agent 循环（§2.4：成功载荷注入挂起的工具轮次；
+      // typeof 守卫——vm 单模块沙箱无 60-agent-loop 时不炸）
+      if (typeof harborTakeoverNotify === 'function') harborTakeoverNotify(d);
+    } else if (d && d.error && d.error.code === 'CAPTCHA_REQUIRED') {
+      const n = (d.error.retry || 1);
+      spToast('验证未通过，请重试（' + n + '/' + (d.error.max_retries || 3) + '）', 'warn');
+    } else if (d && d.error && d.error.code === 'CAPTCHA_ABORTED') {
+      searchTakeoverId = null;
+      searchPanelHideTakeover();
+      searchPanelRenderError(d.error);
+      searchPanelSetState('error');
+      spToast('已放弃本次搜索', 'warn');
+      // v1.8.0 C 域：放弃终态同样通知（Agent 换引擎/告知用户）
+      if (typeof harborTakeoverNotify === 'function') harborTakeoverNotify(d);
+    } else {
+      searchPanelRenderError((d && d.error) || { code: 'INTERNAL', message: '操作失败' });
+      searchPanelSetState('error');
+    }
+  } catch (e) {
+    if (seq !== searchReqSeq) return;
+    spToast('接管操作失败：' + ((e && e.message) || String(e)), 'err');
+  } finally {
+    if (cont) cont.disabled = false;
+    if (ab) ab.disabled = false;
+    searchPanelRefreshStats();
+  }
+}
+
+/* ---------- 1s 轮询（§2.4 方案 A：打开起、关闭/终态停） ---------- */
+function searchPanelStartPolling() {
+  if (searchPollTimer || typeof setInterval === 'undefined') return;
+  searchPollTimer = setInterval(searchPanelPollOnce, SP_POLL_INTERVAL_MS);
+}
+function searchPanelStopPolling() {
+  if (searchPollTimer && typeof clearInterval !== 'undefined') {
+    clearInterval(searchPollTimer);
+  }
+  searchPollTimer = null;
+}
+async function searchPanelPollOnce() {
+  let d = null;
+  try {
+    const raw = await spCallApi('search_status', [], SP_STATUS_TIMEOUT_MS);
+    d = JSON.parse(raw || '{}');
+  } catch (e) {
+    return;   // 轮询快失败不打扰（下一拍再试；后端继续跑不依赖轮询）
+  }
+  if (!d || !d.ok) return;
+  if (d.active === false && d.phase !== 'done' && d.phase !== 'failed') {
+    searchPanelStopPolling();                       // 无活跃搜索 → 停
+    return;
+  }
+  searchPanelSetPhase(d.phase, d);
+  if (d.phase === 'done' || d.phase === 'failed' ||
+      (d.active === false && d.phase !== 'captcha')) {
+    searchPanelStopPolling();                       // 终态停（captcha 续轮）
+  }
+}
+
+/* ---------- 渲染 ---------- */
+function searchPanelSetState(state) {
+  searchPanelState = state;
+  const panel = searchPanelEl();
+  if (panel) panel.setAttribute('data-state', state);
+  const pill = spEl('spPill');
+  if (pill) {
+    pill.textContent = state === 'pending' ? '进行中'
+      : state === 'captcha' ? '需要人工验证'
+      : state === 'success' ? '已完成'
+      : state === 'error' ? '失败' : '就绪';
+    pill.className = 'sp-pill' + (state === 'error' ? ' sp-pill-err'
+      : state === 'captcha' ? ' sp-pill-warn'
+      : state === 'success' ? ' sp-pill-ok' : '');
+  }
+}
+function searchPanelSetPhase(phase, d) {
+  const pill = spEl('spPill');
+  if (pill && SP_PHASE_TEXT[phase]) pill.textContent = SP_PHASE_TEXT[phase];
+  const bar = spEl('spProgressBar');
+  if (bar && typeof d === 'object' && d) {
+    if (d.phase === 'deep_extract' && d.deep_extract && d.deep_extract.total) {
+      // 确定进度 scaleX(done/total)（§2.3 deep_extract 行）
+      bar.style.transform = 'scaleX(' +
+        (d.deep_extract.done / d.deep_extract.total) + ')';
+    } else if (typeof d.progress_pct === 'number') {
+      bar.style.transform = 'scaleX(' + (d.progress_pct / 100) + ')';
+    }
+  }
+  if (d && d.phase === 'captcha' && d.takeover && d.takeover.takeover_id) {
+    if (d.takeover.takeover_id !== searchTakeoverId) {
+      searchTakeoverId = d.takeover.takeover_id;
+      searchPanelShowTakeover({ takeover_id: searchTakeoverId, retry: d.takeover.retries,
+        max_retries: d.takeover.max_retries });
+    }
+    const timer = spEl('spTakeoverTimer');
+    if (timer && typeof d.takeover.elapsed_s === 'number') {
+      const s = d.takeover.elapsed_s;
+      const mm = Math.floor(s / 60), ss = ('0' + (s % 60)).slice(-2);
+      timer.textContent = '已等待 ' + mm + ':' + ss;
+    }
+  }
+}
+function searchPanelRenderResults(d) {
+  const meta = spEl('spMeta');
+  if (meta) {
+    const cached = d.source === 'cache';
+    const secs = d.elapsed_ms != null ? (d.elapsed_ms / 1000).toFixed(1) + 's' : '';
+    meta.innerHTML =
+      '<span class="sp-src' + (cached ? ' cache' : '') + '" id="spSrcBadge">' +
+        (cached ? '缓存' : '实时') + '</span>' +
+      '<span class="sp-q">' + spEsc(d.query || '') + '</span>' +
+      '<span class="sp-e">' + spEsc(d.engine || '') + '</span>' +
+      (d.channel ? '<span class="sp-ch">' + (d.channel === 'urllib' ? '直连抓取' : '窗口') + '</span>' : '') +
+      (secs ? '<span class="sp-t">' + secs + '</span>' : '') +
+      (d.deep_extract ? '<span class="sp-deep">深度提取 ' + d.deep_extract.done +
+        '/' + d.deep_extract.total + (d.deep_extract.failed ? '（' + d.deep_extract.failed + ' 篇失败）' : '') + '</span>' : '') +
+      (d.truncated ? '<span class="sp-trunc">结果已截断，全文见 full_ref</span>' : '');
+  }
+  const box = spEl('spResults');
+  if (!box) return;
+  box.innerHTML = '';
+  const list = d.results || [];
+  if (!list.length) {
+    const empty = document.createElement('div');
+    empty.className = 'sp-empty';
+    empty.textContent = '未找到相关内容，建议调整关键词后重试。';
+    box.appendChild(empty);
+    return;
+  }
+  list.forEach(r => {
+    const item = document.createElement('div');
+    item.className = 'sp-item';
+    const a = document.createElement('a');
+    a.className = 'sp-item-title';
+    a.href = r.url || '#';
+    a.target = '_blank';
+    a.rel = 'noopener';
+    a.textContent = r.title || r.url || '（无标题）';
+    item.appendChild(a);
+    if (r.snippet) {
+      const sn = document.createElement('div');
+      sn.className = 'sp-item-snippet';
+      sn.textContent = r.snippet;
+      item.appendChild(sn);
+    }
+    if (r.extra && r.extra.content) {
+      const ct = document.createElement('div');
+      ct.className = 'sp-item-content';
+      ct.textContent = r.extra.content.slice(0, 400) +
+        (r.extra.content.length > 400 ? '…' : '');
+      item.appendChild(ct);
+    }
+    const foot = document.createElement('div');
+    foot.className = 'sp-item-foot';
+    foot.textContent = (r.position || '') + '. ' + (r.domain || '') +
+      (r.date ? ' · ' + r.date : '');
+    item.appendChild(foot);
+    box.appendChild(item);
+  });
+}
+function searchPanelRenderError(e) {
+  const meta = spEl('spMeta');
+  if (meta) meta.innerHTML = '<span class="sp-src err">错误</span>';
+  const box = spEl('spResults');
+  if (!box) return;
+  box.innerHTML = '';
+  const d = document.createElement('div');
+  d.className = 'sp-error';
+  d.textContent = (e && e.message) || '搜索失败';
+  box.appendChild(d);
+  if (e && e.hint) {
+    const h = document.createElement('div');
+    h.className = 'sp-error-hint';
+    h.textContent = e.hint;
+    box.appendChild(h);
+  }
+}
+function searchPanelShowTakeover(err) {
+  const box = spEl('spTakeover');
+  if (box) box.style.display = '';
+  const pill = spEl('spPill');
+  if (pill) { pill.textContent = '需要人工验证'; pill.className = 'sp-pill sp-pill-warn'; }
+  const cont = spEl('spTakeoverContinue');
+  if (cont && err && err.retry) {
+    cont.textContent = '继续（重试 ' + err.retry + '/' + (err.max_retries || 3) + '）';
+  } else if (cont) {
+    cont.textContent = '继续';
+  }
+}
+function searchPanelHideTakeover() {
+  searchTakeoverId = null;
+  const box = spEl('spTakeover');
+  if (box) box.style.display = 'none';
+  const timer = spEl('spTakeoverTimer');
+  if (timer) timer.textContent = '已等待 0:00';
+}
+async function searchPanelRefreshStats() {
+  const foot = spEl('spFoot');
+  if (!foot) return;
+  try {
+    const raw = await spCallApi('search_cache_stats', [], SP_STATS_TIMEOUT_MS);
+    const d = JSON.parse(raw || '{}');
+    if (d && d.ok) {
+      foot.textContent = '缓存 ' + d.entries + ' 条 · 命中 ' + d.hits +
+        ' / 未命中 ' + d.misses + ' · ' + d.size_kb + 'KB · TTL ' + d.ttl_minutes + ' 分钟';
+    }
+  } catch (e) { /* 脚注统计失败静默（不打扰主流程） */ }
+}
+function spEsc(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+/* ===== 64-software-panel.js ===== */
+/* ================= 外部软件面板（v1.8.0 S 域，实现 v1.8.0 S2） =================
+ * #softwareBlock + .sw-*（纯新增 DOM，UI 契约只增不改——check_contract 验）：
+ * 设置面板「外部软件」区块：探测列表 / 状态灯 / 测试调用 / 自定义向导。
+ * 契约口径（联调规范 §2/§3.2 + ux-flows 流程 4）：
+ * - 三态状态机 idle/pending/success/error + 请求序号 last-wins
+ *   （softwareReqSeq，同 36-connect connectIdentifySeq 先例；pending 期间
+ *   新触发 → seq+1 覆盖，旧请求返回后 seq!==softwareReqSeq 静默丢弃）；
+ * - 状态灯映射（.sw-light）：probed→installed（绿）/ missing→missing（空芯）/
+ *   version_mismatch→mismatch（黄）/ unknown→probing 呼吸态；
+ * - ≥3s 可见等待：software_probe 在途按钮 pending + 文案「探测中…」；
+ *   CLI 测试调用不确定扫光 + 「已运行 0:42」每秒文本时钟（motion-spec §2.1）；
+ * - 测试调用（Gap-4）：source=manual_test 视为用户本人操作，不走 Agent guard
+ *   确认链但照常审计；
+ * - 自定义向导：用户条目 CRUD 经 rpc 通用分发通道（_software_save）——
+ *   契约 js_api 方法面恰为 software×3（规范 §1.2），不新增 _V12_EXTRA；
+ * - typeof 守卫（§2.5 vm 沙箱可测）：模块顶层不直接引用 window/document/
+ *   localStorage；callApi 统一经 swCallApi 四步（入口守卫 → 序号登记 →
+ *   竞速调用 → 序号校验）。
+ * 挂载：110-boot.js loadAll 内 try{ softwarePanelInit(); }catch（功能分级
+ * 开关「外部软件」默认开——swFeatureEnabled，localStorage 持久化）。
+ */
+const SW_LIST_TIMEOUT_MS = 15000;      // software_list（§2.1 表）
+const SW_PROBE_TIMEOUT_MS = 120000;    // software_probe（PATH/winreg 全量扫描）
+const SW_CALL_TIMEOUT_MS = 660000;     // software_call（后端 600s + 30s 缓冲同款）
+const SW_STATUS_POLL_MS = 1000;        // 测试调用文本时钟节拍（不走 count-up 动画）
+const SW_FEATURE_KEY = 'glm_feat_software_v18';
+// 状态灯 → CSS 类（.sw-light 修饰；unknown 的 probing 呼吸态由探测在途渲染）
+const SW_LIGHT_CLASS = {
+  probed: 'ok', missing: 'miss', version_mismatch: 'warn', unknown: 'probing'
+};
+const SW_STATUS_TEXT = {
+  probed: '已安装', missing: '未安装', version_mismatch: '版本不符', unknown: '未探测'
+};
+
+let softwareReqSeq = 0;          // last-wins 请求序号
+let softwarePanelState = 'idle'; // idle|pending|success|error
+let swProbing = false;           // 探测在途（呼吸态 + 按钮禁用）
+let swCallTimer = null;          // 测试调用文本时钟句柄
+let swCallElapsed = 0;           // 测试调用已运行秒数
+let swLastList = [];             // 最近一次列表载荷（重渲染用）
+
+/* ---------- typeof 守卫取值（§2.5：vm 沙箱无 DOM 不炸） ---------- */
+function swEl(id) {
+  return (typeof document !== 'undefined') ? document.getElementById(id) : null;
+}
+function swFeatureEnabled() {
+  try {
+    if (typeof localStorage === 'undefined') return true;
+    const v = localStorage.getItem(SW_FEATURE_KEY);
+    return v === null || v === '1';   // 缺省 = 开（默认开）
+  } catch (e) { return true; }
+}
+function swCallApi(name, args, timeoutMs) {
+  // §2.1 四步之①入口守卫（与 callApi 既有口径一致，vm 下显式抛可断言）
+  if (typeof callApi !== 'function') {
+    throw new Error('pywebview bridge 未就绪: ' + name);
+  }
+  return callApi(name, args, timeoutMs);
+}
+function swToast(msg, kind) {
+  if (typeof toast === 'function') toast(msg, kind || 'info');
+}
+function swEsc(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+/* ---------- 面板骨架（纯新增 DOM；挂到设置面板 set-grid，sandboxBlock 同款模式） ---------- */
+function softwarePanelInit() {
+  if (!swFeatureEnabled()) return false;          // 功能分级开关：关则不挂载
+  if (swEl('softwareBlock')) { softwarePanelWire(); return true; }   // 幂等
+  if (typeof document === 'undefined') return false;
+  const grid = document.querySelector('.set-grid');
+  if (!grid) return false;
+  const block = document.createElement('div');
+  block.id = 'softwareBlock';
+  block.className = 'set-block';
+  block.innerHTML =
+    '<div class="set-title">外部软件（v1.8.0）</div>' +
+    '<div class="set-hint" style="margin:2px 0 8px;">' +
+      '让 AI 调用本机已安装的外部软件（git/ffmpeg/7z/python/node 等预设）。' +
+      '调用经沙箱执行、参数按调用规范硬校验（不符时 AI 自我修正），全程留审计；' +
+      '高危动作（dangerous）每次都要你确认。Harbor 不会自动下载任何软件。<br>' +
+      '配置存于 <code>~/.glm-chat/software.json</code>（独立文件，不碰 config.json）。' +
+    '</div>' +
+    '<div class="provider-row" style="align-items:center;gap:8px;">' +
+      '<button type="button" class="modal-btn" id="swProbeBtn">↻ 重新探测</button>' +
+      '<button type="button" class="modal-btn" id="swCustomBtn">＋ 自定义软件</button>' +
+      '<span class="sw-light" id="swPanelLight"></span>' +
+      '<span id="swPanelText" style="font-size:12px;color:var(--text-2);">读取中…</span>' +
+    '</div>' +
+    '<div class="sw-list" id="swList"></div>' +
+    '<div class="sw-wizard" id="swWizard" style="display:none;margin-top:10px;">' +
+      '<div class="set-title" style="font-size:13px;">自定义软件</div>' +
+      '<div class="provider-row"><span style="width:110px;font-size:12px;color:var(--text-2);">名称</span>' +
+        '<input class="sw-input" id="swWName" placeholder="小写字母数字，如 mytool" maxlength="64" style="flex:1;"></div>' +
+      '<div class="provider-row"><span style="width:110px;font-size:12px;color:var(--text-2);">类型</span>' +
+        '<select id="swWKind" style="flex:1;">' +
+          '<option value="cli">cli（命令行）</option>' +
+          '<option value="gui">gui（图形界面）</option>' +
+          '<option value="uri">uri（协议启动）</option>' +
+        '</select></div>' +
+      '<div class="provider-row"><span style="width:110px;font-size:12px;color:var(--text-2);">可执行/协议</span>' +
+        '<input class="sw-input" id="swWExec" placeholder="cli/gui: 命令名或路径；uri: 如 https://{host}" maxlength="300" style="flex:1;"></div>' +
+      '<div class="provider-row"><span style="width:110px;font-size:12px;color:var(--text-2);">动作（JSON）</span>' +
+        '<textarea class="sw-input" id="swWActions" rows="4" style="flex:1;" placeholder=\'[{"name":"version","risk":"read","argv":["--version"],"arg_schema":{"type":"object","properties":{}}}]\'></textarea></div>' +
+      '<div class="provider-row">' +
+        '<button type="button" class="modal-btn primary" id="swWSaveBtn">保存</button>' +
+        '<button type="button" class="modal-btn" id="swWCancelBtn">取消</button>' +
+      '</div>' +
+    '</div>' +
+    '<div class="sw-detail" id="swDetail"></div>';
+  grid.appendChild(block);
+  softwarePanelWire();
+  return true;
+}
+function softwarePanelWire() {
+  const probe = swEl('swProbeBtn');
+  if (probe) probe.addEventListener('click', () => softwarePanelProbe());
+  const custom = swEl('swCustomBtn');
+  if (custom) custom.addEventListener('click', () => {
+    const w = swEl('swWizard');
+    if (w) w.style.display = (w.style.display === 'none' ? '' : 'none');
+  });
+  const cancel = swEl('swWCancelBtn');
+  if (cancel) cancel.addEventListener('click', () => {
+    const w = swEl('swWizard');
+    if (w) w.style.display = 'none';
+  });
+  const save = swEl('swWSaveBtn');
+  if (save) save.addEventListener('click', () => softwarePanelSaveCustom());
+  softwarePanelRefresh();
+}
+
+/* ---------- 三态 + last-wins：列表刷新 ---------- */
+async function softwarePanelRefresh() {
+  const seq = ++softwareReqSeq;
+  try {
+    const raw = await swCallApi('software_list', ['all'], SW_LIST_TIMEOUT_MS);
+    if (seq !== softwareReqSeq) return;               // ④last-wins
+    const d = JSON.parse(raw || '{}');
+    if (d && d.ok) {
+      swLastList = d.software || [];
+      softwarePanelRenderList(swLastList);
+      softwarePanelSetState('success');
+    } else {
+      softwarePanelRenderError((d && d.error) || { code: 'INTERNAL', message: '读取软件列表失败' });
+      softwarePanelSetState('error');
+    }
+  } catch (e) {
+    if (seq !== softwareReqSeq) return;
+    softwarePanelRenderError({ code: 'BRIDGE_TIMEOUT', message: (e && e.message) || String(e) });
+    softwarePanelSetState('error');
+  }
+}
+
+/* ---------- 探测（≥3s 可见等待：按钮 pending + 呼吸态 + 文案） ---------- */
+async function softwarePanelProbe() {
+  if (swProbing) return;
+  const seq = ++softwareReqSeq;
+  swProbing = true;
+  const btn = swEl('swProbeBtn');
+  if (btn) { btn.disabled = true; btn.textContent = '探测中…'; }
+  const light = swEl('swPanelLight');
+  if (light) light.className = 'sw-light probing';
+  const txt = swEl('swPanelText');
+  if (txt) txt.textContent = '正在扫描 PATH 与注册表…';
+  softwarePanelSetState('pending');
+  try {
+    const raw = await swCallApi('software_probe', [], SW_PROBE_TIMEOUT_MS);
+    if (seq !== softwareReqSeq) return;
+    const d = JSON.parse(raw || '{}');
+    if (d && d.ok) {
+      const nOk = (d.probed || []).filter(p => p.status === 'probed').length;
+      swToast('探测完成（' + (d.elapsed_ms || 0) + 'ms）：' + nOk + ' 项已安装', 'ok');
+      await softwarePanelRefresh();
+    } else {
+      softwarePanelRenderError((d && d.error) || { code: 'INTERNAL', message: '探测失败' });
+      softwarePanelSetState('error');
+    }
+  } catch (e) {
+    if (seq !== softwareReqSeq) return;
+    softwarePanelRenderError({ code: 'BRIDGE_TIMEOUT', message: (e && e.message) || String(e) });
+    softwarePanelSetState('error');
+  } finally {
+    swProbing = false;
+    if (btn) { btn.disabled = false; btn.textContent = '↻ 重新探测'; }
+    const light2 = swEl('swPanelLight');
+    if (light2) light2.className = 'sw-light';
+    const txt2 = swEl('swPanelText');
+    if (txt2) txt2.textContent = '共 ' + swLastList.length + ' 项';
+  }
+}
+
+/* ---------- 渲染 ---------- */
+function softwarePanelSetState(state) {
+  softwarePanelState = state;
+  const block = swEl('softwareBlock');
+  if (block) block.setAttribute('data-state', state);
+}
+function softwarePanelRenderList(items) {
+  const box = swEl('swList');
+  const txt = swEl('swPanelText');
+  if (txt) txt.textContent = '共 ' + items.length + ' 项';
+  if (!box) return;
+  box.innerHTML = '';
+  if (!items.length) {
+    const empty = document.createElement('div');
+    empty.className = 'sw-empty';
+    empty.textContent = '注册表为空（内置预设应始终存在——异常）。';
+    box.appendChild(empty);
+    return;
+  }
+  items.forEach(it => {
+    const row = document.createElement('div');
+    row.className = 'sw-row';
+    row.setAttribute('data-name', it.name);
+    const lightCls = SW_LIGHT_CLASS[it.status] || 'probing';
+    row.innerHTML =
+      '<span class="sw-light ' + lightCls + '"></span>' +
+      '<span class="sw-name">' + swEsc(it.name) + '</span>' +
+      '<span class="sw-kind">' + swEsc(it.kind) + '</span>' +
+      '<span class="sw-status">' + (SW_STATUS_TEXT[it.status] || it.status) +
+        (it.version ? ' · ' + swEsc(it.version) : '') + '</span>' +
+      '<span class="sw-src">' + (it.source === 'preset' ? '预设' : '自定义') + '</span>' +
+      '<button type="button" class="modal-btn sw-test-btn" data-name="' + swEsc(it.name) + '">测试调用</button>';
+    box.appendChild(row);
+  });
+  box.querySelectorAll('.sw-test-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const name = btn.getAttribute('data-name');
+      const item = (swLastList || []).find(x => x.name === name);
+      softwarePanelOpenTest(name, item);
+    });
+  });
+}
+function softwarePanelRenderError(e) {
+  const box = swEl('swDetail');
+  if (!box) return;
+  box.innerHTML =
+    '<div class="sw-error">' + swEsc((e && e.message) || '操作失败') + '</div>' +
+    (e && e.hint ? '<div class="sw-error-hint">' + swEsc(e.hint) + '</div>' : '');
+}
+
+/* ---------- 测试调用（Gap-4：manual_test 不走 Agent guard 链，照常审计） ---------- */
+function softwarePanelOpenTest(name, item) {
+  const box = swEl('swDetail');
+  if (!box) return;
+  const actions = (item && item.actions) || [];
+  if (!actions.length) {
+    box.innerHTML = '<div class="sw-error">' + swEsc(name) + ' 没有可用动作。</div>';
+    return;
+  }
+  const opts = actions.map(a =>
+    '<option value="' + swEsc(a.name) + '">' + swEsc(a.name) +
+    '（' + swEsc(a.risk) + '）</option>').join('');
+  box.innerHTML =
+    '<div class="sw-test">' +
+      '<div class="provider-row" style="align-items:center;gap:8px;">' +
+        '<span style="font-size:12px;color:var(--text-2);">' + swEsc(name) + ' 动作</span>' +
+        '<select id="swTestAction" style="flex:1;">' + opts + '</select>' +
+      '</div>' +
+      '<div class="provider-row" style="align-items:flex-start;gap:8px;">' +
+        '<span style="font-size:12px;color:var(--text-2);width:110px;">参数（JSON）</span>' +
+        '<textarea class="sw-input" id="swTestArgs" rows="3" style="flex:1;" placeholder=\'{}\'></textarea>' +
+      '</div>' +
+      '<div class="provider-row">' +
+        '<button type="button" class="modal-btn primary" id="swTestRun">执行</button>' +
+        '<span class="sw-light" id="swTestLight"></span>' +
+        '<span class="sw-test-timer" id="swTestTimer" style="display:none;"></span>' +
+      '</div>' +
+      '<pre class="sw-test-out" id="swTestOut" style="display:none;"></pre>' +
+    '</div>';
+  const run = swEl('swTestRun');
+  if (run) run.addEventListener('click', () => softwarePanelRunTest(name));
+}
+async function softwarePanelRunTest(name) {
+  const actionEl = swEl('swTestAction');
+  const argsEl = swEl('swTestArgs');
+  const action = actionEl ? actionEl.value : '';
+  let args = {};
+  if (argsEl && argsEl.value.trim()) {
+    try { args = JSON.parse(argsEl.value); }
+    catch (e) {
+      softwarePanelRenderTestOut({ ok: false, error: { code: 'BAD_PARAMS',
+        message: '参数不是合法 JSON: ' + (e && e.message) } });
+      return;
+    }
+  }
+  const seq = ++softwareReqSeq;
+  const runBtn = swEl('swTestRun');
+  if (runBtn) runBtn.disabled = true;
+  swCallElapsed = 0;
+  const timerEl = swEl('swTestTimer');
+  if (timerEl) { timerEl.style.display = ''; timerEl.textContent = '已运行 0:00'; }
+  swCallTimer = setInterval(() => {
+    swCallElapsed += 1;
+    const t = swEl('swTestTimer');
+    if (t) {
+      const mm = Math.floor(swCallElapsed / 60), ss = ('0' + (swCallElapsed % 60)).slice(-2);
+      t.textContent = '已运行 ' + mm + ':' + ss;
+    }
+  }, SW_STATUS_POLL_MS);
+  softwarePanelSetState('pending');
+  try {
+    const raw = await swCallApi('software_call',
+      [{ software: name, action: action, args: args, source: 'manual_test' }],
+      SW_CALL_TIMEOUT_MS);
+    if (seq !== softwareReqSeq) return;               // 连点 last-wins：旧返回丢弃
+    const d = JSON.parse(raw || '{}');
+    softwarePanelRenderTestOut(d);
+    softwarePanelSetState(d && d.ok ? 'success' : 'error');
+  } catch (e) {
+    if (seq !== softwareReqSeq) return;
+    softwarePanelRenderTestOut({ ok: false, error: { code: 'BRIDGE_TIMEOUT',
+      message: (e && e.message) || String(e) } });
+    softwarePanelSetState('error');
+  } finally {
+    if (swCallTimer) { clearInterval(swCallTimer); swCallTimer = null; }
+    if (runBtn) runBtn.disabled = false;
+  }
+}
+function softwarePanelRenderTestOut(d) {
+  const out = swEl('swTestOut');
+  const light = swEl('swTestLight');
+  if (!out) return;
+  out.style.display = '';
+  if (light) light.className = 'sw-light ' + (d && d.ok ? 'ok' : 'miss');
+  if (d && d.ok && d.kind === 'cli') {
+    // CLI 形态：exit chip + stdout/stderr + 计时 + 沙箱标记（exit_code≠0 仍成功形状）
+    const okExit = d.exit_code === 0;
+    out.innerHTML =
+      '<div class="sw-exit ' + (okExit ? 'ok' : 'warn') + '">exit_code: ' +
+        swEsc(d.exit_code) + (okExit ? '' : '（非零仍返回原始输出，AI 可自行判断）') +
+        '</div>' +
+      '<div class="sw-meta-line">耗时 ' + swEsc(d.duration_ms) + 'ms · 沙箱 ' +
+        (d.sandboxed ? '是' : '否') + (d.truncated ? ' · 输出已截断（full_ref 可用 read_more 续读）' : '') + '</div>' +
+      (d.error_hint ? '<div class="sw-hint">提示：' + swEsc(d.error_hint) + '</div>' : '') +
+      (d.stdout ? '<pre class="sw-stdout">' + swEsc(d.stdout) + '</pre>' : '') +
+      (d.stderr ? '<pre class="sw-stderr">' + swEsc(d.stderr) + '</pre>' : '');
+    return;
+  }
+  if (d && d.ok && d.kind === 'gui') {
+    out.innerHTML =
+      '<div class="sw-exit ok">已启动 · 窗口已确认</div>' +
+      '<div class="sw-meta-line">窗口标题：' + swEsc(d.window_title || '（未取到）') +
+        ' · 耗时 ' + swEsc(d.duration_ms) + 'ms</div>' +
+      '<div class="sw-hint">GUI 启动不可逆——执行前才可停止。</div>';
+    return;
+  }
+  if (d && d.ok && d.kind === 'uri') {
+    out.innerHTML =
+      '<div class="sw-exit ok">协议已启动</div>' +
+      '<div class="sw-meta-line">protocol: ' + swEsc(d.protocol) +
+        (d.uri ? ' · ' + swEsc(d.uri) : '') + '</div>';
+    return;
+  }
+  const e = (d && d.error) || { code: 'INTERNAL', message: '调用失败' };
+  out.innerHTML =
+    '<div class="sw-error">[' + swEsc(e.code) + '] ' + swEsc(e.message || '') + '</div>' +
+    (e.hint ? '<div class="sw-error-hint">' + swEsc(e.hint) + '</div>' : '') +
+    (e.violations ? '<div class="sw-hint">参数 violations（Agent 自校正依据）：</div>' +
+      '<pre class="sw-stderr">' +
+      swEsc(JSON.stringify(e.violations, null, 2)) + '</pre>' : '') +
+    (e.example ? '<div class="sw-hint">正确示例：<code>' +
+      swEsc(JSON.stringify(e.example)) + '</code></div>' : '');
+}
+
+/* ---------- 自定义向导保存（rpc 通用通道：_software_save，非 js_api 契约方法） ---------- */
+async function softwarePanelSaveCustom() {
+  const nameEl = swEl('swWName');
+  const kindEl = swEl('swWKind');
+  const execEl = swEl('swWExec');
+  const actEl = swEl('swWActions');
+  const name = nameEl ? String(nameEl.value || '').trim() : '';
+  const kind = kindEl ? kindEl.value : 'cli';
+  const exec = execEl ? String(execEl.value || '').trim() : '';
+  let actions = [];
+  if (actEl && actEl.value.trim()) {
+    try { actions = JSON.parse(actEl.value); }
+    catch (e) {
+      swToast('动作 JSON 解析失败: ' + ((e && e.message) || e), 'err');
+      return;
+    }
+  }
+  if (!name) { swToast('请填写软件名称', 'warn'); return; }
+  const entry = { kind: kind, exec: exec, uri_template: kind === 'uri' ? exec : '',
+                  actions: actions, risk_default: 'read' };
+  const seq = ++softwareReqSeq;
+  try {
+    const raw = await swCallApi('rpc', ['_software_save', JSON.stringify({ name: name, entry: entry })], SW_LIST_TIMEOUT_MS);
+    if (seq !== softwareReqSeq) return;
+    const d = JSON.parse(raw || '{}');
+    if (d && d.ok) {
+      swToast('已保存自定义软件「' + name + '」', 'ok');
+      const w = swEl('swWizard');
+      if (w) w.style.display = 'none';
+      await softwarePanelRefresh();
+    } else {
+      swToast('保存失败: ' + ((d && d.error) || '未知错误'), 'err');
+    }
+  } catch (e) {
+    if (seq !== softwareReqSeq) return;
+    swToast('保存失败: ' + ((e && e.message) || String(e)), 'err');
+  }
+}
+
+/* ===== 65-hybrid.js ===== */
+/* ================= 混合路由（v1.8.0 H 域，实现 v1.8.0 H2） =================
+ * #hybridBlock + .hy-*（设置区）+ #costSplit（会话头部分账 chip）：
+ * 策略三选 UI + 预算/置信门设置 + 分账 chip + saver 首次切换一次性提示。
+ * 契约口径（联调规范 §2/§3.3 + §7 R3/R10 裁决 + ux-flows 流程 5/6）：
+ * - 三态状态机 + 请求序号 last-wins（hybridReqSeq，同 36-connect 先例）；
+ * - 配置读写：hybrid_get_config / hybrid_save_config（hybrid.json 独立文件，
+ *   config.json 零污染）；source=default 时设置区显示「首次使用，已载入
+ *   默认配置」轻提示（不弹模态）；
+ * - 策略切换即时生效于下一回合（当回合不中断——ux-flows 流程 5⑤）；
+ * - saver 首次切换一次性轻提示（R3 裁决：localStorage 标记，不设常驻
+ *   「质量可能下降」chip、不做每次降级打扰）；#costSplit 分账 chip 常驻
+ *   可见（本地/云端 token 与费用占比，用户自查）；
+ * - 分账数据源：60-agent-loop 的 usage 到达时调 hybridOnUsage（既有 usage
+ *   事件延长，架构 §4.2）；usage 缺失时 chip 隐藏（不显示 0/0 假象）；
+ * - 数字格式（§4.3）：`本地 X tok · 云端 Y tok · 省 ≈¥Z`；X/Y 千分位整数；
+ *   Z 两位小数；≥¥10000 显示 ≈¥9.9k（一位小数）；
+ * - typeof 守卫（§2.5 vm 沙箱可测）：模块顶层不直接引用 window/document/
+ *   localStorage；callApi 统一经 hyCallApi 四步。
+ * 挂载：110-boot.js loadAll 内 try{ hybridInit(); }catch。
+ */
+const HY_CFG_TIMEOUT_MS = 15000;      // hybrid_get/save_config（§2.1 表）
+const HY_FEATURE_KEY = 'glm_feat_hybrid_v18';
+const HY_SAVER_HINT_KEY = 'glm_hybrid_saver_hinted_v18';   // R3：一次性提示标记
+// 云端单价（¥/1k tokens）——与后端 hybrid_router.CLOUD_PRICE_PER_1K 逐字一致
+const HY_CLOUD_PRICE_PER_1K = 0.002;
+const HY_STRATEGY_TEXT = {
+  auto: '自动（按任务分类路由：理解/校验走本地，规划/创作走云端）',
+  saver: '省 token（优先本地，不可用自动回退云端）',
+  quality: '质量优先（全云端）'
+};
+
+let hybridReqSeq = 0;          // last-wins 请求序号
+let hybridState = 'idle';      // idle|pending|success|error
+let hybridCfg = null;          // 最近一次配置载荷
+// 分账累加（进程内；#costSplit 数据源。本地计费 ¥0 但计入统计）
+let hybridSplit = { local_tokens: 0, cloud_tokens: 0 };
+
+/* ---------- typeof 守卫取值（§2.5） ---------- */
+function hyEl(id) {
+  return (typeof document !== 'undefined') ? document.getElementById(id) : null;
+}
+function hyFeatureEnabled() {
+  try {
+    if (typeof localStorage === 'undefined') return true;
+    const v = localStorage.getItem(HY_FEATURE_KEY);
+    return v === null || v === '1';
+  } catch (e) { return true; }
+}
+function hyCallApi(name, args, timeoutMs) {
+  if (typeof callApi !== 'function') {
+    throw new Error('pywebview bridge 未就绪: ' + name);
+  }
+  return callApi(name, args, timeoutMs);
+}
+function hyToast(msg, kind) {
+  if (typeof toast === 'function') toast(msg, kind || 'info');
+}
+function hyEsc(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+/* ---------- 挂载（设置区 #hybridBlock + 会话头部 #costSplit） ---------- */
+function hybridInit() {
+  if (!hyFeatureEnabled()) return false;
+  if (hyEl('hybridBlock')) {
+    // 幂等重入：接线（同 63-search-panel searchPanelWire 先例——vm 沙箱
+    // getElementById 自动注册时也保证 change 处理器就位）
+    hybridWire();
+  } else if (typeof document !== 'undefined') {
+    const grid = document.querySelector('.set-grid');
+    if (grid) {
+      const block = document.createElement('div');
+      block.id = 'hybridBlock';
+      block.className = 'set-block';
+      block.innerHTML =
+        '<div class="set-title">混合路由（v1.8.0）</div>' +
+        '<div class="set-hint hy-first-hint" id="hyFirstHint" style="display:none;"></div>' +
+        '<div class="set-hint" style="margin:2px 0 8px;">' +
+          '本地模型（Ollama/LM Studio 等）与云端协同：理解/校验类步骤优先本地，' +
+          '规划/创作类走云端；本地超时或不可用自动回退云端（当回合不中断）。' +
+          '配置存于 <code>~/.glm-chat/hybrid.json</code>（独立文件，不碰 config.json）。' +
+        '</div>' +
+        '<label>路由策略</label>' +
+        '<div class="provider-row">' +
+          '<select id="hyStrategy" style="flex:1;">' +
+            '<option value="auto">auto（自动分类路由）</option>' +
+            '<option value="saver">saver（省 token）</option>' +
+            '<option value="quality">quality（质量优先）</option>' +
+          '</select>' +
+        '</div>' +
+        '<div class="hy-strategy-desc" id="hyStrategyDesc"></div>' +
+        '<label>本地硬预算（超即降级云端，秒）</label>' +
+        '<div class="provider-row">' +
+          '<span style="width:150px;font-size:12px;color:var(--text-2);flex-shrink:0;">理解 understand</span>' +
+          '<input class="hy-input" id="hyBudgetUnderstand" type="number" min="1" max="30" step="1" style="width:90px;">' +
+          '<span style="width:150px;font-size:12px;color:var(--text-2);flex-shrink:0;">校验 validate</span>' +
+          '<input class="hy-input" id="hyBudgetValidate" type="number" min="1" max="30" step="1" style="width:90px;">' +
+        '</div>' +
+        '<label>置信门（分类置信低于门限 → 升级云端）</label>' +
+        '<div class="provider-row">' +
+          '<input class="hy-input" id="hyConfGate" type="number" min="0.5" max="0.95" step="0.05" style="width:90px;">' +
+          '<label class="check-row" style="margin-left:12px;">' +
+            '<input type="checkbox" id="hyCostSplitDisplay"> 显示会话分账 chip' +
+          '</label>' +
+        '</div>' +
+        '<div class="provider-row" style="margin-top:8px;">' +
+          '<span class="hy-light" id="hyStatusLight"></span>' +
+          '<span id="hyStatusText" style="font-size:12px;color:var(--text-2);">读取中…</span>' +
+        '</div>';
+      grid.appendChild(block);
+      hybridWire();
+    }
+  }
+  // 会话头部分账 chip（纯新增；usage 到达时刷新，缺失时隐藏）
+  if (!hyEl('costSplit') && typeof document !== 'undefined') {
+    const right = document.querySelector('.header-right');
+    if (right) {
+      const chip = document.createElement('span');
+      chip.id = 'costSplit';
+      chip.className = 'hy-cost';
+      chip.style.display = 'none';
+      chip.textContent = '';
+      right.appendChild(chip);
+    }
+  }
+  hybridRefresh();
+  return true;
+}
+function hybridWire() {
+  const strategy = hyEl('hyStrategy');
+  if (strategy) strategy.addEventListener('change', () => {
+    hybridSave({ strategy: strategy.value });
+    // R3 裁决：saver 首次切换一次性轻提示（localStorage 标记，不每次打扰）
+    if (strategy.value === 'saver') {
+      try {
+        if (typeof localStorage !== 'undefined' &&
+            !localStorage.getItem(HY_SAVER_HINT_KEY)) {
+          localStorage.setItem(HY_SAVER_HINT_KEY, '1');
+          hyToast('已切省 token 模式：本地不可用时自动回退云端；' +
+                  '分账可在会话头部查看。', 'info');
+        }
+      } catch (e) { /* 沙箱无 localStorage：跳过提示 */ }
+    }
+    hybridRenderStrategyDesc(strategy.value);
+  });
+  ['hyBudgetUnderstand', 'hyBudgetValidate', 'hyConfGate'].forEach(id => {
+    const el = hyEl(id);
+    if (el) el.addEventListener('change', () => {
+      const patch = {};
+      if (id === 'hyBudgetUnderstand') patch.local_budget_understand_s = parseInt(el.value, 10);
+      if (id === 'hyBudgetValidate') patch.local_budget_validate_s = parseInt(el.value, 10);
+      if (id === 'hyConfGate') patch.confidence_gate = parseFloat(el.value);
+      hybridSave(patch);
+    });
+  });
+  const splitDisp = hyEl('hyCostSplitDisplay');
+  if (splitDisp) splitDisp.addEventListener('change', () => {
+    hybridSave({ cost_split_display: splitDisp.checked });
+    hybridRenderSplit();
+  });
+}
+
+/* ---------- 三态 + last-wins：配置读取 ---------- */
+async function hybridRefresh() {
+  const seq = ++hybridReqSeq;
+  try {
+    const raw = await hyCallApi('hybrid_get_config', [], HY_CFG_TIMEOUT_MS);
+    if (seq !== hybridReqSeq) return;               // ④last-wins
+    const d = JSON.parse(raw || '{}');
+    if (d && d.ok) {
+      hybridCfg = d.config || {};
+      hybridRenderConfig(d.config, d.source);
+      hybridState = 'success';
+    } else {
+      hybridRenderError((d && d.error) || { code: 'INTERNAL', message: '读取配置失败' });
+      hybridState = 'error';
+    }
+  } catch (e) {
+    if (seq !== hybridReqSeq) return;
+    hybridRenderError({ code: 'BRIDGE_TIMEOUT', message: (e && e.message) || String(e) });
+    hybridState = 'error';
+  }
+}
+
+/* ---------- 保存（部分更新语义；失败回弹 UI 到当前配置） ---------- */
+async function hybridSave(patch) {
+  const seq = ++hybridReqSeq;
+  try {
+    const raw = await hyCallApi('hybrid_save_config', [patch || {}], HY_CFG_TIMEOUT_MS);
+    if (seq !== hybridReqSeq) return;
+    const d = JSON.parse(raw || '{}');
+    if (d && d.ok && d.config) {
+      hybridCfg = d.config;
+      hybridRenderConfig(d.config, 'file');
+      hybridState = 'success';
+    } else {
+      const e = (d && d.error) || { code: 'INTERNAL', message: '保存失败' };
+      hyToast('混合路由配置保存失败: ' + (e.message || ''), 'err');
+      if (hybridCfg) hybridRenderConfig(hybridCfg, 'file');   // 回弹
+      hybridState = 'error';
+    }
+  } catch (e) {
+    if (seq !== hybridReqSeq) return;
+    hyToast('混合路由配置保存失败: ' + ((e && e.message) || String(e)), 'err');
+    hybridState = 'error';
+  }
+}
+
+/* ---------- 渲染 ---------- */
+function hybridRenderConfig(cfg, source) {
+  const strategy = hyEl('hyStrategy');
+  if (strategy) strategy.value = cfg.strategy || 'auto';
+  hybridRenderStrategyDesc(cfg.strategy || 'auto');
+  const bu = hyEl('hyBudgetUnderstand');
+  if (bu) bu.value = cfg.local_budget_understand_s;
+  const bv = hyEl('hyBudgetValidate');
+  if (bv) bv.value = cfg.local_budget_validate_s;
+  const cg = hyEl('hyConfGate');
+  if (cg) cg.value = cfg.confidence_gate;
+  const sd = hyEl('hyCostSplitDisplay');
+  if (sd) sd.checked = cfg.cost_split_display !== false;
+  const hint = hyEl('hyFirstHint');
+  if (hint) {
+    if (source === 'default') {
+      hint.style.display = '';
+      hint.textContent = '首次使用，已载入默认配置（strategy=auto · 理解 5s / 校验 3s · 置信门 0.7）。';
+    } else {
+      hint.style.display = 'none';
+    }
+  }
+  const light = hyEl('hyStatusLight');
+  if (light) light.className = 'hy-light ' + (source === 'default' ? 'warn' : 'ok');
+  const txt = hyEl('hyStatusText');
+  if (txt) txt.textContent = source === 'default' ? '默认配置（未落盘过）' : '已保存';
+  hybridRenderSplit();
+}
+function hybridRenderStrategyDesc(strategy) {
+  const el = hyEl('hyStrategyDesc');
+  if (el) el.textContent = HY_STRATEGY_TEXT[strategy] || '';
+}
+function hybridRenderError(e) {
+  const txt = hyEl('hyStatusText');
+  if (txt) txt.textContent = (e && e.message) || '配置读取失败';
+  const light = hyEl('hyStatusLight');
+  if (light) light.className = 'hy-light miss';
+}
+
+/* ---------- 分账 chip（#costSplit；usage 到达时刷新，缺失时隐藏） ---------- */
+function hybridOnUsage(usage, model) {
+  // 60-agent-loop usage 收口时调用（架构 §4.2「usage 事件延长」）。
+  // 本地/云端按当前模式判定（localModeActive → 本地）；无 usage 或
+  // token 为 0 时不累计（不显示 0/0 假象）。数字滚动由 CSS 过渡承担。
+  const tok = usage ? (usage.completion_tokens || usage.total_tokens || 0) : 0;
+  if (!tok) return;
+  const isLocal = (typeof localModeActive === 'function') && localModeActive();
+  if (isLocal) hybridSplit.local_tokens += tok;
+  else hybridSplit.cloud_tokens += tok;
+  hybridRenderSplit();
+}
+function hyFmtInt(n) {
+  // 千分位整数（12,345）
+  return String(Math.round(n || 0)).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+}
+function hyFmtMoney(y) {
+  // ≥¥10000 → ≈¥9.9k（一位小数）；否则两位小数
+  const v = Number(y || 0);
+  if (v >= 10000) return '≈¥' + (v / 1000).toFixed(1) + 'k';
+  return '≈¥' + v.toFixed(2);
+}
+function hybridRenderSplit() {
+  const chip = hyEl('costSplit');
+  if (!chip) return;
+  const enabled = !hybridCfg || hybridCfg.cost_split_display !== false;
+  if (!enabled) { chip.style.display = 'none'; return; }
+  const lt = hybridSplit.local_tokens || 0;
+  const ct = hybridSplit.cloud_tokens || 0;
+  if (lt + ct <= 0) { chip.style.display = 'none'; return; }   // usage 缺失 → 隐藏
+  const saved = lt / 1000 * HY_CLOUD_PRICE_PER_1K;
+  chip.style.display = '';
+  chip.textContent = '本地 ' + hyFmtInt(lt) + ' tok · 云端 ' + hyFmtInt(ct) +
+    ' tok · 省 ' + hyFmtMoney(saved);
+  chip.title = '本地 tok 计费 ¥0（计入统计）；节省 = 本地 tok × 云端单价';
+}
+function hybridResetSplit() {
+  hybridSplit = { local_tokens: 0, cloud_tokens: 0 };
+  hybridRenderSplit();
+}
+
 /* ===== 65-session-store.js ===== */
 /* ================= 会话存储 ================= */
 /**
@@ -7665,6 +8889,410 @@ function rememberDeletedSession(id) {
     try { tomb = JSON.parse(localStorage.getItem('glm_deleted_ids') || '[]'); } catch (e) {}
     if (!tomb.includes(id)) { tomb.push(id); localStorage.setItem('glm_deleted_ids', JSON.stringify(tomb)); }
   } catch (e) {}
+}
+
+/* ===== 66-guard-grant.js ===== */
+/* ================= 任务授权与白名单（v1.8.5 A 域，R5 裁决提前插；实现 v1.8.5 A2） =================
+ * #grantIndicator（会话头部授权指示灯/倒计时）+ #grantRulesBlock（设置区
+ * 白名单管理）+ .gg-*（纯新增 DOM，UI 契约只增不改——check_contract 验）。
+ * 契约口径（联调规范 §2/§3.4 + §5.5 + §7 R6 裁决）：
+ * - 授权指示灯/倒计时：remaining_s 校准源含 idle（idle_deadline = 最后
+ *   grant 内操作 + 1800s；TTL 与空闲先到者生效）；本地每 1s 递减，每 30s
+ *   重新 guard_task_status 校准一次（防本地时钟漂移）；剩余 <600s 黄牌 +
+ *   expiring_soon + 「重新授权」入口；收回/到期两终态渲染；
+ * - 授权确认（guard_task_grant）：TTL 选择 30min/2h/4h（默认 2h）+ scope
+ *   勾选（workspace_write/exec/app_launch）；
+ * - grant 不是免检：deny 清单先于 grant 生效（后端判定链
+ *   deny → allow_rules → task_grant → op 档 → 弹窗）；授权内操作不逐条
+ *   toast（后端审计 decision=grant）；
+ * - 白名单管理（guard_rule_list/add/remove）：规则列表/添加表单/删除/
+ *   hits 显示；deny 清单覆盖的规则创建即拒（GUARD_DENIED 人话）；detail
+ *   含写动词 → warn 黄条（不阻断）；
+ * - 三态状态机 + 请求序号 last-wins（grantReqSeq，同 36-connect 先例）；
+ * - typeof 守卫（§2.5 vm 沙箱可测）：模块顶层不直接引用 window/document/
+ *   localStorage；callApi 统一经 ggCallApi 四步。
+ * 挂载：110-boot.js loadAll 内 try{ guardGrantInit(); }catch。
+ */
+const GG_STATUS_TIMEOUT_MS = 15000;   // guard_task_* / guard_rule_*（§2.1 表）
+const GG_CALIBRATE_MS = 30000;        // 倒计时 30s 校准拉取一次（§3.4 字段语义表）
+const GG_COUNTDOWN_MS = 1000;         // 本地 1s 递减节拍
+const GG_EXPIRING_SOON_S = 600;       // 剩余 <600s 黄牌（§8.3 expiring_soon）
+const GG_TTL_OPTIONS = [
+  { v: 1800, label: '30 分钟' },
+  { v: 7200, label: '2 小时（默认）' },
+  { v: 14400, label: '4 小时' }
+];
+const GG_SCOPES = [
+  { v: 'workspace_write', label: '工作区写入（删除/移动等）' },
+  { v: 'exec', label: '命令执行（cmd/PowerShell/管理员）' },
+  { v: 'app_launch', label: '打开应用/链接' }
+];
+
+let grantReqSeq = 0;           // last-wins 请求序号
+let ggState = 'idle';          // idle|pending|success|error
+let ggCountdownTimer = null;   // 本地 1s 递减句柄
+let ggCalibrateTimer = null;   // 30s 校准句柄
+let ggRemaining = 0;           // 本地递减剩余秒（校准源：guard_task_status）
+let ggActive = false;          // 授权活跃态
+let ggExpiringSoon = false;    // 剩余 <600s 黄牌
+let ggGrantId = null;
+let ggRules = [];              // 最近一次规则列表
+
+/* ---------- typeof 守卫取值（§2.5） ---------- */
+function ggEl(id) {
+  return (typeof document !== 'undefined') ? document.getElementById(id) : null;
+}
+function ggCallApi(name, args, timeoutMs) {
+  if (typeof callApi !== 'function') {
+    throw new Error('pywebview bridge 未就绪: ' + name);
+  }
+  return callApi(name, args, timeoutMs);
+}
+function ggToast(msg, kind) {
+  if (typeof toast === 'function') toast(msg, kind || 'info');
+}
+function ggEsc(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+function ggFmtRemain(s) {
+  const n = Math.max(0, parseInt(s || 0, 10) || 0);
+  const h = Math.floor(n / 3600), m = Math.floor((n % 3600) / 60),
+    ss = ('0' + (n % 60)).slice(-2);
+  return (h > 0 ? h + ':' + ('0' + m).slice(-2) : m) + ':' + ss;
+}
+
+/* ---------- 挂载（#grantIndicator 会话头部 + #grantRulesBlock 设置区） ---------- */
+function guardGrantInit() {
+  if (typeof document === 'undefined') return false;
+  if (!ggEl('grantIndicator')) {
+    const right = document.querySelector('.header-right');
+    if (right) {
+      const ind = document.createElement('span');
+      ind.id = 'grantIndicator';
+      ind.className = 'gg-ind';
+      ind.style.display = 'none';
+      ind.innerHTML =
+        '<span class="gg-light" id="ggLight"></span>' +
+        '<span class="gg-timer" id="ggTimer">--:--</span>' +
+        '<button type="button" class="modal-btn gg-btn" id="ggRenewBtn" style="display:none;">重新授权</button>' +
+        '<button type="button" class="modal-btn gg-btn" id="ggRevokeBtn">收回</button>';
+      right.appendChild(ind);
+    }
+  }
+  if (!ggEl('grantRulesBlock')) {
+    const grid = document.querySelector('.set-grid');
+    if (grid) {
+      const block = document.createElement('div');
+      block.id = 'grantRulesBlock';
+      block.className = 'set-block';
+      block.innerHTML =
+        '<div class="set-title">任务授权与白名单（v1.8.5）</div>' +
+        '<div class="set-hint" style="margin:2px 0 8px;">' +
+          '任务授权：一次性授予某类操作的会话内放行（默认 2h，空闲 30 分钟自动收回）。' +
+          '<b>授权不是免检</b>——保护名单（deny）仍先于授权生效。<br>' +
+          '白名单：窄规则优先于松模式；deny 清单覆盖的规则创建即拒。' +
+          '授权为进程内状态（不入配置文件），白名单存于 <code>~/.glm-chat/guard.json</code> 的 allow_rules 键。' +
+        '</div>' +
+        '<div class="gg-grant-form" id="ggGrantForm" style="display:none;">' +
+          '<div class="provider-row">' +
+            '<span style="width:110px;font-size:12px;color:var(--text-2);">授权时长</span>' +
+            '<select id="ggTtl" style="flex:1;">' +
+              GG_TTL_OPTIONS.map(o => '<option value="' + o.v + '"' +
+                (o.v === 7200 ? ' selected' : '') + '>' + o.label + '</option>').join('') +
+            '</select>' +
+          '</div>' +
+          '<div class="provider-row" style="align-items:flex-start;gap:8px;">' +
+            '<span style="width:110px;font-size:12px;color:var(--text-2);">授权范围</span>' +
+            '<span style="flex:1;">' +
+              GG_SCOPES.map(s => '<label class="check-row" style="display:block;margin-bottom:2px;">' +
+                '<input type="checkbox" class="gg-scope" value="' + s.v + '"' +
+                (s.v === 'exec' ? ' checked' : '') + '> ' + s.label + '</label>').join('') +
+            '</span>' +
+          '</div>' +
+          '<div class="provider-row">' +
+            '<button type="button" class="modal-btn primary" id="ggGrantBtn">确认授权</button>' +
+            '<button type="button" class="modal-btn" id="ggGrantCancelBtn">取消</button>' +
+          '</div>' +
+        '</div>' +
+        '<div class="provider-row" style="margin:6px 0;">' +
+          '<button type="button" class="modal-btn" id="ggGrantOpenBtn">＋ 新建任务授权</button>' +
+        '</div>' +
+        '<div class="set-title" style="font-size:13px;margin-top:10px;">白名单规则</div>' +
+        '<div class="provider-row" style="align-items:flex-start;gap:8px;">' +
+          '<span style="width:110px;font-size:12px;color:var(--text-2);">op 正则</span>' +
+          '<input class="gg-input" id="ggRuleOp" placeholder="如 run_command 或 ^git (status|diff)$" maxlength="200" style="flex:1;">' +
+        '</div>' +
+        '<div class="provider-row" style="align-items:flex-start;gap:8px;">' +
+          '<span style="width:110px;font-size:12px;color:var(--text-2);">detail 正则</span>' +
+          '<input class="gg-input" id="ggRuleDetail" placeholder="可选，如 ^git (status|diff|log)" maxlength="200" style="flex:1;">' +
+        '</div>' +
+        '<div class="provider-row">' +
+          '<button type="button" class="modal-btn primary" id="ggRuleAddBtn">添加规则</button>' +
+          '<span class="gg-rule-warn" id="ggRuleWarn" style="display:none;"></span>' +
+        '</div>' +
+        '<div class="gg-rules" id="ggRules"></div>';
+      grid.appendChild(block);
+    }
+  }
+  // 幂等接线（同 63-search-panel searchPanelWire 先例；重复 addEventListener
+  // 由幂等初始化保证只走一次——boot 单次调用）
+  guardGrantWire();
+  guardGrantRefreshStatus();
+  guardGrantRulesRefresh();
+  guardGrantStartTimers();
+  return true;
+}
+function guardGrantWire() {
+  const revoke = ggEl('ggRevokeBtn');
+  if (revoke) revoke.addEventListener('click', () => guardGrantRevoke());
+  const renew = ggEl('ggRenewBtn');
+  if (renew) renew.addEventListener('click', () => {
+    const f = ggEl('ggGrantForm');
+    if (f) f.style.display = '';
+  });
+  const open = ggEl('ggGrantOpenBtn');
+  if (open) open.addEventListener('click', () => {
+    const f = ggEl('ggGrantForm');
+    if (f) f.style.display = (f.style.display === 'none' ? '' : 'none');
+  });
+  const cancel = ggEl('ggGrantCancelBtn');
+  if (cancel) cancel.addEventListener('click', () => {
+    const f = ggEl('ggGrantForm');
+    if (f) f.style.display = 'none';
+  });
+  const grant = ggEl('ggGrantBtn');
+  if (grant) grant.addEventListener('click', () => guardGrantCreate());
+  const add = ggEl('ggRuleAddBtn');
+  if (add) add.addEventListener('click', () => guardGrantRuleAdd());
+}
+
+/* ---------- 倒计时（本地 1s 递减 + 30s status 校准） ---------- */
+function guardGrantStartTimers() {
+  if (ggCountdownTimer || typeof setInterval === 'undefined') return;
+  ggCountdownTimer = setInterval(guardGrantTick, GG_COUNTDOWN_MS);
+  ggCalibrateTimer = setInterval(() => guardGrantRefreshStatus(true), GG_CALIBRATE_MS);
+}
+function guardGrantStopTimers() {
+  if (ggCountdownTimer && typeof clearInterval !== 'undefined') {
+    clearInterval(ggCountdownTimer);
+  }
+  if (ggCalibrateTimer && typeof clearInterval !== 'undefined') {
+    clearInterval(ggCalibrateTimer);
+  }
+  ggCountdownTimer = null;
+  ggCalibrateTimer = null;
+}
+function guardGrantTick() {
+  if (!ggActive) return;
+  ggRemaining = Math.max(0, ggRemaining - 1);
+  if (ggRemaining <= 0) {
+    // 本地递减到 0：以 status 为准（校准或到期终态）
+    guardGrantRefreshStatus(true);
+    return;
+  }
+  guardGrantRenderIndicator();
+}
+
+/* ---------- 三态 + last-wins：授权状态 ---------- */
+async function guardGrantRefreshStatus(calibrate) {
+  const seq = ++grantReqSeq;
+  try {
+    const raw = await ggCallApi('guard_task_status', [], GG_STATUS_TIMEOUT_MS);
+    if (seq !== grantReqSeq) return;               // ④last-wins
+    const d = JSON.parse(raw || '{}');
+    if (d && d.ok) {
+      const prevActive = ggActive;
+      ggActive = !!d.active;
+      ggGrantId = d.grant_id || null;
+      ggRemaining = parseInt(d.remaining_s || 0, 10) || 0;
+      ggExpiringSoon = !!d.expiring_soon;
+      if (prevActive && !ggActive) {
+        ggToast('任务授权已到期/收回，后续操作将逐项确认', 'warn');
+      }
+      guardGrantRenderIndicator();
+      ggState = 'success';
+    } else {
+      ggState = 'error';
+    }
+  } catch (e) {
+    if (seq !== grantReqSeq) return;
+    ggState = 'error';
+  }
+}
+function guardGrantRenderIndicator() {
+  const ind = ggEl('grantIndicator');
+  if (!ind) return;
+  if (!ggActive) {
+    ind.style.display = ggState === 'error' ? 'none' : '';
+    // 无授权：常驻浅提示（可新建），灯灰
+    const light = ggEl('ggLight');
+    if (light) light.className = 'gg-light off';
+    const timer = ggEl('ggTimer');
+    if (timer) timer.textContent = '无任务授权';
+    const renew = ggEl('ggRenewBtn');
+    if (renew) renew.style.display = 'none';
+    const revoke = ggEl('ggRevokeBtn');
+    if (revoke) revoke.style.display = 'none';
+    ind.title = '当前没有任务授权：危险操作将逐项确认。可点击「新建任务授权」。';
+    return;
+  }
+  ind.style.display = '';
+  const light = ggEl('ggLight');
+  if (light) light.className = 'gg-light ' + (ggExpiringSoon ? 'warn' : 'ok');
+  const timer = ggEl('ggTimer');
+  if (timer) {
+    timer.textContent = '授权剩余 ' + ggFmtRemain(ggRemaining);
+    timer.className = 'gg-timer' + (ggExpiringSoon ? ' expiring' : '');
+  }
+  const renew = ggEl('ggRenewBtn');
+  if (renew) renew.style.display = ggExpiringSoon ? '' : 'none';
+  const revoke = ggEl('ggRevokeBtn');
+  if (revoke) revoke.style.display = '';
+  ind.title = '任务授权中（空闲 30 分钟无操作自动收回；保护名单仍优先拦截）';
+}
+
+/* ---------- 授权创建 / 收回 ---------- */
+async function guardGrantCreate() {
+  const ttlEl = ggEl('ggTtl');
+  const ttl = ttlEl ? parseInt(ttlEl.value, 10) : 7200;
+  const scopes = [];
+  if (typeof document !== 'undefined') {
+    document.querySelectorAll('.gg-scope').forEach(cb => {
+      if (cb.checked) scopes.push(cb.value);
+    });
+  }
+  if (!scopes.length) { ggToast('请至少勾选一个授权范围', 'warn'); return; }
+  const seq = ++grantReqSeq;
+  try {
+    const raw = await ggCallApi('guard_task_grant', [scopes, ttl], GG_STATUS_TIMEOUT_MS);
+    if (seq !== grantReqSeq) return;
+    const d = JSON.parse(raw || '{}');
+    if (d && d.ok) {
+      ggToast('已授予任务授权（' + ggFmtRemain(d.remaining_s) + '，空闲 30 分钟自动收回）', 'ok');
+      const f = ggEl('ggGrantForm');
+      if (f) f.style.display = 'none';
+      ggActive = true;
+      ggGrantId = d.grant_id || null;
+      ggRemaining = parseInt(d.remaining_s || 0, 10) || 0;
+      ggExpiringSoon = !!d.expiring_soon;
+      guardGrantRenderIndicator();
+    } else {
+      ggToast('授权失败: ' + ((d && d.error) || '未知错误'), 'err');
+    }
+  } catch (e) {
+    if (seq !== grantReqSeq) return;
+    ggToast('授权失败: ' + ((e && e.message) || String(e)), 'err');
+  }
+}
+async function guardGrantRevoke() {
+  const seq = ++grantReqSeq;
+  try {
+    const raw = await ggCallApi('guard_task_revoke', [null], GG_STATUS_TIMEOUT_MS);
+    if (seq !== grantReqSeq) return;
+    const d = JSON.parse(raw || '{}');
+    if (d && d.ok) {
+      ggToast(d.revoked ? '已收回任务授权' : '当前没有授权', d.revoked ? 'ok' : 'info');
+      ggActive = false;
+      ggGrantId = null;
+      ggRemaining = 0;
+      guardGrantRenderIndicator();
+    } else {
+      ggToast('收回失败: ' + ((d && d.error) || '未知错误'), 'err');
+    }
+  } catch (e) {
+    if (seq !== grantReqSeq) return;
+    ggToast('收回失败: ' + ((e && e.message) || String(e)), 'err');
+  }
+}
+
+/* ---------- 白名单管理 ---------- */
+async function guardGrantRulesRefresh() {
+  const seq = ++grantReqSeq;
+  try {
+    const raw = await ggCallApi('guard_rule_list', [], GG_STATUS_TIMEOUT_MS);
+    if (seq !== grantReqSeq) return;
+    const d = JSON.parse(raw || '{}');
+    if (d && d.ok) {
+      ggRules = d.rules || [];
+      guardGrantRenderRules();
+    }
+  } catch (e) { /* 规则区刷新失败静默（不打扰主流程） */ }
+}
+function guardGrantRenderRules() {
+  const box = ggEl('ggRules');
+  if (!box) return;
+  box.innerHTML = '';
+  if (!ggRules.length) {
+    const empty = document.createElement('div');
+    empty.className = 'gg-rules-empty';
+    empty.textContent = '暂无白名单规则。确认框第三次出现时也可一键升级为规则。';
+    box.appendChild(empty);
+    return;
+  }
+  ggRules.forEach(r => {
+    const row = document.createElement('div');
+    row.className = 'gg-rule-row';
+    row.innerHTML =
+      '<code class="gg-rule-op">' + ggEsc(r.op_pattern) + '</code>' +
+      (r.detail_pattern ? '<code class="gg-rule-detail">' + ggEsc(r.detail_pattern) + '</code>' : '') +
+      '<span class="gg-rule-hits">命中 ' + ggEsc(r.hits || 0) + '</span>' +
+      (r.note ? '<span class="gg-rule-note">' + ggEsc(r.note) + '</span>' : '') +
+      '<button type="button" class="modal-btn gg-rule-del" data-rid="' + ggEsc(r.rule_id) + '">删除</button>';
+    box.appendChild(row);
+  });
+  box.querySelectorAll('.gg-rule-del').forEach(btn => {
+    btn.addEventListener('click', () => guardGrantRuleRemove(btn.getAttribute('data-rid')));
+  });
+}
+async function guardGrantRuleAdd() {
+  const opEl = ggEl('ggRuleOp');
+  const detailEl = ggEl('ggRuleDetail');
+  const op = opEl ? String(opEl.value || '').trim() : '';
+  const detail = detailEl ? String(detailEl.value || '').trim() : '';
+  if (!op) { ggToast('请填写 op 正则', 'warn'); return; }
+  const warnEl = ggEl('ggRuleWarn');
+  if (warnEl) warnEl.style.display = 'none';
+  const seq = ++grantReqSeq;
+  try {
+    const raw = await ggCallApi('guard_rule_add', [op, detail || null], GG_STATUS_TIMEOUT_MS);
+    if (seq !== grantReqSeq) return;
+    const d = JSON.parse(raw || '{}');
+    if (d && d.ok) {
+      ggToast('规则已添加', 'ok');
+      if (opEl) opEl.value = '';
+      if (detailEl) detailEl.value = '';
+      if (d.warn && warnEl) {
+        warnEl.textContent = d.warn;
+        warnEl.style.display = '';
+      }
+      await guardGrantRulesRefresh();
+    } else {
+      ggToast('添加失败: ' + ((d && d.error) || '未知错误'), 'err');
+    }
+  } catch (e) {
+    if (seq !== grantReqSeq) return;
+    ggToast('添加失败: ' + ((e && e.message) || String(e)), 'err');
+  }
+}
+async function guardGrantRuleRemove(ruleId) {
+  if (!ruleId) return;
+  const seq = ++grantReqSeq;
+  try {
+    const raw = await ggCallApi('guard_rule_remove', [ruleId], GG_STATUS_TIMEOUT_MS);
+    if (seq !== grantReqSeq) return;
+    const d = JSON.parse(raw || '{}');
+    if (d && d.ok) {
+      ggToast(d.removed ? '规则已删除' : '规则不存在（已删除）', d.removed ? 'ok' : 'info');
+      await guardGrantRulesRefresh();
+    } else {
+      ggToast('删除失败: ' + ((d && d.error) || '未知错误'), 'err');
+    }
+  } catch (e) {
+    if (seq !== grantReqSeq) return;
+    ggToast('删除失败: ' + ((e && e.message) || String(e)), 'err');
+  }
 }
 
 /* ===== 70-config.js ===== */
@@ -9661,6 +11289,15 @@ async function loadAll() {
   });
   /* v4「连接与模型」合并块：预设切换 / 单一 URL·Key·模型流 / 识别与测试按钮 */
   try { connectInit(); } catch (e) { console.warn('连接与模型初始化失败', e); }
+  /* v1.8.0 B 域：搜索面板挂载（纯新增 #searchPanel；功能分级开关默认开，
+   * 关闭时 searchPanelInit 内部短路——try/catch 防单模块异常拖垮启动） */
+  try { searchPanelInit(); } catch (e) { console.warn('搜索面板初始化失败', e); }
+  /* v1.8.0 S 域·外部软件 + H 域·混合路由 + v1.8.5 A 域·任务授权/白名单
+   * （纯新增 #softwareBlock / #hybridBlock / #grantIndicator / #grantRulesBlock；
+   * 各自 Init 内部幂等 + typeof 守卫，失败不阻塞启动） */
+  try { softwarePanelInit(); } catch (e) { console.warn('外部软件面板初始化失败', e); }
+  try { hybridInit(); } catch (e) { console.warn('混合路由初始化失败', e); }
+  try { guardGrantInit(); } catch (e) { console.warn('任务授权面板初始化失败', e); }
   document.getElementById('enableSearch').addEventListener('change', function () {
     document.getElementById('searchEngineWrap').style.display = this.checked ? 'flex' : 'none';
     queueSaveConfig();
