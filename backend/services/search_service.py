@@ -286,6 +286,18 @@ class SearchService:
         self._takeovers = {}
         self._lock = threading.RLock()
 
+    # ---- 次窗装配代理（main.py 接线用；转发 self._browser）----
+    # 修复（2026-10-20 启动 warning）：main.py 调 api._search.set_window/
+    # shutdown，但方法在 SearchBrowser 上——Service 缺代理导致
+    # 'SearchService' object has no attribute 'set_window'（次窗静默失效）。
+    def set_window(self, win):
+        """注入 pywebview 次窗引用（转发 SearchBrowser.set_window）。"""
+        self._browser.set_window(win)
+
+    def shutdown(self):
+        """停回收线程 + 销毁次窗（转发 SearchBrowser.shutdown；幂等）。"""
+        self._browser.shutdown()
+
     # ================================================== 浏览器搜索（B1）
     def browser_search(self, params):
         """实现 v1.8.0 B2：联调规范 §3.1 browser_search 全链。

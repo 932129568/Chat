@@ -117,9 +117,15 @@ def main():
         # v1.8.0 B 域：搜索次窗装配（照 api._set_window 注入模式——680×520 隐藏
         # 备用，CAPTCHA 接管时置顶；创建失败不阻塞启动：search_browser.open_url
         # 自动回落 urllib 直连抓取，联调规范 §5.1③ 降级链）
+        # 修复（2026-10-20 启动崩溃）：次窗 url **必须与主窗口同盘符**——pywebview
+        # webview/__init__.py:277 对所有 is_local_url 窗口取 commonpath，而
+        # 'about:blank' 被 is_local_url 判 True（util.py:75 不排除它），与主窗口
+        # 'file:///C:/...' commonpath 时报「Paths don't have the same drive」
+        # （file: vs about: 伪盘符）直接崩在 webview.start()。指向主窗口同一
+        # harbor.html（次窗 hidden，加载什么无所谓，用时 load_url 导航）。
         try:
             _search_win = webview.create_window(
-                'Harbor 搜索', url='about:blank', js_api=None,
+                'Harbor 搜索', url=html_path, js_api=None,
                 width=680, height=520, hidden=True)
             api._search.set_window(_search_win)
             atexit.register(api._search.shutdown)   # 退出时停回收线程 + 销毁次窗
