@@ -25,6 +25,7 @@ from .services.cmd_service import CmdService
 from .services.file_service import FileService
 from .services.guard_service import GuardService
 from .services.local_model_service import LocalModelService
+from .services.local_proxy import get_proxy
 from .services.mcp_config_service import McpConfigService
 from .services.mcp_service import McpService
 from .services.process_service import ProcessService
@@ -63,6 +64,9 @@ _V12_EXTRA = frozenset({
     'sandbox_get_config', 'sandbox_save_config', 'sandbox_status',
     # v1.6 T12 MCP resources（text 优先；blob 截断落盘；订阅存 mcp_servers.json 可选键）
     'mcp_list_resources', 'mcp_read_resource', 'mcp_save_subscriptions',
+    # v1.6 HF-P0：本地 CORS 代理桥方法（file:// 页面直连不输出 CORS 头的本地
+    # 模型服务器必被 Chromium 拒；前端 local 模式经此后端代理转发）
+    'get_local_proxy',
 })
 
 
@@ -88,6 +92,14 @@ class Api:
         self._mcp = McpService(self._mcp_cfg, self._guard, self._toolcache)
         # v1.5 本地模型（预留接口层：连接层 A 实现就绪 / 适配层 B 判定就绪）
         self._local = LocalModelService()
+        # v1.6 HF-P0：本地 CORS 代理（file:// 页面直连不输出 CORS 头的本地服务器必失败）
+        # ——Api 装配即启动（进程级单例，ensure_running 幂等）；前端经 get_local_proxy
+        # 取基址，local 模式 fetch 改打代理（X-Harbor-Target 头携带真实 base_url）。
+        # 启动失败不阻塞装配：前端拿不到代理基址时回落直连（行为不劣化）。
+        try:
+            get_proxy().ensure_running()
+        except Exception as e:
+            self._log.warning('本地 CORS 代理启动失败（本地端点将回落直连）: %r', e)
         # v1.6 WebDAV（预留接口层：校验与冲突判定就绪，IO 为 reserved 占位）
         self._webdav = WebDAVService()
         # v1.6 沙箱（Job Object 进程隔离 + 资源限制；fail-closed）
@@ -592,6 +604,17 @@ class Api:
 
         返回 {ok, base_url, models:[{id, ctx_window, tool_capable, estimated}]}。"""
         return ok(self._local.models(base_url, api_key=api_key))
+
+    # ============ v1.6 HF-P0 本地 CORS 代理（_V12_EXTRA 隐身）============
+    def get_local_proxy(self):
+        """HF-P0：本地 CORS 代理基址——前端 local 模式 fetch 改打代理，
+        X-Harbor-Target 请求头携带真实本地 base_url，代理仅转发回环目标
+        （安全硬约束：非回环 403，防开放中继）并补齐 CORS 头 + 流式透传。
+
+        返回 {ok, port, base_url}（base_url = http://127.0.0.1:<port>）；
+        端口随机（127.0.0.1:0），Api 装配时已启动（幂等单例）。
+        """
+        return ok(get_proxy().info())
 
     # ============ v1.6 WebDAV 数据主权（预留接口，_V12_EXTRA 隐身）============
     def webdav_get_config(self):

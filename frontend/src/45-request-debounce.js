@@ -28,7 +28,10 @@ async function fetchGLMStream(payload, signal) {
     try {
       const resp = await fetch(resolveApiEndpoint(), {   // v1.2 R6：GLM 默认 / 自定义 OpenAI 兼容端点
         method: 'POST', signal,
-        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + payload.apiKey },
+        // v1.6 HF-P0：local 模式经后端 CORS 代理时附 X-Harbor-Target（真实本地
+        // base_url）；typeof 守卫保 node vm 单模块沙箱可测（71-provider 未加载时跳过）
+        headers: Object.assign({ 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + payload.apiKey },
+          (typeof localProxyHeaders === 'function') ? localProxyHeaders() : {}),
         body: JSON.stringify(payload.body || payload)
       });
       if (_isLocal && resp.status === 503 && attempt < LOADING_BACKOFF.length) {

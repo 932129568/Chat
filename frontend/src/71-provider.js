@@ -23,6 +23,15 @@ function localModeActive() {
   return !!(localState && localState.mode && localState.base_url);
 }
 
+/** 本地 CORS 代理基址（v1.6 HF-P0）：页面加载时经 js_api get_local_proxy 取一次，
+ *  缓存于 window.__localProxyBase；空 = 代理不可用（回落直连，行为不劣化）。
+ *  存在原因：EdgeWebView（Chromium）对跨源 fetch 强制 CORS——不输出 CORS 头的
+ *  本地模型服务器（FreeToken / 裸 llama.cpp / vLLM 默认配置）直连必被拒。 */
+function localProxyBase() {
+  return (typeof window !== 'undefined' && window.__localProxyBase)
+    ? String(window.__localProxyBase) : '';
+}
+
 /** chat/completions 拼接（base 已含则原样）。 */
 function chatCompletionsOf(base) {
   const b = String(base || '').trim().replace(/\/+$/, '');
@@ -31,15 +40,27 @@ function chatCompletionsOf(base) {
 }
 
 /** 端点地址解析：45-request-debounce / 97-compact 的 fetch 目标。
- *  本地系预设 → localState.base_url；其余 → providerState.base_url；都空 → 官方 API_URL。 */
+ *  本地系预设 → 本地 CORS 代理（CORS 头由后端补齐；真实目标经
+ *    localProxyHeaders() 的 X-Harbor-Target 头传递）；代理不可用 → 回落直连；
+ *  其余 → providerState.base_url；都空 → 官方 API_URL。 */
 function resolveApiEndpoint() {
   if (localModeActive()) {
+    const proxied = chatCompletionsOf(localProxyBase());
+    if (proxied) return proxied;                    // 代理模式（HF-P0 主路径）
     const local = chatCompletionsOf(localState.base_url);
-    if (local) return local;
+    if (local) return local;                        // 回落：代理不可用时直连（行为不劣化）
   }
   const base = chatCompletionsOf((providerState && providerState.base_url) || '');
   if (base) return base;
   return API_URL;
+}
+
+/** 代理模式附加请求头：X-Harbor-Target = 真实本地 base_url（后端代理据此转发，
+ *  且仅放行回环目标）。非代理模式 / 无目标返回 {}——调用处 Object.assign 合并。 */
+function localProxyHeaders() {
+  if (!localModeActive() || !localProxyBase()) return {};
+  const target = String((localState && localState.base_url) || '').trim();
+  return target ? { 'X-Harbor-Target': target } : {};
 }
 
 /** 当前端点是否智谱 GLM（GLM 专属能力总开关）。
