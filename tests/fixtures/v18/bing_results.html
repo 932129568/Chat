@@ -2,13 +2,13 @@
 <!--
   v1.8.0 B1 fixture：仿真 Bing 结果页（tests/fixtures/v18/bing_results.html）
   覆盖点（fixture 即契约，随契约变更单更新）：
-  - li.b_algo 结果容器 ×8（驱动 search_adapters._parse_bing 条数断言）；
+  - li.b_algo 结果容器 ×10（驱动 search_adapters._parse_bing 条数断言，B1 验收 ≥10）；
   - h2 a 标题链接（title 提取源）+ .b_caption p 摘要（snippet 提取源）；
   - .b_attribution cite 展示 URL（url 提取源）；
   - 第 3 条带 <span class="b_date">2026-10-01</span>（date 有形态）；
   - 第 5 条无 cite（url 回退 h2 href 路径断言）；
   - 第 6 条显式端口 :8440（domain 去端口断言）；
-  - 全页仅 8 个锚点（generic 兜底引擎解析本文件时条数=8）。
+  - 全页仅 10 个锚点（generic 兜底引擎解析本文件时条数=10）。
 -->
 <html lang="zh-CN">
 <head>
@@ -71,6 +71,20 @@
     <div class="b_caption">
       <div class="b_attribution" u="8"><cite>https://mofanpy.com/tutorials/python-basic/</cite></div>
       <p>面向零基础的视频与图文教程，覆盖变量、循环、函数与简单项目实战。</p>
+    </div>
+  </li>
+  <li class="b_algo">
+    <h2><a href="https://www.python.org/about/gettingstarted/" h="ID=SERP,5090.1">Python 初学者指南 – Python.org</a></h2>
+    <div class="b_caption">
+      <div class="b_attribution" u="9"><cite>https://www.python.org/about/gettingstarted/</cite></div>
+      <p>Python 官方的初学者引导页，含安装指引、教程入口与练习建议。</p>
+    </div>
+  </li>
+  <li class="b_algo">
+    <h2><a href="https://realpython.com/python-basics/" h="ID=SERP,5091.1">Python Basics – Real Python</a></h2>
+    <div class="b_caption">
+      <div class="b_attribution" u="10"><cite>https://realpython.com/python-basics/</cite></div>
+      <p>Python 基础概念的英文教程，含数据类型、控制流与编码最佳实践。</p>
     </div>
   </li>
 </ol>

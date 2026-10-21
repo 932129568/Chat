@@ -790,7 +790,9 @@ class SoftwareService:
         kind = str(entry.get('kind') or 'cli').strip().lower()
         if kind not in KINDS:
             return {'error': 'kind 仅支持 %s' % '/'.join(KINDS)}
-        risk = str(entry.get('risk_default') or 'read').strip().lower()
+        # v1.8.0 §4.4：用户自定义默认 mutate 起步（read 太宽——自定义软件
+        # 未经预设审核，保守从 mutate 起，用户可在设置调整）
+        risk = str(entry.get('risk_default') or 'mutate').strip().lower()
         if risk not in RISKS:
             return {'error': 'risk_default 仅支持 %s' % '/'.join(RISKS)}
         if kind == 'uri':
@@ -812,7 +814,7 @@ class SoftwareService:
             if not aname or aname in seen:
                 return {'error': 'action 名不能为空且不可重复: %r' % aname}
             seen.add(aname)
-            arisk = str(act.get('risk') or 'read').strip().lower()
+            arisk = str(act.get('risk') or 'mutate').strip().lower()
             if arisk not in RISKS:
                 return {'error': 'action %s 的 risk 仅支持 %s'
                         % (aname, '/'.join(RISKS))}
@@ -865,6 +867,22 @@ class SoftwareService:
             return {'ok': True, 'removed': True}
 
     # ================================================== software_list（S1）
+    def action_risk(self, software, action):
+        """查询 action 的 risk 分级（api 层 guard force_always 判定用）。
+
+        v1.8.0 §4.4：dangerous 动作（git push --force/删除类）强制 always 档，
+        与 op 级 session 档正交——本查询供 enforce_exec 置 force_always。
+        未注册软件/动作 → ''（调用方按 session 档走）。
+        """
+        with self._lock:
+            entry = self._registry.get(str(software or '').strip().lower())
+        if not entry:
+            return ''
+        for a in entry.get('actions') or []:
+            if a.get('name') == action:
+                return str(a.get('risk') or '')
+        return ''
+
     def software_list(self, status='all'):
         """实现 v1.8.0 S1：注册表列表（联调规范 §3.2 software_list）。
 

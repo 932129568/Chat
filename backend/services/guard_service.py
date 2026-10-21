@@ -52,7 +52,11 @@ TOKEN_TTL = 60                         # confirm token 一次性有效时长（�
 # 操作清单与默认档位（PRD Q3 平衡：破坏性最高的默认每次确认；被动/低危的默认会话内首次确认）
 GUARD_OPS = ('delete_path', 'kill_process', 'clipboard_write', 'clipboard_read',
              'take_screenshot', 'run_command', 'run_powershell', 'run_admin_command',
-             'open_app')   # 修复 W9（三轮）：open_app 纳入护栏矩阵（默认 off 行为不变）
+             'open_app',
+             # v1.8.0 §3.3 护栏与隐私：浏览器搜索默认 session 档（会话首次确认）；
+             # 外部软件调用默认 session 档（§4.4：read/mutate 会话首次，dangerous
+             # 由 preset risk 在 software_service 侧强制 always）
+             'web_search', 'software_call')
 DEFAULT_TIERS = {
     'delete_path': 'always',
     'kill_process': 'always',
@@ -64,6 +68,8 @@ DEFAULT_TIERS = {
     'run_powershell': 'off',
     'run_admin_command': 'off',
     'open_app': 'off',   # 修复 W9（三轮）：默认 off 保持既有行为，提档后弹窗/ token 生效
+    'web_search': 'session',      # v1.8.0 §3.3：浏览器搜索默认 session 档
+    'software_call': 'session',   # v1.8.0 §4.4：软件调用默认 session 档
 }
 
 # ---- v1.8.5 A 域：任务授权 grant（进程内状态，不入 guard.json）----
@@ -386,6 +392,15 @@ class GuardService:
         r = self.check(op, detail)
         if r.get('action') == 'block':
             return r.get('reason')
+        # v1.8.0 §4.4：dangerous action 强制 always（detail.force_always）——
+        # 高危动作（git push --force/删除类）无视 op 档位与信任态，每次都要
+        # 有效一次性 token（软件调用面在 api.software_call 置位）。
+        if (detail or {}).get('force_always'):
+            if token and self.consume_token(op, detail, token):
+                self.audit(op, detail, 'decision', 'token-confirm')
+                return None
+            return ('该操作属高危动作（dangerous），需每次确认，但调用方未携带有效的'
+                    '一次性确认 token。请通过界面确认后执行，不要绕过确认流程。')
         # v1.8.5 A 域：白名单/任务授权在执行点放行并记专项审计
         via = r.get('via')
         if via == 'rule':

@@ -525,7 +525,7 @@ class SearchService:
 
         # ---- 过滤/去重（URL 归一）/排序/截断到 max_results ----
         self._set_phase(task_id, 'filtering', '正在整理结果…')
-        results = self._dedupe_and_rank(results)[:max_results]
+        results = self._dedupe_and_rank(results, q_echo)[:max_results]
 
         # ---- extract=full：Top N 连锁深度提取（ux-flows 流程 3；单篇失败不中断）----
         deep = None
@@ -594,11 +594,42 @@ class SearchService:
         return None if nxt == engine else nxt
 
     @staticmethod
-    def _dedupe_and_rank(results):
-        """URL 归一去重（保首条）+ position 重排（契约 §4.3：position 从 1 连续）。"""
+    def _dedupe_and_rank(results, query=''):
+        """URL 归一去重（保首条）+ **必含词过滤 + 相关性重排** + position 重排。
+
+        §3.3⑤ 过滤与定位（iteration-plan 流程⑤，2026-10-21 补齐）：
+        - 必含词过滤：query 核心词（去停用词/去引擎语法词）在 title+snippet
+          中**零命中**的结果降级——引擎跑偏时（如 site 限定失效返回首页导航）
+          的纯噪声；保留至少 1 条防误杀全灭（宁少勿无）。
+        - 相关性重排：核心词覆盖数降序（tie-break 保原 position 稳定）。
+        - position 从 1 连续（契约 §4.3）。
+        """
+        from .tool_validator import _tokens
+        q_tokens = _tokens(query or '')
+        # 引擎语法词不进相关性判定（site:/filetype: 等由参数面处理）
+        q_tokens = {t for t in q_tokens if not t.startswith(('site', 'filetype'))}
+
+        def _hits(item):
+            text = str(item.get('title') or '') + ' ' + str(item.get('snippet') or '')
+            item_tokens = _tokens(text)
+            return len(q_tokens & item_tokens)
+
+        # 先按相关度排序（稳定排序保原 position tie-break）
+        indexed = list(enumerate(results))
+        if q_tokens:
+            indexed.sort(key=lambda x: (-_hits(x[1]), x[0]))
+        ordered = [r for _, r in indexed]
+
+        # 必含词过滤：零命中降级到尾部（不全删——防误杀后结果集为空）
+        if q_tokens:
+            hit_items = [r for r in ordered if _hits(r) > 0]
+            miss_items = [r for r in ordered if _hits(r) == 0]
+            if hit_items:
+                ordered = hit_items + miss_items
+
         seen = set()
         out = []
-        for r in results:
+        for r in ordered:
             u = _normalize_url(r.get('url') or '')
             if not u or u in seen:
                 continue

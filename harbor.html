@@ -32,9 +32,14 @@
   --hover:#f1f3f7; --active:#eef1fe; --chip-bg:#f1f3f7;
   --ok:#146b40; --warn:#8f5a0a; --err:#bd2a1c;
   --ok-bg:#e8f6ee; --warn-bg:#fdf5e6; --err-bg:#fdecea;
-  --shadow-sm:0 1px 2px rgba(16,18,28,.06);
-  --shadow-md:0 2px 8px rgba(16,18,28,.08);
-  --shadow-lg:0 12px 28px rgba(16,18,28,.14);
+  /* 双 Layer 阴影（contact 近实 + ambient 远虚——真实感来源，替代单层） */
+  --shadow-sm:0 1px 2px rgba(16,18,28,.05),0 1px 3px rgba(16,18,28,.07);
+  --shadow-md:0 2px 8px rgba(16,18,28,.07),0 4px 12px rgba(16,18,28,.06);
+  --shadow-lg:0 12px 28px rgba(16,18,28,.12),0 24px 48px rgba(16,18,28,.10);
+  /* 受光边（卡片顶边受光语义）+ 内发光（输入 focus） */
+  --edge-hi:inset 0 1px 0 rgba(255,255,255,.65);
+  --edge-hi-soft:inset 0 1px 0 rgba(255,255,255,.45);
+  --glow-inset:inset 0 1px 0 rgba(255,255,255,.35);
   --radius-xs:4px; --radius-sm:6px; --radius-md:9px; --radius-lg:12px; --radius-xl:16px; --radius-full:999px;
   --font-sans:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei","Noto Sans SC",sans-serif;
   --font-mono:"JetBrains Mono","Cascadia Code",Consolas,"SFMono-Regular",Menlo,monospace;
@@ -82,6 +87,8 @@
   --dur-panel-out:200ms;
   --dur-narr:220ms;
   --dur-theme:280ms;
+  --dur-tap:150ms;
+  --dur-panel-lg:320ms;
   --dur-count:600ms;
   --dur-chart:800ms;
   --dur-ambient:34s;
@@ -95,10 +102,15 @@
   --ease-in-soft:cubic-bezier(.42,0,1,1);
   --ease-spring:cubic-bezier(.34,1.3,.5,1);
   --ease-glow:var(--ease-out-soft);
+  /* 物理感曲线（2026-10-21 视觉升级）：emphasized 大位移入场（前段蓄力后段缓收），
+     anticipate 回弹 pop（小元素出现——过冲 4.5% 不越界） */
+  --ease-emphasized:cubic-bezier(.2,0,0,1);
+  --ease-anticipate:cubic-bezier(.34,1.45,.64,1);
 
   /* ===== v4 编排令牌 ===== */
   --stagger-xs:40ms;
   --stagger-sm:60ms;
+  --stagger-max:160ms;   /* 阶梯封顶（第 5 项起统一 160ms，防长列表尾部延迟堆积） */
 
   /* ===== v4 位移令牌 ===== */
   --shift-tip:4px;
@@ -127,9 +139,13 @@ body.dark{
   --hover:#212429; --active:#232a3f; --chip-bg:#212429;
   --ok:#4ade80; --warn:#fbbf24; --err:#f87171;
   --ok-bg:#12251b; --warn-bg:#2a2213; --err-bg:#2b1618;
-  --shadow-sm:0 1px 2px rgba(0,0,0,.4);
-  --shadow-md:0 2px 10px rgba(0,0,0,.45);
-  --shadow-lg:0 16px 40px rgba(0,0,0,.6);
+  --shadow-sm:0 1px 2px rgba(0,0,0,.35),0 1px 3px rgba(0,0,0,.45);
+  --shadow-md:0 2px 10px rgba(0,0,0,.42),0 4px 14px rgba(0,0,0,.38);
+  --shadow-lg:0 16px 40px rgba(0,0,0,.55),0 24px 56px rgba(0,0,0,.5);
+  /* 暗色受光边极弱（暗部「受光」= 顶部微亮而非白边） */
+  --edge-hi:inset 0 1px 0 rgba(255,255,255,.06);
+  --edge-hi-soft:inset 0 1px 0 rgba(255,255,255,.04);
+  --glow-inset:inset 0 1px 0 rgba(255,255,255,.03);
 
   /* ===== v4 玻璃层（深色）===== */
   --glass-bg:rgba(26,28,34,.60);
@@ -1706,10 +1722,10 @@ input:focus-visible,textarea:focus-visible,select:focus-visible{
   outline:2px solid var(--primary);outline-offset:1px}
 /* ③ notify 入场 stagger（40ms 阶梯，5 项封顶 160ms——v4 §编排） */
 .notify-item{animation:v4LineIn var(--dur-comp) var(--ease-out-soft) both}
-.notify-item:nth-child(2){animation-delay:40ms}
-.notify-item:nth-child(3){animation-delay:80ms}
-.notify-item:nth-child(4){animation-delay:120ms}
-.notify-item:nth-child(5){animation-delay:160ms}
+.notify-item:nth-child(2){animation-delay:var(--stagger-xs)}
+.notify-item:nth-child(3){animation-delay:calc(var(--stagger-xs) * 2)}
+.notify-item:nth-child(4){animation-delay:calc(var(--stagger-xs) * 3)}
+.notify-item:nth-child(5){animation-delay:var(--stagger-max)}
 body.fx-off .notify-item{animation:none}
 
 /* ============================================================
@@ -1741,10 +1757,10 @@ input:focus-visible,textarea:focus-visible,select:focus-visible{
   outline:2px solid var(--primary);outline-offset:1px}
 /* ③ notify 入场 stagger（40ms 阶梯，5 项封顶 160ms——v4 §编排） */
 .notify-item{animation:v4LineIn var(--dur-comp) var(--ease-out-soft) both}
-.notify-item:nth-child(2){animation-delay:40ms}
-.notify-item:nth-child(3){animation-delay:80ms}
-.notify-item:nth-child(4){animation-delay:120ms}
-.notify-item:nth-child(5){animation-delay:160ms}
+.notify-item:nth-child(2){animation-delay:var(--stagger-xs)}
+.notify-item:nth-child(3){animation-delay:calc(var(--stagger-xs) * 2)}
+.notify-item:nth-child(4){animation-delay:calc(var(--stagger-xs) * 3)}
+.notify-item:nth-child(5){animation-delay:var(--stagger-max)}
 body.fx-off .notify-item{animation:none}
 
 /* ---- v4 图表悬停层（2026-10-21 深化）：竖参考线+大圆点+玻璃数值浮层 ---- */
@@ -1802,10 +1818,10 @@ body.fx-off .load-dot{animation:none}
 /* ---- ② 入场 stagger 补缺（此前仅 sw/mm/gg/tm/notify 有）---- */
 .session-item,.mcp-row,.mcp-tool-row,.cs-opt,.sp-item,.eff-row,.search-hit{
   animation:v4LineIn var(--dur-comp) var(--ease-out-soft) both}
-.session-item:nth-child(2),.mcp-row:nth-child(2),.mcp-tool-row:nth-child(2),.cs-opt:nth-child(2){animation-delay:40ms}
-.session-item:nth-child(3),.mcp-row:nth-child(3),.mcp-tool-row:nth-child(3),.cs-opt:nth-child(3){animation-delay:80ms}
-.session-item:nth-child(4),.mcp-row:nth-child(4),.mcp-tool-row:nth-child(4),.cs-opt:nth-child(4){animation-delay:120ms}
-.session-item:nth-child(n+5),.mcp-row:nth-child(n+5),.mcp-tool-row:nth-child(n+5),.cs-opt:nth-child(n+5){animation-delay:160ms}
+.session-item:nth-child(2),.mcp-row:nth-child(2),.mcp-tool-row:nth-child(2),.cs-opt:nth-child(2){animation-delay:var(--stagger-xs)}
+.session-item:nth-child(3),.mcp-row:nth-child(3),.mcp-tool-row:nth-child(3),.cs-opt:nth-child(3){animation-delay:calc(var(--stagger-xs) * 2)}
+.session-item:nth-child(4),.mcp-row:nth-child(4),.mcp-tool-row:nth-child(4),.cs-opt:nth-child(4){animation-delay:calc(var(--stagger-xs) * 3)}
+.session-item:nth-child(n+5),.mcp-row:nth-child(n+5),.mcp-tool-row:nth-child(n+5),.cs-opt:nth-child(n+5){animation-delay:var(--stagger-max)}
 .chart-empty{animation:v4LineIn var(--dur-narr) var(--ease-out-soft)}
 body.fx-off .session-item,body.fx-off .mcp-row,body.fx-off .mcp-tool-row,body.fx-off .cs-opt,
 body.fx-off .sp-item,body.fx-off .eff-row,body.fx-off .search-hit,body.fx-off .chart-empty{animation:none}
@@ -1867,6 +1883,54 @@ body.fx-off .err-detail.open{animation:none}
 .toast-err .toast-title{color:var(--err)}
 .toast-warn .toast-title{color:var(--warn)}
 body.fx-off .toast{animation:none}
+
+/* ============================================================
+   v4 视觉系统升级（2026-10-21）：物理曲线分配 / 受光边 / 内发光 /
+   天光氛围 / will-change 合成层治理
+   曲线语义：emphasized=大位移入场 · anticipate=pop 出现 ·
+   out-soft=常规过渡 · in-soft=退场 · spring=弹性位移
+   ============================================================ */
+/* ---- ① 大位移入场 → emphasized（前段蓄力后段缓收，比 out-soft 更有重量）---- */
+.set-window{animation:v4SetWinIn var(--dur-panel-lg) var(--ease-emphasized)}
+.modal-card{animation:v4ModalIn var(--dur-panel-lg) var(--ease-emphasized)}
+.ob-win{animation:v4SetWinIn var(--dur-panel-lg) var(--ease-emphasized)}
+/* ---- ② pop 出现 → anticipate（回弹 4.5% 不过冲越界）---- */
+.plan-badge,.gg-ind,.hy-cost,.chart-tip{animation:v4ChipIn var(--dur-comp) var(--ease-anticipate)}
+.err-detail.open{animation:v4LineIn var(--dur-comp) var(--ease-anticipate)}
+/* ---- ③ L1 可交互卡「浮起受光」三合一：阴影升档 + 顶边受光 + 位移 ---- */
+.sw-row:hover,.mm-row:hover,.tm-row:hover,.gg-rule-row:hover,.mcp-row:hover,
+.mcp-tool-row:hover,.eff-row:hover,.ws-card:hover{
+  box-shadow:var(--shadow-sm),var(--edge-hi-soft);transform:translateY(-1px)}
+/* ---- ④ 输入 focus 内发光（外发光 + 顶边内高光 = 玻璃受光）---- */
+.sw-input:focus,.hy-input:focus,.mm-input:focus,.ob-input:focus,.sp-input:focus,.modal-input:focus{
+  box-shadow:var(--glow-focus),var(--glow-inset)}
+/* ---- ⑤ 聊天区天光纱（顶部极淡品牌渐变——「天光」氛围，不抢内容）---- */
+#chatContainer{position:relative}
+#chatContainer::before{content:"";position:absolute;top:0;left:0;right:0;height:88px;
+  background:linear-gradient(180deg,var(--primary-soft) 0%,transparent 100%);
+  opacity:.5;pointer-events:none;z-index:0}
+#chatContainer > *{position:relative;z-index:1}
+body.dark #chatContainer::before{opacity:.28}
+body.fx-off #chatContainer::before{display:none}
+/* ---- ⑥ 品牌光呼吸（4s 极慢——氛围而非干扰）---- */
+.brand-logo{animation:v4BrandBreathe 4s var(--ease-out-soft) infinite}
+@keyframes v4BrandBreathe{0%,100%{box-shadow:0 0 18px -6px var(--glow-color)}
+50%{box-shadow:0 0 26px -4px var(--glow-color)}}
+body.fx-off .brand-logo{animation:none;box-shadow:0 0 18px -6px var(--glow-color)}
+/* ---- ⑦ will-change 合成层治理（仅 infinite/频繁动画宿主，防滥用）---- */
+#auroraBg div,.stream-bar,.typing-dots span,.tool-spinner,.tool-call-item .tc-dot,
+.sw-light.probing,.gg-light,.sp-progress-bar.indet .sp-progress-fill,
+.ckpt-prog.indet .ckpt-fill,.plan-step.doing .st,.load-dot,.empty-icon,.empty-icon .glyph,
+.brand-logo,.chart-line,.chart-area{will-change:transform,opacity}
+body.fx-off #auroraBg div,body.fx-off .stream-bar,body.fx-off .typing-dots span,body.fx-off .tool-spinner,
+body.fx-off .tool-call-item .tc-dot,body.fx-off .sw-light.probing,body.fx-off .gg-light,
+body.fx-off .sp-progress-bar.indet .sp-progress-fill,body.fx-off .ckpt-prog.indet .ckpt-fill,
+body.fx-off .plan-step.doing .st,body.fx-off .load-dot,body.fx-off .empty-icon,
+body.fx-off .empty-icon .glyph,body.fx-off .brand-logo{will-change:auto}
+/* theming 白名单同步 */
+body.theming .set-window,body.theming .modal-card,body.theming .ob-win,body.theming .plan-badge,
+body.theming .gg-ind,body.theming .hy-cost,body.theming .chart-tip,body.theming .brand-logo{
+  transition-property:background-color,color,border-color,box-shadow,transform}
 </style>
 </head>
 <body>

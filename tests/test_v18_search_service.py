@@ -264,11 +264,11 @@ class TestBrowserSearchBasics:
         assert r['truncated'] is False
         assert isinstance(r['elapsed_ms'], int)
         assert r['fetched_at'].endswith('Z')     # §4.3 ISO8601 UTC 统一后缀
-        assert len(r['results']) == 8            # fixture：8 条 b_algo
+        assert len(r['results']) == 10           # fixture：10 条 b_algo（B1 验收 ≥10）
         first = r['results'][0]
         assert set(first) >= {'title', 'url', 'snippet', 'position', 'date', 'domain'}
         assert first['position'] == 1
-        assert [x['position'] for x in r['results']] == list(range(1, 9))
+        assert [x['position'] for x in r['results']] == list(range(1, 11))
         assert first['domain'] == 'docs.python.org'
         # site 操作符回显进 query
         r2 = svc.browser_search({'query': 'python', 'site': 'github.com'})
@@ -277,7 +277,7 @@ class TestBrowserSearchBasics:
     def test_max_results_clamp_echo(self):
         svc = _mk_service()
         r = svc.browser_search({'query': 'python', 'max_results': 25})
-        assert r['ok'] is True and len(r['results']) == 8   # 夹逼 20 > fixture 8 条
+        assert r['ok'] is True and len(r['results']) == 10  # 夹逼 20 > fixture 10 条
         r2 = svc.browser_search({'query': 'python', 'max_results': 3})
         assert len(r2['results']) == 3
 
@@ -437,7 +437,7 @@ class TestCaptchaTakeover:
         r2 = svc.browser_takeover(tk, 'continue')
         assert r2['ok'] is True
         assert r2['resumed'] is True                 # 同构 + resumed（§3.1 B5）
-        assert r2['source'] == 'live' and len(r2['results']) == 8
+        assert r2['source'] == 'live' and len(r2['results']) == 10
         assert r2['engine'] == 'bing'
         st = svc.search_status()
         assert st['phase'] == 'done' and st['active'] is False
