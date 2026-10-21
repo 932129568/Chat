@@ -107,16 +107,47 @@ function addMessage(role, content, extra) {
 function fillErrorBubble(el, text) {
   if (!el) return;
   const txt = String(text == null ? '' : text);
-  const m = /^([^:：]{0,12}[:：])\s*/.exec(txt);
   el.textContent = '';
-  if (m) {
-    const t = document.createElement('b');
-    t.className = 'err-title';
-    t.textContent = m[1] + ' ';
-    el.appendChild(t);
-    el.appendChild(document.createTextNode(txt.slice(m[0].length)));
-  } else {
-    el.textContent = txt;
+  // 拆解：标题前缀（「XX：」）/ 尾部「（原始错误：…）」详情 / 正文
+  const detailM = /[(（]原始错误[:：]\s*([\s\S]*?)[)）]\s*$/.exec(txt);
+  const detail = detailM ? detailM[1].trim() : '';
+  const main = detailM ? txt.slice(0, detailM.index) : txt;
+  const titleM = /^([^:：\n]{0,14}[:：])\s*/.exec(main);
+  const title = titleM ? titleM[1] : '';
+  const body = (titleM ? main.slice(titleM[0].length) : main).trim();
+  // 结构：头部（图标+标题+详情开关）+ 正文 + 折叠详情块
+  const head = document.createElement('div');
+  head.className = 'err-head';
+  const ico = document.createElement('span');
+  ico.className = 'err-ico';
+  ico.textContent = '!';
+  head.appendChild(ico);
+  const t = document.createElement('b');
+  t.className = 'err-title';
+  t.textContent = (title || '出错了') + ' ';
+  head.appendChild(t);
+  const bd = document.createElement('div');
+  bd.className = 'err-body';
+  bd.textContent = body;
+  el.appendChild(head);
+  el.appendChild(bd);
+  if (detail) {
+    const dt = document.createElement('div');
+    dt.className = 'err-detail';
+    const pre = document.createElement('div');
+    pre.className = 'err-detail-txt';
+    pre.textContent = detail;
+    dt.appendChild(pre);
+    const toggle = document.createElement('button');
+    toggle.type = 'button';
+    toggle.className = 'err-detail-btn';
+    toggle.innerHTML = '技术详情 <span class="err-caret">▸</span>';
+    toggle.onclick = () => {
+      const open = dt.classList.toggle('open');
+      toggle.querySelector('.err-caret').style.transform = open ? 'rotate(90deg)' : '';
+    };
+    el.appendChild(dt);
+    head.appendChild(toggle);
   }
 }
 /* v4：触屏/无悬停设备——点消息唤出操作条（.acting），点其他消息或空白处收起 */

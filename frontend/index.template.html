@@ -1833,6 +1833,40 @@ body.theming .sw-row,body.theming .mm-row,body.theming .tm-row,body.theming .gg-
 body.theming .mcp-row,body.theming .mcp-tool-row,body.theming .eff-row,body.theming .ws-card,
 body.theming .session-item,body.theming .cs-opt,body.theming .sp-item{
   transition-property:background-color,color,border-color,box-shadow,transform}
+
+/* ============================================================
+   v4 报错呈现重构（2026-10-21 用户实测：错误提示「非常简陋」）
+   ① 消息流错误气泡结构化 ② toast 防窄容器竖排+标题化
+   ============================================================ */
+/* ① 错误气泡：头部（图标+标题+详情开关）/ 正文 / 折叠技术详情 */
+.message .content.error{padding:12px 14px;line-height:1.6}
+.err-head{display:flex;align-items:center;gap:8px;margin-bottom:5px}
+.err-ico{width:17px;height:17px;border-radius:50%;background:var(--err);color:#fff;flex-shrink:0;
+  display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700}
+.err-title{color:var(--err);font-size:13px;font-weight:600;flex:1;min-width:0}
+.err-body{font-size:12.5px;color:var(--text-2);white-space:pre-wrap;line-height:1.65}
+.err-detail-btn{flex-shrink:0;border:none;background:transparent;color:var(--text-3);font-size:11px;
+  cursor:pointer;padding:2px 4px;border-radius:var(--radius-xs);display:flex;align-items:center;gap:3px;
+  transition:color var(--dur-micro) var(--ease-out-soft),background-color var(--dur-micro) var(--ease-out-soft)}
+.err-detail-btn:hover{color:var(--primary);background:var(--hover)}
+.err-caret{display:inline-block;font-size:8px;
+  transition:transform var(--dur-comp) var(--ease-out-soft)}
+.err-detail{display:none;margin-top:8px;padding:8px 10px;border-radius:var(--radius-sm);
+  background:var(--surface-2);border:1px solid var(--border)}
+.err-detail.open{display:block;animation:v4LineIn var(--dur-comp) var(--ease-out-soft)}
+.err-detail-txt{font-family:var(--font-mono);font-size:11px;color:var(--text-2);
+  white-space:pre-wrap;word-break:break-all;line-height:1.6}
+body.fx-off .err-detail.open{animation:none}
+/* ② toast 布局修复：最小宽度防窄容器两字一断 + 首行标题 + err/warn 左色条 */
+.toast{min-width:250px;max-width:380px;word-break:normal;overflow-wrap:anywhere}
+.toast-err{border-left:3px solid var(--err)}
+.toast-warn{border-left:3px solid var(--warn)}
+.toast-ok{border-left:3px solid var(--ok)}
+.toast-info{border-left:3px solid var(--primary)}
+.toast-title{display:block;font-weight:600;color:var(--text);line-height:1.5}
+.toast-err .toast-title{color:var(--err)}
+.toast-warn .toast-title{color:var(--warn)}
+body.fx-off .toast{animation:none}
 </style>
 </head>
 <body>

@@ -91,7 +91,25 @@ function toast(msg, type, opts) {
     '<span class="toast-msg"></span>' +
     (opts.detail ? '<button class="toast-more">明细</button>' : '') +
     '<button class="toast-close">✕</button>';
-  t.querySelector('.toast-msg').textContent = String(msg);
+  // v4：首行作粗体标题（长文案首行即摘要，短文案整体标题化）——
+  // 修复旧版纯文本一坨、错误场景「请求失败」与详情无层次
+  {
+    const raw = String(msg == null ? '' : msg);
+    const nl = raw.indexOf('\n');
+    const msgEl = t.querySelector('.toast-msg');
+    if (nl > 0) {
+      const b = document.createElement('b');
+      b.className = 'toast-title';
+      b.textContent = raw.slice(0, nl);
+      msgEl.appendChild(b);
+      msgEl.appendChild(document.createTextNode(raw.slice(nl)));
+    } else {
+      const b = document.createElement('b');
+      b.className = 'toast-title';
+      b.textContent = raw;
+      msgEl.appendChild(b);
+    }
+  }
   // v4：__closing 去重 + MOTION.onAnimEnd 双兜底（.out 的 140ms 过渡结束即拆；
   //   桩环境无事件监听时 setTimeout 兜底，instant 降级立即拆）
   const close = () => {

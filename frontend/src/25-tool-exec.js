@@ -329,7 +329,7 @@ async function agentGuardCheck(op, detail) {
   } else {
     body = 'AI 请求调用外部软件：\n软件：' + String(detail.software || '') +
       '\n动作：' + String(detail.action || '') +
-      (dangerous ? '\n风险：**高危动作（dangerous）——每次都需要确认**' : '') +
+      (dangerous ? '\n风险：高危动作（dangerous）——每次都需要确认' : '') +
       '\n参数：\n' + JSON.stringify(detail.args || {}, null, 2).slice(0, 2000) +
       '\n\n外部软件可在本机执行操作，请确认你信任此调用。';
   }
