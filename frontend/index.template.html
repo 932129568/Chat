@@ -1785,6 +1785,54 @@ body.theming .session-group{transition-property:color}
 .load-dot{display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--primary);
   margin-right:6px;vertical-align:1px;animation:v4LightPulse var(--dur-stream) var(--ease-out-soft) infinite}
 body.fx-off .load-dot{animation:none}
+
+/* ============================================================
+   v4 光影设计制度化 + 动效精修（2026-10-21 设计提升轮）
+   海拔语言：L0 内容面（无影）/ L1 可交互卡（hover 升档浮起）/
+   L2 浮层（md）/ L3 模态窗口（lg）；CTA 光泽扫过；rail 图标微生命
+   ============================================================ */
+/* ---- ① L1 可交互卡 hover 升档：阴影 sm + 位移 -1px（浮起语言）----
+   分组规则：无 :active scale 的类（位移不冲突）用 shadow+translateY；
+   有 :active scale 的（session-item/cs-opt/sp-item）纯阴影升档 */
+.sw-row:hover,.mm-row:hover,.tm-row:hover,.gg-rule-row:hover,.mcp-row:hover,
+.mcp-tool-row:hover,.eff-row:hover,.ws-card:hover{
+  box-shadow:var(--shadow-sm);transform:translateY(-1px)}
+.session-item:hover,.cs-opt:hover,.sp-item:hover{
+  box-shadow:var(--shadow-sm)}
+/* ---- ② 入场 stagger 补缺（此前仅 sw/mm/gg/tm/notify 有）---- */
+.session-item,.mcp-row,.mcp-tool-row,.cs-opt,.sp-item,.eff-row,.search-hit{
+  animation:v4LineIn var(--dur-comp) var(--ease-out-soft) both}
+.session-item:nth-child(2),.mcp-row:nth-child(2),.mcp-tool-row:nth-child(2),.cs-opt:nth-child(2){animation-delay:40ms}
+.session-item:nth-child(3),.mcp-row:nth-child(3),.mcp-tool-row:nth-child(3),.cs-opt:nth-child(3){animation-delay:80ms}
+.session-item:nth-child(4),.mcp-row:nth-child(4),.mcp-tool-row:nth-child(4),.cs-opt:nth-child(4){animation-delay:120ms}
+.session-item:nth-child(n+5),.mcp-row:nth-child(n+5),.mcp-tool-row:nth-child(n+5),.cs-opt:nth-child(n+5){animation-delay:160ms}
+.chart-empty{animation:v4LineIn var(--dur-narr) var(--ease-out-soft)}
+body.fx-off .session-item,body.fx-off .mcp-row,body.fx-off .mcp-tool-row,body.fx-off .cs-opt,
+body.fx-off .sp-item,body.fx-off .eff-row,body.fx-off .search-hit,body.fx-off .chart-empty{animation:none}
+body.fx-off .sw-row:hover,body.fx-off .mm-row:hover,body.fx-off .tm-row:hover,body.fx-off .gg-rule-row:hover,
+body.fx-off .mcp-row:hover,body.fx-off .mcp-tool-row:hover,body.fx-off .eff-row:hover,body.fx-off .ws-card:hover{transform:none}
+/* ---- ③ 主 CTA 光泽扫过（hover 时一道 45° 白光扫过——「不老套」的记忆点）---- */
+.pill-btn.primary,.send-btn,.sp-btn-primary,.sp-search-btn,.new-chat-btn{
+  position:relative;overflow:hidden}
+.pill-btn.primary::after,.send-btn::after,.sp-btn-primary::after,.sp-search-btn::after,.new-chat-btn::after{
+  content:"";position:absolute;inset:-1px;pointer-events:none;
+  background:linear-gradient(105deg,transparent 42%,rgba(255,255,255,.30) 50%,transparent 58%);
+  transform:translateX(-130%)}
+.pill-btn.primary:hover::after,.send-btn:hover::after,.sp-btn-primary:hover::after,
+.sp-search-btn:hover::after,.new-chat-btn:hover::after{
+  transform:translateX(130%);
+  transition:transform var(--dur-comp-out) var(--ease-in-soft)}
+body.fx-off .pill-btn.primary::after,body.fx-off .send-btn::after,body.fx-off .sp-btn-primary::after,
+body.fx-off .sp-search-btn::after,body.fx-off .new-chat-btn::after{display:none}
+/* ---- ④ rail 图标微生命：hover 时 scale(1.08)（spring 微弹）---- */
+.rail-btn svg{transition:transform var(--dur-comp) var(--ease-spring)}
+.rail-btn:hover svg{transform:scale(1.08)}
+body.fx-off .rail-btn:hover svg{transform:none}
+/* theming 白名单补新过渡面 */
+body.theming .sw-row,body.theming .mm-row,body.theming .tm-row,body.theming .gg-rule-row,
+body.theming .mcp-row,body.theming .mcp-tool-row,body.theming .eff-row,body.theming .ws-card,
+body.theming .session-item,body.theming .cs-opt,body.theming .sp-item{
+  transition-property:background-color,color,border-color,box-shadow,transform}
 </style>
 </head>
 <body>

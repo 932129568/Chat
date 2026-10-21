@@ -354,5 +354,5 @@ class TestV4PortInPlace:
         assert '@keyframes panelIn' not in tpl and '@keyframes fadeInUp' not in tpl
         assert '@keyframes slideDown' not in tpl and '@keyframes indeterminate' not in tpl
         # v2 令牌值未动（抽检）
-        assert '--primary:#4f6ef7' in tpl and '--bg:#f6f7f9' in tpl
+        assert '--primary:#4560e0' in tpl and '--bg:#f6f7f9' in tpl   # v1.8.0 对比度校准（#4f6ef7→#4560e0，2026-10-21）
         assert '--primary:#6b84ff' in tpl

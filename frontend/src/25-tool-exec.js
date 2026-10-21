@@ -123,19 +123,31 @@ async function executeToolRaw(name, args) {
     }
     if (name === 'append_memory')     return await callApi('append_memory', [typeof args === 'string' ? args : JSON.stringify(args)]);
     // v1.8.0 B/S 域：Agent 工具族分发（C 域接线；参数透传，timeoutMs 口径见联调规范 §2.1）
+    // §3.3/§4.4 护栏链（2026-10-21）：browser_search/software_call 前置
+    // agentGuardCheck（guard_check → 确认弹窗 → 一次性 token 回传后端
+    // enforce_exec；session 档会话信任缓存，dangerous 每次确认）
     if (name === 'browser_search') {
+      const g = await agentGuardCheck('web_search', { query: String((args && args.query) || '').slice(0, 120) });
+      if (g.blocked) return g.blocked;
       // §2.4：CAPTCHA_REQUIRED → 挂起标记（fail-fast + 前端挂起，browser_takeover
       // 终态才由 60-agent-loop 注入上下文——Agent 循环永不挂死在人类动作上）
       return browserToolWrapCaptcha(
-        await callApi('browser_search', [args], 90000));
+        await callApi('browser_search', [args, g.token], 90000));
     }
     if (name === 'browser_open') {
       return await callApi('browser_open', [args], 60000);
     }
     if (name === 'software_call') {
+      const g = await agentGuardCheck('software_call', {
+        software: String((args && args.software) || '').slice(0, 60),
+        action: String((args && args.action) || '').slice(0, 40),
+        args: args && args.args,
+        force_always: args && args.__dangerous === true,
+      });
+      if (g.blocked) return g.blocked;
       // 后端执行上限 600s + 30s 缓冲（与 run_command 660000 同款口径）
       const _swT = pickTimeout(args);
-      return await callApi('software_call', [args],
+      return await callApi('software_call', [args, g.token],
         Math.min(660000, _swT * 1000 + 30000));
     }
     // v1.3 R4：MCP 工具分发（后端二次 enforce + 审计 + 结果渲染）
@@ -265,4 +277,81 @@ function harborRenderValidation(result, toolDiv) {
     badge.textContent = '⚠ ' + v.reason + (v.suggestion ? '（' + v.suggestion + '）' : '');
     toolDiv.appendChild(badge);
   } catch (e) { /* 渲染失败不影响主流程 */ }
+}
+
+/* ================= v1.8.0 §3.3/§4.4 Agent 工具护栏链（2026-10-21）=================
+ * browser_ / software 的 guard 前置检查（复刻 62-mcp-exec.js 的 mcpGuardCheck
+ * 模式）：guard_check → 弹窗（uiConfirm）→ guard_confirm_token 换一次性 token
+ * → 随工具调用回传后端 enforce_exec 校验。
+ * 口径：
+ * - guard_check 对未注册 op 返回 allow（旧后端零影响）；block → skipped 结果；
+ * - confirm → 弹窗（检索词/软件动作全文 + 档位说明）；拒绝 → skipped + 人话
+ *   （Agent 可见，不得原样重试）；
+ * - session 档「本会话不再提示」存 agentTrusted（op+目标键）；
+ * - software_call 的 dangerous 动作：**不进信任缓存**（§4.4 每次确认），由后端
+ *   force_always 兜底（token 必须有效一次性）。
+ */
+const agentTrusted = new Set();
+async function agentGuardCheck(op, detail) {
+  detail = detail || {};
+  const target = String(detail.query || detail.software || '');
+  const trustKey = op + ':' + target;
+  const dangerous = detail.force_always === true;
+  if (!dangerous && agentTrusted.has(trustKey)) {
+    return { blocked: null, decision: 'session-trust', token: null };
+  }
+  let verdict = { action: 'confirm' };
+  try {
+    const raw = await callApi('guard_check', [op, JSON.stringify(detail)], 20000);
+    verdict = JSON.parse(raw) || {};
+  } catch (e) {
+    // 后端 guard_check 不可用（旧 exe）：不放行——外部软件执行面 fail-closed；
+    // 搜索面 fail-open（信息获取无执行面，旧行为不劣化）。
+    if (op === 'software_call') {
+      return { blocked: JSON.stringify({ error: '护栏检查不可用（后端可能为旧版，请重新打包）：' + (e.message || e) }), decision: 'deny', token: null };
+    }
+    return { blocked: null, decision: 'allow', token: null };
+  }
+  if (verdict.action === 'block') {
+    const reason = verdict.reason || ('操作 ' + op + ' 被护栏拦截。');
+    toast(reason, 'warn');
+    return { blocked: JSON.stringify({ info: reason, skipped: true }), decision: 'deny', token: null };
+  }
+  if (verdict.action === 'allow') return { blocked: null, decision: 'allow', token: null };
+
+  // action=confirm：弹窗（目标全文 + 档位 + 风险说明）
+  const tierName = { always: '每次确认', session: '会话内首次确认', off: '不确认' };
+  let body;
+  if (op === 'web_search') {
+    body = 'AI 请求执行浏览器搜索：\n检索词：' + target +
+      '\n档位：' + (tierName[verdict.tier] || verdict.tier || '?') +
+      '\n\n将通过内置浏览器窗口访问搜索引擎并提取结果（外联走应用进程，审计可见）。';
+  } else {
+    body = 'AI 请求调用外部软件：\n软件：' + String(detail.software || '') +
+      '\n动作：' + String(detail.action || '') +
+      (dangerous ? '\n风险：**高危动作（dangerous）——每次都需要确认**' : '') +
+      '\n参数：\n' + JSON.stringify(detail.args || {}, null, 2).slice(0, 2000) +
+      '\n\n外部软件可在本机执行操作，请确认你信任此调用。';
+  }
+  const r = await uiConfirm({
+    title: op === 'web_search' ? '确认执行浏览器搜索' : '确认调用外部软件',
+    body, danger: dangerous || verdict.tier === 'always',
+    okText: '允许执行',
+    checkboxLabel: dangerous ? null : '本会话内不再提示同类操作'
+  });
+  if (!r.ok) {
+    const msg = (op === 'web_search'
+      ? '用户拒绝了本次浏览器搜索。请调整检索方案或询问用户意图，不要原样重试。'
+      : '用户拒绝了本次外部软件调用（' + String(detail.software || '') + ' · ' + String(detail.action || '') + '）。请调整方案或询问用户意图，不要原样重试。');
+    toast('已拒绝 AI 的本次调用', 'ok');
+    return { blocked: JSON.stringify({ info: msg, skipped: true }), decision: 'deny', token: null };
+  }
+  if (r.checkbox && !dangerous) agentTrusted.add(trustKey);
+  // 换一次性 confirm token（op 级；detail 摘要与后端 enforce 同口径）
+  let token = null;
+  try {
+    const t = JSON.parse(await callApi('guard_confirm_token', [op, JSON.stringify(detail)], 20000));
+    if (t && t.ok && t.token) token = t.token;
+  } catch (e) { /* 无 token：后端武装态会拒，未武装态放行（legacy 兼容） */ }
+  return { blocked: null, decision: 'allow', token: token };
 }
