@@ -269,29 +269,48 @@ class ConfigService:
             self._log.warning('history.json 写入失败: %r', e)
             return False
 
-    # ---- memory.json（legacy L804-824）----
+    # ---- memory.json（legacy L804-824 → W11 结构化三类 2026-10-21）----
+    def _memory(self):
+        """MemoryService 懒单例（结构化三类/检索/注入）。"""
+        if getattr(self, '_mem_svc', None) is None:
+            from .memory_service import MemoryService
+            self._mem_svc = MemoryService(paths.MEMORY_PATH, self._log)
+        return self._mem_svc
+
     def get_memory(self):
+        """读取（结构化输出：每条带 kind；旧数据懒迁移不落盘）。"""
         try:
-            if os.path.exists(paths.MEMORY_PATH):
-                with open(paths.MEMORY_PATH, 'r', encoding='utf-8') as f:
-                    return f.read()
+            return json.dumps(self._memory().list(), ensure_ascii=False)
         except Exception as e:
             self._log.warning('记忆读取失败: %r', e)
         return '[]'
 
+    def memory_retrieve(self, query, limit=5):
+        """W11：关键词检索（bigram 重叠 + rule 加成 + 时间衰减）。"""
+        try:
+            items = self._memory().retrieve(str(query or ''), int(limit or 5))
+            return {'ok': True, 'items': items}
+        except Exception as e:
+            return {'error': str(e)}
+
     def append_memory(self, entry_json):
+        """W11 结构化追加：自动分类（fact/preference/rule）+ rule/preference
+        文本去重 + 上限淘汰最旧 fact（指令类不淘汰）。旧签名（JSON 串/对象/
+        裸字符串）全兼容；返回 {ok, kind, total}。"""
         try:
             with self._lock:
-                items = json.loads(self.get_memory())
-                e = json.loads(entry_json) if isinstance(entry_json, str) else entry_json
-                # 修复 ⑤（三轮）：非对象入参（字符串/数字/null）原直接 e['ts'] 抛
-                # TypeError 回裸异常串——归一为 {text: ...} 对象
+                e = entry_json
+                if isinstance(e, str):
+                    try:
+                        e = json.loads(e)
+                    except Exception:
+                        e = {'text': e}      # 裸字符串兜底（非 JSON）
                 if not isinstance(e, dict):
                     e = {'text': '' if e is None else str(e)}
-                e['ts'] = datetime.datetime.now().strftime('%m-%d %H:%M')
-                items.append(e)
-                atomic_write_json(paths.MEMORY_PATH, items[-200:])   # 修复 S8：原子写
-            return '{"ok":true}'
+                r = self._memory().append(e)
+                if 'error' in r:
+                    return err(r['error'])
+                return json.dumps(r, ensure_ascii=False)
         except Exception as e:
             return err(e)
 
