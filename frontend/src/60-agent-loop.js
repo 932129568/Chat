@@ -594,30 +594,27 @@ async function runAgentLoop(s, apiKey) {
           // v4：操作条收进 .msg-actions——悬停对话框时下方弹出（opacity+translateY）
           const acts = document.createElement('div');
           acts.className = 'msg-actions';
-          const copyBtn = document.createElement('button');
-          copyBtn.className = 'copy-btn'; copyBtn.textContent = '⧉ 复制';
-          copyBtn.onclick = () =>           navigator.clipboard.writeText(fullContent)
-            .then(() => {
-              copyBtn.textContent = '✓ 已复制'; setTimeout(() => copyBtn.textContent = '⧉ 复制', 1500);
-            })
+          // v4 极简：小线性图标（复用 50-markdown 的 MSG_ICONS；文字按钮退役）
+          const mki = (icon, title, fn) => {
+            const b = document.createElement('button');
+            b.className = 'msg-ic'; b.type = 'button'; b.title = title;
+            b.innerHTML = (typeof MSG_ICONS !== 'undefined') ? MSG_ICONS[icon] : '';
+            b.onclick = () => fn(b);
+            acts.appendChild(b); return b;
+          };
+          const flash = (b, cls) => { b.classList.add(cls); setTimeout(() => b.classList.remove(cls), 1500); };
+          mki('copy', '复制', (b) => navigator.clipboard.writeText(fullContent)
+            .then(() => flash(b, 'done'))
             // 修复 ㉔（三轮）：原无 .catch——剪贴板不可用（非安全上下文/权限）时
             // unhandled rejection，按钮停在「复制」态无任何反馈
-            .catch(() => { copyBtn.textContent = '✗ 失败'; setTimeout(() => copyBtn.textContent = '⧉ 复制', 1500); });
-          acts.appendChild(copyBtn);
-          const regenBtn = document.createElement('button');
-          regenBtn.className = 'copy-btn'; regenBtn.textContent = '↻ 重新生成';
-          regenBtn.onclick = regenerate;
-          acts.appendChild(regenBtn);
-          const favBtn = document.createElement('button');
-          favBtn.className = 'copy-btn'; favBtn.textContent = '☆ 收藏';
-          favBtn.onclick = async () => {
+            .catch(() => flash(b, 'fail')));
+          mki('regen', '重新生成', () => regenerate());
+          mki('fav', '收藏到记忆', async (b) => {
             try {
               await callApi('append_memory', [JSON.stringify({ text: fullContent.slice(0, 500) })]);
-              favBtn.textContent = '✓ 已收藏';
-            } catch (e) { favBtn.textContent = '✗ 失败'; }
-            setTimeout(() => favBtn.textContent = '☆ 收藏', 1500);
-          };
-          acts.appendChild(favBtn);
+              flash(b, 'done');
+            } catch (e) { flash(b, 'fail'); }
+          });
           // v4 修复：操作条移到气泡外（.message 下独立行）——原来 append 进
           // .content 使按钮显示在气泡内部底部（用户反馈「按钮在气泡里很怪」）
           const aiMsg = (aiContent.closest && aiContent.closest('.message')) || null;

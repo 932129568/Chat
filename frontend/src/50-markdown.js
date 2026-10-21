@@ -89,9 +89,12 @@ function addMessage(role, content, extra) {
       `<span>输出 <b>${escapeHtml(String(u.completion_tokens ?? ''))}</b></span><span>合计 <b>${escapeHtml(String(u.total_tokens ?? ''))}</b></span></div>`;
   }
   const body = (role === 'assistant' && typeof content === 'string') ? renderMd(content) : escapeHtml(content || '');
+  const now = new Date();
+  const hm = ('0' + now.getHours()).slice(-2) + ':' + ('0' + now.getMinutes()).slice(-2);
   div.innerHTML = `
     <div class="avatar">${role === 'user' ? '我' : 'AI'}</div>
-    <div class="content ${role === 'error' ? 'error' : ''}">${body}${extraHtml}</div>`;
+    <div class="content ${role === 'error' ? 'error' : ''}">${body}${extraHtml}</div>
+    <span class="msg-time">${hm}</span>`;
   container.appendChild(div);
   container.scrollTop = container.scrollHeight;
   // v4 配色重设计（用户反馈「气泡颜色太深」）：错误气泡前缀红字加粗、正文中性色——
@@ -122,29 +125,78 @@ document.addEventListener('click', (e) => {
   document.querySelectorAll('.message.acting').forEach(m => { if (m !== msg) m.classList.remove('acting'); });
   if (msg && !(e.target.closest && e.target.closest('.msg-actions'))) msg.classList.add('acting');
 });
-function addMsgActions(contentEl, text, onlyCopy) {
-  if (!contentEl || !text) return;
+/* v4 极简操作图标（16px 线性 stroke 1.8，hover 才显色——克制） */
+const MSG_ICONS = {
+  copy: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="8" width="12" height="12" rx="2.5"/><path d="M16 8V6.5A2.5 2.5 0 0 0 13.5 4H6.5A2.5 2.5 0 0 0 4 6.5v7A2.5 2.5 0 0 0 6.5 16H8"/></svg>',
+  back: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10a7 7 0 1 1 2 4.9"/><path d="M3 5v5h5"/></svg>',
+  edit: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>',
+  regen: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.6-6.4"/><path d="M21 3v6h-6"/></svg>',
+  fav: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l2.6 5.6 6.1.7-4.5 4.2 1.2 6-5.4-3-5.4 3 1.2-6L3.3 9.3l6.1-.7z"/></svg>'
+};
+
+/** 消息操作条（v4 极简：小图标悬停浮现）。
+ *  contentEl = .message 行；text = 消息原文；onlyCopy = 用户消息（复制/撤回/编辑）。 */
+function addMsgActions(msgEl, text, onlyCopy) {
+  if (!msgEl || !text) return;
   const bar = document.createElement('div');
-  bar.className = 'msg-actions';   // v4：悬停弹出条（CSS 控制显隐）
-  const mk = (label, fn) => {
+  bar.className = 'msg-actions';
+  const mk = (icon, title, fn) => {
     const b = document.createElement('button');
-    b.className = 'copy-btn'; b.textContent = label;
+    b.className = 'msg-ic';
+    b.type = 'button';
+    b.title = title;
+    b.innerHTML = icon;
     b.onclick = () => fn(b);
-    bar.appendChild(b); return b;
+    bar.appendChild(b);
+    return b;
   };
-  mk('⧉ 复制', (b) => {
-    // 修复 ㉔（三轮）：补 .catch——剪贴板不可用（非安全上下文/权限拒绝）时不再
-    // unhandled rejection（50:45 同型已修，此处为消息操作条路径）
-    navigator.clipboard.writeText(text).then(() => { b.textContent = '✓ 已复制'; setTimeout(() => b.textContent = '⧉ 复制', 1500); }).catch(() => { b.textContent = '复制失败'; });
+  const flash = (b, cls) => { b.classList.add(cls); setTimeout(() => b.classList.remove(cls), 1500); };
+  mk(MSG_ICONS.copy, '复制', (b) => {
+    navigator.clipboard.writeText(text)
+      .then(() => flash(b, 'done'))
+      .catch(() => flash(b, 'fail'));   // 修复 ㉔（三轮）：剪贴板不可用不再 unhandled rejection
   });
-  if (!onlyCopy) {
-    mk('↩ 追问', () => { document.getElementById('userInput').focus(); });
-    mk('☆ 收藏', async (b) => {
+  if (onlyCopy) {
+    // 撤回：删除该条 user 消息及其后连续的 assistant/tool 消息（若它们是末尾），内容回输入框
+    mk(MSG_ICONS.back, '撤回（删除本条及紧随的回复，内容回输入框）', (b) => msgRecall(msgEl, text));
+    // 编辑：内容回输入框（不删消息）
+    mk(MSG_ICONS.edit, '编辑（内容放回输入框）', (b) => {
+      const input = document.getElementById('userInput');
+      if (input) { input.value = text; input.focus(); updateCostEstimate(); }
+    });
+  } else {
+    mk(MSG_ICONS.regen, '重新生成', () => { if (typeof regenerate === 'function') regenerate(); });
+    mk(MSG_ICONS.fav, '收藏到记忆', async (b) => {
       try {
         await callApi('append_memory', [JSON.stringify({ text: text.slice(0, 500) })]);
-        b.textContent = '✓ 已收藏'; setTimeout(() => b.textContent = '☆ 收藏', 1500);
-      } catch (e) { b.textContent = '✗ 失败'; }
+        flash(b, 'done');
+      } catch (e) { flash(b, 'fail'); }
     });
   }
-  contentEl.appendChild(bar);
+  msgEl.appendChild(bar);
 }
+
+/** 撤回 user 消息：midx 起删到下一个 user/system 前（仅当这些是会话末尾消息），内容回输入框。 */
+function msgRecall(msgEl, text) {
+  const s = (typeof getCurrentSession === 'function') ? getCurrentSession() : null;
+  const midx = msgEl && msgEl.dataset ? parseInt(msgEl.dataset.midx, 10) : NaN;
+  if (!s || isNaN(midx) || s.messages[midx] == null || s.messages[midx].role !== 'user') {
+    if (typeof toast === 'function') toast('该消息无法撤回（非本轮发送）', 'warn');
+    return;
+  }
+  // 末尾连续段：[midx .. 下一条 user/system 前]
+  let end = midx + 1;
+  while (end < s.messages.length && s.messages[end].role !== 'user' && s.messages[end].role !== 'system') end++;
+  if (end !== s.messages.length) {
+    if (typeof toast === 'function') toast('只能撤回最新的对话轮（该轮之后还有消息）', 'warn');
+    return;
+  }
+  s.messages.splice(midx, end - midx);
+  if (typeof saveSessions === 'function') saveSessions();
+  // 重渲染当前会话（含 DOM 清理）
+  if (typeof switchSession === 'function' && typeof currentSessionId !== 'undefined') switchSession(currentSessionId);
+  const input = document.getElementById('userInput');
+  if (input) { input.value = text; input.focus(); }
+  if (typeof toast === 'function') toast('已撤回，内容放回输入框', 'ok');
+}
+
