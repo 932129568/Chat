@@ -16,6 +16,7 @@
   （修复 W16）；流中通知/服务器请求帧经 on_frame 回调上交 client（修复 W15）。
 """
 import json
+import os
 import time
 import urllib.error
 import urllib.parse
@@ -46,6 +47,25 @@ class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
 _safe_opener = None
 
 
+def _build_safe_opener():
+    """构造全局安全 opener：禁重定向 + **默认禁系统代理**（2026-10-21 P0 修复）。
+
+    P0 根因（用户实测）：`build_opener` 默认带 ProxyHandler()——读取
+    http_proxy/https_proxy 环境变量。用户机器挂着代理（Clash/系统代理）时，
+    Harbor 后端的 GLM/本地端点请求全走代理链；代理出口被 GLM 挡或代理注入
+    假响应时，用户看到「HTTP 400 1211」而浏览器端与直连均正常——两侧行为
+    分裂，极难排查。GLM 等国内端点直连即可（前端 fetch 本来就不读代理变量），
+    后端与前端口径统一为直连。
+    逃生门：确需代理的用户设 `HARBOR_PROXY=http://host:port` 显式开启。
+    """
+    proxy = os.environ.get('HARBOR_PROXY', '').strip()
+    if proxy:
+        handler = urllib.request.ProxyHandler({'http': proxy, 'https': proxy})
+    else:
+        handler = urllib.request.ProxyHandler({})   # 空 dict = 禁代理直连
+    return urllib.request.build_opener(_NoRedirectHandler(), handler)
+
+
 def urlopen_no_redirect(req, timeout=None):
     """不跟随重定向的 urlopen；宿主替换过 urllib.request.urlopen 时用宿主的。"""
     fn = urllib.request.urlopen
@@ -53,7 +73,7 @@ def urlopen_no_redirect(req, timeout=None):
         return fn(req, timeout=timeout)
     global _safe_opener
     if _safe_opener is None:
-        _safe_opener = urllib.request.build_opener(_NoRedirectHandler())
+        _safe_opener = _build_safe_opener()
     return _safe_opener.open(req, timeout=timeout)
 
 

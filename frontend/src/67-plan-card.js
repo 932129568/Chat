@@ -266,7 +266,9 @@ function ckptShow(taskId, result) {
 }
 
 /** 回滚流程：清单 → inline 二次确认 → 执行 → 结果。 */
-async function ckptRollbackFlow(taskId) {
+async function ckptRollbackFlow(taskId, host) {
+  // host：浮层挂载容器（缺省=计划卡后；任务历史管理面板传自建容器）
+  const anchor = (host && host.parentNode) ? host : planCardEl;
   let list = { files: [], mode: 'none' };
   try {
     const raw = await pcCall('checkpoint_list', [taskId], 15000);
@@ -276,7 +278,7 @@ async function ckptRollbackFlow(taskId) {
     // git 锚点模式清单可能为空（reset 即恢复）——仍允许
     pcToast('检查点无文件清单（git 锚点模式将 reset 到任务前 HEAD）', 'info');
   }
-  if (typeof document === 'undefined' || !planCardEl) return;
+  if (typeof document === 'undefined' || !anchor) return;
   const box = document.createElement('div');
   box.className = 'plan-card';
   box.style.marginTop = '10px';
@@ -292,11 +294,12 @@ async function ckptRollbackFlow(taskId) {
       '<button class="pill-btn" id="rbCancel">取消</button>' +
       '<button class="pill-btn primary" id="rbConfirm">确认回滚</button>' +
     '</div>';
-  planCardEl.parentNode.insertBefore(box, planCardEl.nextSibling);
+  anchor.parentNode.insertBefore(box, anchor.nextSibling);
   pcScrollChat();
-  const cancel = pcEl('rbCancel');
+  // 容器内查询（勿用全局 id——历史面板可能连续开多个回滚浮层）
+  const cancel = box.querySelector('#rbCancel');
   if (cancel) cancel.onclick = () => box.remove();
-  const confirm = pcEl('rbConfirm');
+  const confirm = box.querySelector('#rbConfirm');
   if (confirm) confirm.onclick = () => rbTwice(confirm, taskId, box, list.files || []);
 }
 
