@@ -9,13 +9,28 @@
  * DOM/CSS 纯新增（UI 契约只增不改）。
  */
 
-/* 分组归置：模板块用 data-group；动态块按标题关键词推断 */
+/* 分组归置（2026-10-21 重排）：data-group 显式值优先；无则按 title 精确映射。
+   顺序即渲染顺序（GROUP_ORDER）——修旧版「模型与端点 ×3 / 数据 ×4」标签重复
+   与语义错位（外部软件曾归模型端点、任务授权曾归数据）。 */
+const SET_GROUP_ORDER = ['模型与端点', '对话与生成', '工具与软件', '数据与历史', '安全与授权', '系统'];
+const SET_GROUP_MAP = {
+  '连接与模型': '模型与端点', '混合路由': '模型与端点',
+  '省 Token 策略': '对话与生成', '生成参数': '对话与生成', '角色与联网': '对话与生成',
+  '外部软件': '工具与软件', 'MCP 服务器': '工具与软件', '命令沙箱': '工具与软件',
+  '数据同步 · WebDAV': '数据与历史', '任务历史与回滚': '数据与历史', '记忆': '数据与历史',
+  '任务授权与白名单': '安全与授权',
+  '软件更新': '系统', '外观与特效': '系统', '免打扰': '系统'
+};
 function _groupOf(blk, title) {
   const g = blk.dataset && blk.dataset.group;
   if (g) return g;
-  if (/软件|混合|路由|端点|模型|连接/.test(title)) return '模型与端点';
-  if (/授权|白名单|同步|WebDAV|数据/.test(title)) return '数据';
-  if (/Token|参数|角色|联网|搜索/.test(title)) return '对话';
+  const t = title.replace(/\s+/g, ' ').trim();
+  if (SET_GROUP_MAP[t]) return SET_GROUP_MAP[t];
+  for (const k of Object.keys(SET_GROUP_MAP)) { if (t.indexOf(k) >= 0) return SET_GROUP_MAP[k]; }
+  if (/授权|白名单/.test(t)) return '安全与授权';
+  if (/Token|参数|角色|联网/.test(t)) return '对话与生成';
+  if (/软件|MCP|沙箱/.test(t)) return '工具与软件';
+  if (/同步|历史|记忆|数据/.test(t)) return '数据与历史';
   return '系统';
 }
 /* 标题关键词 → 内联 SVG（stroke=currentColor 1.7 圆帽圆角，与 rail 同图标语言） */
@@ -67,7 +82,9 @@ function buildSetNav() {
   const blocks = Array.from(document.querySelectorAll('#settingsPanel .set-block'));
   if (!blocks.length) return;
   nav.innerHTML = '';
-  let lastGroup = null;
+  // 聚合 (group → [{blk,label,id}]) 后按 SET_GROUP_ORDER 定序渲染——组序不再
+  // 受块 DOM 顺序影响（动态注入块曾把组冲到末尾）
+  const groups = {};
   blocks.forEach((blk, i) => {
     const titleEl = blk.querySelector('.set-title');
     const label = titleEl ? titleEl.textContent.trim() : ('分区 ' + (i + 1));
@@ -78,13 +95,15 @@ function buildSetNav() {
       blk.id = 'setSec' + n;
     }
     const group = _groupOf(blk, label);
-    if (group !== lastGroup) {
-      const gh = document.createElement('div');
-      gh.className = 'set-nav-group';
-      gh.textContent = group;
-      nav.appendChild(gh);
-      lastGroup = group;
-    }
+    (groups[group] = groups[group] || []).push({ blk, label });
+  });
+  Object.keys(groups).forEach(g => { if (SET_GROUP_ORDER.indexOf(g) < 0) SET_GROUP_ORDER.push(g); });
+  SET_GROUP_ORDER.filter(g => groups[g]).forEach((group) => {
+    const gh = document.createElement('div');
+    gh.className = 'set-nav-group';
+    gh.textContent = group;
+    nav.appendChild(gh);
+    groups[group].forEach(({ blk, label }) => {
     const btn = document.createElement('button');
     btn.className = 'set-nav-btn';
     btn.type = 'button';
@@ -93,6 +112,7 @@ function buildSetNav() {
     btn.dataset.target = blk.id;
     btn.onclick = () => _showSetBlock(blk.id);
     nav.appendChild(btn);
+    });
   });
   // 首次构建（或动态块刚到）：无激活项时默认激活第一项
   const anyActive = nav.querySelector('.set-nav-btn.on');

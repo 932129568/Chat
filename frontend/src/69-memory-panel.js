@@ -84,7 +84,7 @@ function memoryPanelInit() {
   const block = document.createElement('div');
   block.id = 'memoryBlock';
   block.className = 'set-block';
-  block.setAttribute('data-group', '数据');   // 归「数据」组（33-set-nav 既有归组机制）
+  block.setAttribute('data-group', '数据与历史');   // 归「数据」组（33-set-nav 既有归组机制）
   block.setAttribute('data-state', 'idle');
   block.innerHTML =
     '<div class="set-title">记忆（v1.8.0）</div>' +

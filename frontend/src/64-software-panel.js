@@ -77,6 +77,7 @@ function softwarePanelInit() {
   const block = document.createElement('div');
   block.id = 'softwareBlock';
   block.className = 'set-block';
+  block.setAttribute('data-group', '工具与软件');
   block.innerHTML =
     '<div class="set-title">外部软件（v1.8.0）</div>' +
     '<div class="set-hint" style="margin:2px 0 8px;">' +

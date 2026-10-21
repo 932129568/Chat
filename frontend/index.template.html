@@ -479,12 +479,13 @@ body.dark .eff-tag-s{background:var(--ok-bg);color:var(--ok);}
 .set-win-close:hover{background:var(--err-bg);color:var(--err)}
 .set-win-body{flex:1;display:grid;grid-template-columns:208px 1fr;min-height:0}
 /* 左导航（竖排分组列表，替代原顶部 pills） */
-.set-nav{display:flex;flex-direction:column;gap:2px;padding:12px 10px;overflow-y:auto;
+.set-nav{display:flex;flex-direction:column;gap:3px;padding:12px 10px;overflow-y:auto;
   border-right:1px solid var(--border);background:var(--surface-2);position:static;}
-.set-nav-group{font-size:10.5px;font-weight:600;color:var(--text-3);letter-spacing:.05em;
-  padding:12px 10px 5px;text-transform:uppercase}
+.set-nav-group{font-size:10.5px;font-weight:600;color:var(--text-3);letter-spacing:.06em;
+  padding:15px 10px 6px;text-transform:uppercase}
 .set-nav-group:first-child{padding-top:2px}
-.set-nav-btn{width:100%;height:32px;padding:0 11px;border-radius:var(--radius-md);
+.set-nav-group + .set-nav-group{margin-top:2px}
+.set-nav-btn{width:100%;height:34px;padding:0 11px;border-radius:var(--radius-md);
   display:flex;align-items:center;gap:9px;font-size:12.5px;text-align:left;white-space:nowrap;
   border:1px solid transparent;background:transparent;color:var(--text-2);font-family:inherit;cursor:pointer;
   overflow:hidden;text-overflow:ellipsis;
@@ -2350,7 +2351,7 @@ body.fx-off .cm-save-btn::after{display:none}
             </div>
           </div>
 
-          <div class="set-block" data-group="对话">
+          <div class="set-block" data-group="对话与生成">
             <div class="set-title">省 Token 策略</div>
             <label>截图质量</label>
             <select id="shotQuality">
@@ -2376,7 +2377,7 @@ body.fx-off .cm-save-btn::after{display:none}
             </div>
           </div>
 
-          <div class="set-block" data-group="对话">
+          <div class="set-block" data-group="对话与生成">
             <div class="set-title">生成参数</div>
             <label for="maxTokens">最大输出 tokens</label>
             <input type="number" id="maxTokens" value="16384" min="256" max="128000" step="256">
@@ -2390,7 +2391,7 @@ body.fx-off .cm-save-btn::after{display:none}
             </div>
           </div>
 
-          <div class="set-block" data-group="对话">
+          <div class="set-block" data-group="对话与生成">
             <div class="set-title">角色与联网</div>
             <label for="systemPrompt">系统设定（角色 Prompt，长指令写在这里更省）</label>
             <textarea id="systemPrompt" rows="3" placeholder="例如: 你是一名专业的软件开发工程师，认真负责，不随口胡说。"></textarea>
@@ -2412,7 +2413,7 @@ body.fx-off .cm-save-btn::after{display:none}
           </div>
 
           <!-- v1.6 WebDAV 数据主权（预留接口层 UI：校验/冲突判定就绪，IO 为 reserved 占位） -->
-          <div class="set-block" data-group="数据">
+          <div class="set-block" data-group="数据与历史">
             <div class="set-title">数据同步 · WebDAV（v1.6 预留）</div>
             <div class="set-hint" style="margin:2px 0 8px;">
               配置 + 会话 + 审计日志备份到 WebDAV（https）；三方冲突（本地/云端/备份）分类判定已就绪。<br>
@@ -2479,7 +2480,7 @@ body.fx-off .cm-save-btn::after{display:none}
             </div>
           </div>
 
-          <div class="set-block" data-group="系统">
+          <div class="set-block" data-group="工具与软件">
             <div class="set-title">MCP 服务器（v1.3）</div>
             <div class="set-hint" style="margin:2px 0 8px;">
               接入 Model Context Protocol 工具生态：stdio 本地服务器 / Streamable HTTP 远程服务器。<br>

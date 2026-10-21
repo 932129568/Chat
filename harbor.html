@@ -479,12 +479,13 @@ body.dark .eff-tag-s{background:var(--ok-bg);color:var(--ok);}
 .set-win-close:hover{background:var(--err-bg);color:var(--err)}
 .set-win-body{flex:1;display:grid;grid-template-columns:208px 1fr;min-height:0}
 /* 左导航（竖排分组列表，替代原顶部 pills） */
-.set-nav{display:flex;flex-direction:column;gap:2px;padding:12px 10px;overflow-y:auto;
+.set-nav{display:flex;flex-direction:column;gap:3px;padding:12px 10px;overflow-y:auto;
   border-right:1px solid var(--border);background:var(--surface-2);position:static;}
-.set-nav-group{font-size:10.5px;font-weight:600;color:var(--text-3);letter-spacing:.05em;
-  padding:12px 10px 5px;text-transform:uppercase}
+.set-nav-group{font-size:10.5px;font-weight:600;color:var(--text-3);letter-spacing:.06em;
+  padding:15px 10px 6px;text-transform:uppercase}
 .set-nav-group:first-child{padding-top:2px}
-.set-nav-btn{width:100%;height:32px;padding:0 11px;border-radius:var(--radius-md);
+.set-nav-group + .set-nav-group{margin-top:2px}
+.set-nav-btn{width:100%;height:34px;padding:0 11px;border-radius:var(--radius-md);
   display:flex;align-items:center;gap:9px;font-size:12.5px;text-align:left;white-space:nowrap;
   border:1px solid transparent;background:transparent;color:var(--text-2);font-family:inherit;cursor:pointer;
   overflow:hidden;text-overflow:ellipsis;
@@ -2350,7 +2351,7 @@ body.fx-off .cm-save-btn::after{display:none}
             </div>
           </div>
 
-          <div class="set-block" data-group="对话">
+          <div class="set-block" data-group="对话与生成">
             <div class="set-title">省 Token 策略</div>
             <label>截图质量</label>
             <select id="shotQuality">
@@ -2376,7 +2377,7 @@ body.fx-off .cm-save-btn::after{display:none}
             </div>
           </div>
 
-          <div class="set-block" data-group="对话">
+          <div class="set-block" data-group="对话与生成">
             <div class="set-title">生成参数</div>
             <label for="maxTokens">最大输出 tokens</label>
             <input type="number" id="maxTokens" value="16384" min="256" max="128000" step="256">
@@ -2390,7 +2391,7 @@ body.fx-off .cm-save-btn::after{display:none}
             </div>
           </div>
 
-          <div class="set-block" data-group="对话">
+          <div class="set-block" data-group="对话与生成">
             <div class="set-title">角色与联网</div>
             <label for="systemPrompt">系统设定（角色 Prompt，长指令写在这里更省）</label>
             <textarea id="systemPrompt" rows="3" placeholder="例如: 你是一名专业的软件开发工程师，认真负责，不随口胡说。"></textarea>
@@ -2412,7 +2413,7 @@ body.fx-off .cm-save-btn::after{display:none}
           </div>
 
           <!-- v1.6 WebDAV 数据主权（预留接口层 UI：校验/冲突判定就绪，IO 为 reserved 占位） -->
-          <div class="set-block" data-group="数据">
+          <div class="set-block" data-group="数据与历史">
             <div class="set-title">数据同步 · WebDAV（v1.6 预留）</div>
             <div class="set-hint" style="margin:2px 0 8px;">
               配置 + 会话 + 审计日志备份到 WebDAV（https）；三方冲突（本地/云端/备份）分类判定已就绪。<br>
@@ -2479,7 +2480,7 @@ body.fx-off .cm-save-btn::after{display:none}
             </div>
           </div>
 
-          <div class="set-block" data-group="系统">
+          <div class="set-block" data-group="工具与软件">
             <div class="set-title">MCP 服务器（v1.3）</div>
             <div class="set-hint" style="margin:2px 0 8px;">
               接入 Model Context Protocol 工具生态：stdio 本地服务器 / Streamable HTTP 远程服务器。<br>
@@ -5329,13 +5330,28 @@ function jumpToSearchHit(sessionId, midx) {
  * DOM/CSS 纯新增（UI 契约只增不改）。
  */
 
-/* 分组归置：模板块用 data-group；动态块按标题关键词推断 */
+/* 分组归置（2026-10-21 重排）：data-group 显式值优先；无则按 title 精确映射。
+   顺序即渲染顺序（GROUP_ORDER）——修旧版「模型与端点 ×3 / 数据 ×4」标签重复
+   与语义错位（外部软件曾归模型端点、任务授权曾归数据）。 */
+const SET_GROUP_ORDER = ['模型与端点', '对话与生成', '工具与软件', '数据与历史', '安全与授权', '系统'];
+const SET_GROUP_MAP = {
+  '连接与模型': '模型与端点', '混合路由': '模型与端点',
+  '省 Token 策略': '对话与生成', '生成参数': '对话与生成', '角色与联网': '对话与生成',
+  '外部软件': '工具与软件', 'MCP 服务器': '工具与软件', '命令沙箱': '工具与软件',
+  '数据同步 · WebDAV': '数据与历史', '任务历史与回滚': '数据与历史', '记忆': '数据与历史',
+  '任务授权与白名单': '安全与授权',
+  '软件更新': '系统', '外观与特效': '系统', '免打扰': '系统'
+};
 function _groupOf(blk, title) {
   const g = blk.dataset && blk.dataset.group;
   if (g) return g;
-  if (/软件|混合|路由|端点|模型|连接/.test(title)) return '模型与端点';
-  if (/授权|白名单|同步|WebDAV|数据/.test(title)) return '数据';
-  if (/Token|参数|角色|联网|搜索/.test(title)) return '对话';
+  const t = title.replace(/\s+/g, ' ').trim();
+  if (SET_GROUP_MAP[t]) return SET_GROUP_MAP[t];
+  for (const k of Object.keys(SET_GROUP_MAP)) { if (t.indexOf(k) >= 0) return SET_GROUP_MAP[k]; }
+  if (/授权|白名单/.test(t)) return '安全与授权';
+  if (/Token|参数|角色|联网/.test(t)) return '对话与生成';
+  if (/软件|MCP|沙箱/.test(t)) return '工具与软件';
+  if (/同步|历史|记忆|数据/.test(t)) return '数据与历史';
   return '系统';
 }
 /* 标题关键词 → 内联 SVG（stroke=currentColor 1.7 圆帽圆角，与 rail 同图标语言） */
@@ -5387,7 +5403,9 @@ function buildSetNav() {
   const blocks = Array.from(document.querySelectorAll('#settingsPanel .set-block'));
   if (!blocks.length) return;
   nav.innerHTML = '';
-  let lastGroup = null;
+  // 聚合 (group → [{blk,label,id}]) 后按 SET_GROUP_ORDER 定序渲染——组序不再
+  // 受块 DOM 顺序影响（动态注入块曾把组冲到末尾）
+  const groups = {};
   blocks.forEach((blk, i) => {
     const titleEl = blk.querySelector('.set-title');
     const label = titleEl ? titleEl.textContent.trim() : ('分区 ' + (i + 1));
@@ -5398,13 +5416,15 @@ function buildSetNav() {
       blk.id = 'setSec' + n;
     }
     const group = _groupOf(blk, label);
-    if (group !== lastGroup) {
-      const gh = document.createElement('div');
-      gh.className = 'set-nav-group';
-      gh.textContent = group;
-      nav.appendChild(gh);
-      lastGroup = group;
-    }
+    (groups[group] = groups[group] || []).push({ blk, label });
+  });
+  Object.keys(groups).forEach(g => { if (SET_GROUP_ORDER.indexOf(g) < 0) SET_GROUP_ORDER.push(g); });
+  SET_GROUP_ORDER.filter(g => groups[g]).forEach((group) => {
+    const gh = document.createElement('div');
+    gh.className = 'set-nav-group';
+    gh.textContent = group;
+    nav.appendChild(gh);
+    groups[group].forEach(({ blk, label }) => {
     const btn = document.createElement('button');
     btn.className = 'set-nav-btn';
     btn.type = 'button';
@@ -5413,6 +5433,7 @@ function buildSetNav() {
     btn.dataset.target = blk.id;
     btn.onclick = () => _showSetBlock(blk.id);
     nav.appendChild(btn);
+    });
   });
   // 首次构建（或动态块刚到）：无激活项时默认激活第一项
   const anyActive = nav.querySelector('.set-nav-btn.on');
@@ -10028,6 +10049,7 @@ function softwarePanelInit() {
   const block = document.createElement('div');
   block.id = 'softwareBlock';
   block.className = 'set-block';
+  block.setAttribute('data-group', '工具与软件');
   block.innerHTML =
     '<div class="set-title">外部软件（v1.8.0）</div>' +
     '<div class="set-hint" style="margin:2px 0 8px;">' +
@@ -11022,6 +11044,7 @@ function guardGrantInit() {
       const block = document.createElement('div');
       block.id = 'grantRulesBlock';
       block.className = 'set-block';
+      block.setAttribute('data-group', '安全与授权');
       block.innerHTML =
         '<div class="set-title">任务授权与白名单（v1.8.5）</div>' +
         '<div class="set-hint" style="margin:2px 0 8px;">' +
@@ -12088,7 +12111,7 @@ function memoryPanelInit() {
   const block = document.createElement('div');
   block.id = 'memoryBlock';
   block.className = 'set-block';
-  block.setAttribute('data-group', '数据');   // 归「数据」组（33-set-nav 既有归组机制）
+  block.setAttribute('data-group', '数据与历史');   // 归「数据」组（33-set-nav 既有归组机制）
   block.setAttribute('data-state', 'idle');
   block.innerHTML =
     '<div class="set-title">记忆（v1.8.0）</div>' +
@@ -12457,6 +12480,7 @@ function checkpointMgrInit() {
   const block = document.createElement('div');
   block.id = 'taskHistoryBlock';
   block.className = 'set-block';
+  block.setAttribute('data-group', '数据与历史');
   block.dataset.group = '数据';
   block.innerHTML =
     '<div class="set-title">任务历史与回滚</div>' +

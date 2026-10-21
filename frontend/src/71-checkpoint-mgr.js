@@ -36,6 +36,7 @@ function checkpointMgrInit() {
   const block = document.createElement('div');
   block.id = 'taskHistoryBlock';
   block.className = 'set-block';
+  block.setAttribute('data-group', '数据与历史');
   block.dataset.group = '数据';
   block.innerHTML =
     '<div class="set-title">任务历史与回滚</div>' +

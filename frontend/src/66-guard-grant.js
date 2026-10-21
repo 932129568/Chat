@@ -96,6 +96,7 @@ function guardGrantInit() {
       const block = document.createElement('div');
       block.id = 'grantRulesBlock';
       block.className = 'set-block';
+      block.setAttribute('data-group', '安全与授权');
       block.innerHTML =
         '<div class="set-title">任务授权与白名单（v1.8.5）</div>' +
         '<div class="set-hint" style="margin:2px 0 8px;">' +
@@ -150,7 +151,10 @@ function guardGrantInit() {
   guardGrantWire();
   guardGrantRefreshStatus();
   guardGrantRulesRefresh();
-  guardGrantStartTimers();
+  // 修复（建议12）：原此处无条件 guardGrantStartTimers()——ggActive=false（无授权）
+  // 时 1s 倒计时定时器 + 30s 校准定时器永久空转（guardGrantTick 虽早退，但每 30s
+  // 仍发一次 guard_task_status RPC，进程生命周期内永不停止）。改由
+  // guardGrantRefreshStatus 按 active 态启停（grant 创建/校准为 active 时再启）。
   return true;
 }
 function guardGrantWire() {
@@ -177,7 +181,9 @@ function guardGrantWire() {
   if (add) add.addEventListener('click', () => guardGrantRuleAdd());
 }
 
-/* ---------- 倒计时（本地 1s 递减 + 30s status 校准） ---------- */
+/* ---------- 倒计时（本地 1s 递减 + 30s status 校准） ----------
+ * 修复（建议12）：定时器生命周期绑定 ggActive——无授权时停（校准/倒计时都无意义），
+ * guard 创建成功或校准发现 active 时启。guardGrantStartTimers/StopTimers 均幂等。 */
 function guardGrantStartTimers() {
   if (ggCountdownTimer || typeof setInterval === 'undefined') return;
   ggCountdownTimer = setInterval(guardGrantTick, GG_COUNTDOWN_MS);
@@ -221,6 +227,10 @@ async function guardGrantRefreshStatus(calibrate) {
       if (prevActive && !ggActive) {
         ggToast('任务授权已到期/收回，后续操作将逐项确认', 'warn');
       }
+      // 修复（建议12）：按 active 态启停定时器——无授权（idle/到期/收回）时停掉
+      // 1s 倒计时 + 30s 校准，不再永久空转；active 时确保在跑（校准可能来自
+      // 外部授予路径）。
+      if (ggActive) guardGrantStartTimers(); else guardGrantStopTimers();
       guardGrantRenderIndicator();
       ggState = 'success';
     } else {
@@ -296,6 +306,7 @@ async function guardGrantCreate() {
       ggGrantId = d.grant_id || null;
       ggRemaining = parseInt(d.remaining_s || 0, 10) || 0;
       ggExpiringSoon = !!d.expiring_soon;
+      guardGrantStartTimers();   // 修复（建议12）：grant 创建成功 → 启动倒计时/校准（此前依赖 init 的一次性启动，revoke 后再 grant 无定时器）
       guardGrantRenderIndicator();
     } else {
       ggToast('授权失败: ' + ((d && d.error) || '未知错误'), 'err');
@@ -316,6 +327,7 @@ async function guardGrantRevoke() {
       ggActive = false;
       ggGrantId = null;
       ggRemaining = 0;
+      guardGrantStopTimers();   // 修复（建议12）：收回即停定时器（无授权态不再空转/轮询）
       guardGrantRenderIndicator();
     } else {
       ggToast('收回失败: ' + ((d && d.error) || '未知错误'), 'err');
