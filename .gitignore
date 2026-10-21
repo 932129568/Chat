@@ -31,3 +31,7 @@ webdav.json
 config.json
 *.dpapi
 push_exe_tmp.py
+
+# 发行分发走 GitHub Release assets，git 不跟踪 exe（2026-10-21 用户要求）
+dist/*.exe
+build/

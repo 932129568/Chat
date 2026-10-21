@@ -33,6 +33,7 @@ hostname 精确比较——``http://localhost.evil.com`` 之类子串绕过无�
   get_api_info 契约差分零漂移（与 sandbox_* / mcp_* 先例一致）；
 - 进程级单例 ``get_proxy()``，``ensure_running()`` 幂等（Api 装配时启动）。
 """
+import os
 import threading
 import urllib.error
 import urllib.parse
@@ -47,16 +48,31 @@ TARGET_HEADER = 'X-Harbor-Target'
 # 回环白名单（与 local_model_service._local_hostname 同口径；hostname 精确比较，
 # 防 http://localhost.evil.com 之类绕过）
 LOOPBACK_HOSTS = ('localhost', '127.0.0.1', '::1')
+# 云端目标白名单（2026-10-21 P0 修复）：GLM 官方域名。前端 fetch 直连云端端点时
+# 会被 EdgeWebView 的系统代理栈拦截（用户机器挂 Clash/系统代理 → Failed to fetch，
+# 而浏览器与后端直连均正常，两侧行为分裂且浏览器 fetch 无法禁代理）。解法国：
+# 云端请求也经本代理转发（后端 opener 已禁系统代理直连，前端只 fetch 127.0.0.1
+# 必然绕开任何系统代理），同时代理补 CORS 头让 4xx 真因不再被吞。
+# 自定义端点（DeepSeek 等）不在白名单——保持直连路径，行为不劣化；确需经代理
+# 的自定义端点可设 HARBOR_PROXY_ALLOW_HOSTS=host1,host2 追加。
+CLOUD_HOSTS = ('open.bigmodel.cn', 'bigmodel.cn')
 CHUNK_SIZE = 8192             # 流式转发块大小（SSE 实时性：读一块写一块即 flush）
 FORWARD_TIMEOUT = 300         # 单次 socket 超时（秒）——本地慢推理首 token 可能很久
 MAX_BODY = 32 * 1024 * 1024   # 请求体上限（32MB；chat 请求体通常 <1MB，防恶意大包）
 
 
-def _is_loopback(target):
-    """X-Harbor-Target 目标是否回环地址（安全硬约束：非回环一律拒绝）。
+def _extra_cloud_hosts():
+    """HARBOR_PROXY_ALLOW_HOSTS env 追加白名单（逗号分隔；逃生门）。"""
+    raw = os.environ.get('HARBOR_PROXY_ALLOW_HOSTS', '')
+    return tuple(h.strip().lower() for h in raw.split(',') if h.strip())
 
-    scheme 仅放行 http/https；hostname 精确比较（不用子串——防
-    http://localhost.evil.com 之类绕过）。解析失败按非回环处理（fail-closed）。
+
+def _is_allowed_target(target):
+    """X-Harbor-Target 目标是否放行：回环（本地模型）+ 云端白名单（GLM）。
+
+    hostname 精确比较（不用子串——防 http://localhost.evil.com / 
+    open.bigmodel.cn.evil.com 之类绕过）；scheme 仅 http/https；
+    解析失败按拒绝处理（fail-closed）。
     """
     try:
         u = urllib.parse.urlsplit(str(target or '').strip())
@@ -65,7 +81,9 @@ def _is_loopback(target):
         return False
     if u.scheme and u.scheme not in ('http', 'https'):
         return False
-    return host in LOOPBACK_HOSTS
+    if host in LOOPBACK_HOSTS:
+        return True
+    return host in CLOUD_HOSTS + _extra_cloud_hosts()
 
 
 def _target_url(target, path):
@@ -144,9 +162,9 @@ class _ProxyHandler(BaseHTTPRequestHandler):
         if not target:
             self._json(400, {'error': '缺少 %s 请求头（目标本地 base_url）' % TARGET_HEADER})
             return
-        if not _is_loopback(target):
-            # 安全硬约束：仅放行回环目标——防代理被滥用为开放中继
-            self._json(403, {'error': '%s 必须是本机回环地址（localhost/127.0.0.1/::1）'
+        if not _is_allowed_target(target):
+            # 安全硬约束：仅放行回环 + 云端白名单目标——防代理被滥用为开放中继
+            self._json(403, {'error': '%s 必须是本机回环地址或白名单云端端点'
                                     % TARGET_HEADER})
             return
 

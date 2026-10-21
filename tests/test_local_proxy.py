@@ -17,18 +17,18 @@ PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
 class TestLocalCorsProxyUnit:
-    """代理单测：回环校验/URL 拼接/单例/幂等。"""
+    """代理单测：目标白名单校验（回环+云端）/URL 拼接/单例/幂等。"""
 
     def test_loopback_check(self):
-        from backend.services.local_proxy import _is_loopback
-        assert _is_loopback('http://127.0.0.1:1919/v1') is True
-        assert _is_loopback('http://localhost:8080/v1') is True
-        assert _is_loopback('http://[::1]:8080/v1') is True
+        from backend.services.local_proxy import _is_allowed_target
+        assert _is_allowed_target('http://127.0.0.1:1919/v1') is True
+        assert _is_allowed_target('http://localhost:8080/v1') is True
+        assert _is_allowed_target('http://[::1]:8080/v1') is True
         # 非回环一律拒（含子串绕过形态）
-        assert _is_loopback('http://evil.com/v1') is False
-        assert _is_loopback('http://localhost.evil.com/v1') is False
-        assert _is_loopback('ftp://127.0.0.1/x') is False
-        assert _is_loopback('') is False
+        assert _is_allowed_target('http://evil.com/v1') is False
+        assert _is_allowed_target('http://localhost.evil.com/v1') is False
+        assert _is_allowed_target('ftp://127.0.0.1/x') is False
+        assert _is_allowed_target('') is False
 
     def test_target_url(self):
         from backend.services.local_proxy import _target_url
@@ -210,3 +210,34 @@ class TestGetLocalProxyApi:
             r = json.loads(r)
         assert r['ok'] is True and r['port'] > 0
         assert r['base_url'] == 'http://127.0.0.1:%d' % r['port']
+
+
+class TestCloudWhitelist:
+    """2026-10-21 P0：GLM 云端经代理转发（绕开 EdgeWebView 系统代理栈）。"""
+
+    def test_glm_allowed(self):
+        from backend.services.local_proxy import _is_allowed_target
+        assert _is_allowed_target('https://open.bigmodel.cn/api/paas/v4') is True
+        assert _is_allowed_target('https://bigmodel.cn/api/paas/v4') is True
+
+    def test_loopback_still_allowed(self):
+        from backend.services.local_proxy import _is_allowed_target
+        assert _is_allowed_target('http://127.0.0.1:1919/v1') is True
+        assert _is_allowed_target('http://localhost:11434/v1') is True
+
+    def test_other_cloud_rejected(self):
+        from backend.services.local_proxy import _is_allowed_target
+        assert _is_allowed_target('https://api.deepseek.com/v1') is False
+        assert _is_allowed_target('https://evil.com/v1') is False
+
+    def test_subdomain_spoof_rejected(self):
+        from backend.services.local_proxy import _is_allowed_target
+        assert _is_allowed_target('https://open.bigmodel.cn.evil.com/v1') is False
+        assert _is_allowed_target('https://localhost.evil.com/v1') is False
+
+    def test_env_escape_hatch(self, monkeypatch):
+        monkeypatch.setenv('HARBOR_PROXY_ALLOW_HOSTS', 'api.deepseek.com, foo.bar')
+        from backend.services.local_proxy import _is_allowed_target
+        assert _is_allowed_target('https://api.deepseek.com/v1') is True
+        assert _is_allowed_target('https://foo.bar/v1') is True
+        assert _is_allowed_target('https://evil.com/v1') is False
