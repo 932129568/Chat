@@ -227,7 +227,8 @@ class TestCloudWhitelist:
 
     def test_other_cloud_rejected(self):
         from backend.services.local_proxy import _is_allowed_target
-        assert _is_allowed_target('https://api.deepseek.com/v1') is False
+        # deepseek 已入静态白名单（全云端策略 2026-10-21）；用未收录域验证拒绝
+        assert _is_allowed_target('https://api.unknown-llm.com/v1') is False
         assert _is_allowed_target('https://evil.com/v1') is False
 
     def test_subdomain_spoof_rejected(self):
@@ -241,3 +242,67 @@ class TestCloudWhitelist:
         assert _is_allowed_target('https://api.deepseek.com/v1') is True
         assert _is_allowed_target('https://foo.bar/v1') is True
         assert _is_allowed_target('https://evil.com/v1') is False
+
+
+class TestDynamicAndMoreCloud:
+    """2026-10-21：动态白名单（用户配置端点）+ 更多云端域名。"""
+
+    def test_more_cloud_hosts(self):
+        from backend.services.local_proxy import _is_allowed_target
+        for u in ('https://api.deepseek.com/v1', 'https://api.moonshot.cn/v1',
+                  'https://dashscope.aliyuncs.com/compatible-mode/v1',
+                  'https://models.github.ai/inference', 'https://api.openai.com/v1'):
+            assert _is_allowed_target(u) is True, u
+
+    def test_dynamic_hosts_from_config(self, monkeypatch, tmp_path):
+        import json as _json
+        import backend.services.local_proxy as lp
+        from backend import paths
+        cfg_path = os.path.join(paths.CONFIG_DIR, 'config.json')
+        old = None
+        if os.path.exists(cfg_path):
+            old = open(cfg_path, encoding='utf-8').read()
+        os.makedirs(os.path.dirname(cfg_path), exist_ok=True)
+        try:
+            with open(cfg_path, 'w', encoding='utf-8') as f:
+                _json.dump({'base_url': 'https://my-llm.example.com/v1'}, f)
+            lp._DYNAMIC_CACHE['ts'] = 0.0
+            assert lp._is_allowed_target('https://my-llm.example.com/v1') is True
+            assert lp._is_allowed_target('https://evil.com/v1') is False
+        finally:
+            lp._DYNAMIC_CACHE['ts'] = 0.0
+            if old is not None:
+                with open(cfg_path, 'w', encoding='utf-8') as f:
+                    f.write(old)
+
+
+class TestDynamicAndMoreCloud:
+    """2026-10-21：动态白名单（用户配置端点）+ 更多云端域名。"""
+
+    def test_more_cloud_hosts(self):
+        from backend.services.local_proxy import _is_allowed_target
+        for u in ('https://api.deepseek.com/v1', 'https://api.moonshot.cn/v1',
+                  'https://dashscope.aliyuncs.com/compatible-mode/v1',
+                  'https://models.github.ai/inference', 'https://api.openai.com/v1'):
+            assert _is_allowed_target(u) is True, u
+
+    def test_dynamic_hosts_from_config(self, monkeypatch, tmp_path):
+        import json as _json
+        import backend.services.local_proxy as lp
+        from backend import paths
+        cfg_path = os.path.join(paths.CONFIG_DIR, 'config.json')
+        old = None
+        if os.path.exists(cfg_path):
+            old = open(cfg_path, encoding='utf-8').read()
+        os.makedirs(os.path.dirname(cfg_path), exist_ok=True)
+        try:
+            with open(cfg_path, 'w', encoding='utf-8') as f:
+                _json.dump({'base_url': 'https://my-llm.example.com/v1'}, f)
+            lp._DYNAMIC_CACHE['ts'] = 0.0
+            assert lp._is_allowed_target('https://my-llm.example.com/v1') is True
+            assert lp._is_allowed_target('https://evil.com/v1') is False
+        finally:
+            lp._DYNAMIC_CACHE['ts'] = 0.0
+            if old is not None:
+                with open(cfg_path, 'w', encoding='utf-8') as f:
+                    f.write(old)

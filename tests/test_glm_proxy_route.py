@@ -66,8 +66,8 @@ _CASES = {
     return { endpoint: resolveApiEndpoint(), headers: localProxyHeaders(), glm: isGlmEndpoint() };
   `);
 """,
-    # 自定义端点（DeepSeek）：不经代理，直连
-    'custom_direct': _LOAD + r"""
+    # 自定义端点（DeepSeek）：也走代理（2026-10-21 全云端策略）
+    'custom_via_proxy': _LOAD + r"""
   __run('providerState = { enabled:true, name:"deepseek", base_url:"https://api.deepseek.com/v1", model:"deepseek-chat" }; localState = { mode:false, base_url:"" };');
   return __vmEval(`
     return { endpoint: resolveApiEndpoint(), headers: localProxyHeaders() };
@@ -98,10 +98,10 @@ class TestGlmProxyRoute:
         assert r['headers']['X-Harbor-Target'] == 'https://open.bigmodel.cn/api/paas/v4'
         assert r['glm'] is True
 
-    def test_custom_direct(self):
-        r = _run(_CASES['custom_direct'], 'custom')
-        assert r['endpoint'] == 'https://api.deepseek.com/v1/chat/completions'
-        assert r['headers'] == {}                       # 不附代理头
+    def test_custom_via_proxy(self):
+        r = _run(_CASES['custom_via_proxy'], 'custom')
+        assert r['endpoint'] == 'http://127.0.0.1:50123/chat/completions'
+        assert r['headers']['X-Harbor-Target'] == 'https://api.deepseek.com/v1' 
 
     def test_local_via_proxy(self):
         r = _run(_CASES['local_via_proxy'], 'local')

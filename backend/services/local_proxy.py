@@ -35,6 +35,7 @@ hostname 精确比较——``http://localhost.evil.com`` 之类子串绕过无�
 """
 import os
 import threading
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -48,14 +49,46 @@ TARGET_HEADER = 'X-Harbor-Target'
 # 回环白名单（与 local_model_service._local_hostname 同口径；hostname 精确比较，
 # 防 http://localhost.evil.com 之类绕过）
 LOOPBACK_HOSTS = ('localhost', '127.0.0.1', '::1')
-# 云端目标白名单（2026-10-21 P0 修复）：GLM 官方域名。前端 fetch 直连云端端点时
-# 会被 EdgeWebView 的系统代理栈拦截（用户机器挂 Clash/系统代理 → Failed to fetch，
-# 而浏览器与后端直连均正常，两侧行为分裂且浏览器 fetch 无法禁代理）。解法国：
-# 云端请求也经本代理转发（后端 opener 已禁系统代理直连，前端只 fetch 127.0.0.1
-# 必然绕开任何系统代理），同时代理补 CORS 头让 4xx 真因不再被吞。
-# 自定义端点（DeepSeek 等）不在白名单——保持直连路径，行为不劣化；确需经代理
-# 的自定义端点可设 HARBOR_PROXY_ALLOW_HOSTS=host1,host2 追加。
-CLOUD_HOSTS = ('open.bigmodel.cn', 'bigmodel.cn')
+# 云端目标白名单（2026-10-21 P0 修复）：主流云端大模型 API 域名。前端 fetch
+# 直连云端端点时会被 EdgeWebView 的系统代理栈拦截（用户机器挂 Clash/系统代理
+# → Failed to fetch，而浏览器与后端直连均正常，两侧行为分裂且浏览器 fetch
+# 无法禁代理）。解法国：云端请求也经本代理转发（后端 opener 已禁系统代理
+# 直连，前端只 fetch 127.0.0.1 必然绕开任何系统代理），同时代理补 CORS
+# 头让 4xx 真因不再被吞。
+# 覆盖 GLM/DeepSeek/Moonshot/Qwen/GitHub Models/OpenAI/Anthropic；用户自定义
+# 端点（provider base_url 配置）经 _dynamic_hosts 动态放行；确需其他的可设
+# HARBOR_PROXY_ALLOW_HOSTS=host1,host2 追加。
+CLOUD_HOSTS = ('open.bigmodel.cn', 'bigmodel.cn',
+               'api.deepseek.com', 'api.moonshot.cn',
+               'dashscope.aliyuncs.com', 'models.github.ai',
+               'api.openai.com', 'api.anthropic.com')
+_DYNAMIC_CACHE = {'ts': 0.0, 'hosts': ()}
+_DYNAMIC_TTL = 10.0     # config.json 动态白名单缓存秒数（改配置后 10s 内生效）
+
+
+def _dynamic_hosts():
+    """用户配置的端点 host（provider base_url / local_base_url）——用户自己
+    配的端点即用户意图，动态放行。读 config.json（小文件，10s 缓存）。"""
+    now = time.monotonic()
+    if now - _DYNAMIC_CACHE['ts'] < _DYNAMIC_TTL:
+        return _DYNAMIC_CACHE['hosts']
+    hosts = set()
+    try:
+        import json as _json
+        from .. import paths as _paths
+        cfg_path = os.path.join(_paths.CONFIG_DIR, 'config.json')
+        if os.path.exists(cfg_path):
+            with open(cfg_path, encoding='utf-8') as f:
+                cfg = _json.load(f)
+            for key in ('base_url', 'local_base_url'):
+                u = urllib.parse.urlsplit(str(cfg.get(key) or '').strip())
+                if u.hostname:
+                    hosts.add(u.hostname.lower())
+    except Exception:
+        pass          # 读不到不阻塞（白名单静态部分仍生效）
+    _DYNAMIC_CACHE['ts'] = now
+    _DYNAMIC_CACHE['hosts'] = tuple(hosts)
+    return _DYNAMIC_CACHE['hosts']
 CHUNK_SIZE = 8192             # 流式转发块大小（SSE 实时性：读一块写一块即 flush）
 FORWARD_TIMEOUT = 300         # 单次 socket 超时（秒）——本地慢推理首 token 可能很久
 MAX_BODY = 32 * 1024 * 1024   # 请求体上限（32MB；chat 请求体通常 <1MB，防恶意大包）
@@ -83,7 +116,7 @@ def _is_allowed_target(target):
         return False
     if host in LOOPBACK_HOSTS:
         return True
-    return host in CLOUD_HOSTS + _extra_cloud_hosts()
+    return host in CLOUD_HOSTS + _extra_cloud_hosts() + _dynamic_hosts()
 
 
 def _target_url(target, path):
