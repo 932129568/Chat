@@ -9,6 +9,10 @@
  * 对「前 3000 中文 + 后 3 万代码」的构造与全量扫描基准误差 <10%（实测 ~0.1%）。
  * 消息级缓存（historyTokens 每轮重算，WeakMap + 内容指纹防陈旧）。
  */
+/* v1.8.0 W10 estTokens 校准（方案证据 #5）：中文/非 ascii 基线 1.8→3.2 字符/token
+ * （GLM tokenizer 实测口径，1.8 低估中文约 44%——auto-compact 时机与费用预估双漂）；
+ * ascii/代码 3.5 保持。动态回校（estTokensCalibrate EMA）在此基础上叠加。 */
+const CJK_PER_TOK = 3.2;
 function estTokens(s) {
   if (!s) return 0;
   s = String(s);
@@ -16,7 +20,7 @@ function estTokens(s) {
   if (n <= 3000) {   // 短串全量，成本可忽略
     let ascii = 0;
     for (let i = 0; i < n; i++) if (s.charCodeAt(i) < 128) ascii++;
-    return Math.ceil(ascii / 3.5 + (n - ascii) / 1.8);
+    return Math.ceil(ascii / 3.5 + (n - ascii) / CJK_PER_TOK);
   }
   const STRIDE = 3000, SEG = 1000;
   let tok = 0, sampled = 0;
@@ -24,7 +28,7 @@ function estTokens(s) {
     const len = Math.min(SEG, n - start);
     let ascii = 0;
     for (let i = start; i < start + len; i++) if (s.charCodeAt(i) < 128) ascii++;
-    tok += ascii / 3.5 + (len - ascii) / 1.8;
+    tok += ascii / 3.5 + (len - ascii) / CJK_PER_TOK;
     sampled += len;
   }
   return Math.ceil(tok * (n / sampled));

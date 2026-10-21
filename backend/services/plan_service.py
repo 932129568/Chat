@@ -52,6 +52,38 @@ def _new_task_id():
     return 'task_%d' % int(time.time() * 1000)
 
 
+CKPT_KEEP = 3   # 方案 §6.5：默认保留最近 3 份，旧的随新 checkpoint 创建清理
+
+
+def _prune_old_checkpoints():
+    """快照模式轮换：checkpoints/ 下按 manifest created_at 排序，保留最近
+    CKPT_KEEP 份，更旧的整目录删除。git 锚点模式的 manifest 无快照成本
+    （git 自身即历史）——但仍占 manifest 条目，一并纳入轮换计数。"""
+    d = _ckpts_dir()
+    if not os.path.isdir(d):
+        return []
+    entries = []
+    for name in os.listdir(d):
+        mf = os.path.join(d, name, 'manifest.json')
+        if not os.path.isfile(mf):
+            continue
+        try:
+            with open(mf, 'r', encoding='utf-8') as f:
+                created = json.load(f).get('created_at', '')
+        except (OSError, ValueError):
+            created = ''
+        entries.append((created, name))
+    entries.sort(reverse=True)
+    removed = []
+    for _, name in entries[CKPT_KEEP:]:
+        try:
+            shutil.rmtree(os.path.join(d, name))
+            removed.append(name)
+        except OSError:
+            pass
+    return removed
+
+
 def _now():
     """毫秒级时间戳（同秒多计划排序稳定；ISO 格式便于阅读）。"""
     return time.strftime('%Y-%m-%dT%H:%M:%S') + '.%03d' % int((time.time() % 1) * 1000)
@@ -221,8 +253,12 @@ class PlanService(object):
         except OSError as e:
             return {'ok': False, 'error': '检查点清单落盘失败: %s' % e}
         mode = 'git' if head else ('snapshot' if count else 'none')
+        pruned = _prune_old_checkpoints()
+        if pruned:
+            warnings.append('已轮换清理 %d 份旧检查点（保留最近 %d 份）'
+                            % (len(pruned), CKPT_KEEP))
         return {'ok': True, 'mode': mode, 'git_head': head,
-                'snapshot_count': count, 'warnings': warnings}
+                'snapshot_count': count, 'pruned': pruned, 'warnings': warnings}
 
     def checkpoint_rollback(self, task_id, ws_dir=None):
         """回滚到任务开始前。git 锚点：reset --hard <sha>（工作区需干净由调用方确认）；

@@ -176,3 +176,55 @@ def test_clarify_collect_defaults_and_answers(svc):
 def test_clarify_plain_string_questions(svc):
     r = svc.clarify_collect(['要我做什么？'], {})
     assert r['ok'] and r['resolved'][0]['q'] == '要我做什么？'
+
+
+# ---------------- 检查点保留策略（方案 §6.5：保留最近 3 份） ----------------
+
+def test_checkpoint_keeps_latest_three(svc, ws):
+    from backend.services.plan_service import _ckpts_dir
+    import time as _t
+    for i in range(5):
+        r = svc.create('计划%d' % i, ['s'])
+        c = svc.checkpoint_create(r['task_id'], ['a.txt'], ws)
+        assert c['ok'], c
+        _t.sleep(0.02)   # created_at 毫秒级确保排序稳定
+    d = _ckpts_dir()
+    left = [n for n in os.listdir(d) if os.path.isfile(os.path.join(d, n, 'manifest.json'))]
+    assert len(left) == 3, '应保留 3 份，实际 %d' % len(left)
+
+
+def test_checkpoint_prune_reported(svc, ws):
+    import time as _t
+    last = None
+    for i in range(4):
+        r = svc.create('P%d' % i, ['s'])
+        last = svc.checkpoint_create(r['task_id'], ['a.txt'], ws)
+        _t.sleep(0.02)
+    assert last['ok'] and last.get('pruned'), '第 4 份创建应报告轮换清理'
+    assert any('轮换清理' in w for w in last['warnings'])
+
+
+# ---------------- 检查点保留策略（方案 §6.5：保留最近 3 份） ----------------
+
+def test_checkpoint_keeps_latest_three(svc, ws):
+    from backend.services.plan_service import _ckpts_dir
+    import time as _t
+    for i in range(5):
+        r = svc.create('计划%d' % i, ['s'])
+        c = svc.checkpoint_create(r['task_id'], ['a.txt'], ws)
+        assert c['ok'], c
+        _t.sleep(0.02)   # created_at 毫秒级确保排序稳定
+    d = _ckpts_dir()
+    left = [n for n in os.listdir(d) if os.path.isfile(os.path.join(d, n, 'manifest.json'))]
+    assert len(left) == 3, '应保留 3 份，实际 %d' % len(left)
+
+
+def test_checkpoint_prune_reported(svc, ws):
+    import time as _t
+    last = None
+    for i in range(4):
+        r = svc.create('P%d' % i, ['s'])
+        last = svc.checkpoint_create(r['task_id'], ['a.txt'], ws)
+        _t.sleep(0.02)
+    assert last['ok'] and last.get('pruned'), '第 4 份创建应报告轮换清理'
+    assert any('轮换清理' in w for w in last['warnings'])

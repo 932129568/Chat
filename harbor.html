@@ -6809,6 +6809,10 @@ async function refreshSandboxStatus() {
  * 对「前 3000 中文 + 后 3 万代码」的构造与全量扫描基准误差 <10%（实测 ~0.1%）。
  * 消息级缓存（historyTokens 每轮重算，WeakMap + 内容指纹防陈旧）。
  */
+/* v1.8.0 W10 estTokens 校准（方案证据 #5）：中文/非 ascii 基线 1.8→3.2 字符/token
+ * （GLM tokenizer 实测口径，1.8 低估中文约 44%——auto-compact 时机与费用预估双漂）；
+ * ascii/代码 3.5 保持。动态回校（estTokensCalibrate EMA）在此基础上叠加。 */
+const CJK_PER_TOK = 3.2;
 function estTokens(s) {
   if (!s) return 0;
   s = String(s);
@@ -6816,7 +6820,7 @@ function estTokens(s) {
   if (n <= 3000) {   // 短串全量，成本可忽略
     let ascii = 0;
     for (let i = 0; i < n; i++) if (s.charCodeAt(i) < 128) ascii++;
-    return Math.ceil(ascii / 3.5 + (n - ascii) / 1.8);
+    return Math.ceil(ascii / 3.5 + (n - ascii) / CJK_PER_TOK);
   }
   const STRIDE = 3000, SEG = 1000;
   let tok = 0, sampled = 0;
@@ -6824,7 +6828,7 @@ function estTokens(s) {
     const len = Math.min(SEG, n - start);
     let ascii = 0;
     for (let i = start; i < start + len; i++) if (s.charCodeAt(i) < 128) ascii++;
-    tok += ascii / 3.5 + (len - ascii) / 1.8;
+    tok += ascii / 3.5 + (len - ascii) / CJK_PER_TOK;
     sampled += len;
   }
   return Math.ceil(tok * (n / sampled));
@@ -7795,7 +7799,15 @@ async function runAgentLoop(s, apiKey) {
       let effTools = effectiveTools;
       try {
         const beSys = await callApi('build_system_prompt', []);
-        sysContent = EFFICIENCY_PROMPT + '\n\n' + (beSys ? JSON.parse(beSys) : '') + (sysPrompt ? '\n\n用户附加: ' + sysPrompt : '');
+        // W0 R19：执行铁律改读 prompts/efficiency.md（版本化）；失败回落前端
+        // 内置常量（内容与 prompts 文件逐字节一致，回落零行为差异）
+        let effText = EFFICIENCY_PROMPT;
+        try {
+          const effRaw = await callApi('prompt_get', ['efficiency']);
+          const eff = JSON.parse(effRaw || '{}');
+          if (eff && eff.ok && eff.text) effText = eff.text;
+        } catch (e2) { /* 回落内置 */ }
+        sysContent = effText + '\n\n' + (beSys ? JSON.parse(beSys) : '') + (sysPrompt ? '\n\n用户附加: ' + sysPrompt : '');
       } catch (e) { /* 系统提示词失败用前端默认 */ }
       // 实现 v1.6 T5④：本地模式段——「上下文有限」提示（本地模型窗口小，
       // 防长程任务里模型误判可无限重读/堆叠上下文）
@@ -13054,13 +13066,21 @@ async function compactNow(s, apiKey, opts = {}) {
     // 并剥离 GLM 专属字段（thinking）；此前硬编码 API_URL + thinking 会导致自定义端点压缩必失败。
     const _glm = isGlmEndpoint();
     const _cmpModel = _glm ? 'glm-5.3-flash' : (providerState.model || 'glm-5.3-flash');
+    // W0 R19：压缩提示词改读 prompts/compact.md（版本化）；失败回落内置串
+    // （与 prompts 文件渲染值逐字节一致，回落零行为差异）
+    let _cmpPrompt = '把以下人机协作历史压缩成 ≤200 字工作纪要，必须保留: 任务目标、涉及文件路径、已做改动、未完成事项、关键结论、工具调用序列(工具名与关键参数摘要)。直接输出: \n\n';
+    try {
+      const _cmpRaw = await callApi('prompt_get', ['compact']);
+      const _cmp = JSON.parse(_cmpRaw || '{}');
+      if (_cmp && _cmp.ok && _cmp.text) _cmpPrompt = _cmp.text;
+    } catch (e) { /* 回落内置 */ }
     const _cmpBody = {
       model: _cmpModel, max_tokens: 600,
       // 修复 HF-1（v1.6）排查记录：压缩请求当前只发一条 user（无 system），
       // 形态上不可能触发 Qwen 模板的 500；归一化在下方以 typeof 守卫接线（未来防呆）。
       // 实现 v1.6 T5③：压缩提示词增「保留工具调用序列」要求（原只保留文件路径，
       // 恢复后续跑时丢失「调过什么工具、参数是什么」的脉络）
-      messages: [{ role: 'user', content: '把以下人机协作历史压缩成 ≤200 字工作纪要，必须保留: 任务目标、涉及文件路径、已做改动、未完成事项、关键结论、工具调用序列(工具名与关键参数摘要)。直接输出: \n\n' + dump }]
+      messages: [{ role: 'user', content: _cmpPrompt + dump }]
     };
     // 修复 HF-1（v1.6 收口，QA 复验建议）：未来防呆——若压缩提示词哪天改成
     // [system 摘要规范, user 历史]，本地 Ollama/Qwen 会立刻 500（system 必须在最前且只一条）。
