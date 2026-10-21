@@ -149,6 +149,8 @@ class GuardService:
         # 修复 S4①：进程内信任态（一次性 token + 会话信任 + 武装标志）
         self._tokens = {}              # token -> (op, detail_digest, expiry_ts)
         self._session_trust = set()    # 本会话已信任的 op（切会话清空，W26 同步语义）
+        # W1：trace_id 钩子（Api 装配注入；None=审计不带 trace，向后兼容）
+        self._trace_hook = None
         self._armed = False            # 桌面 UI 会话武装标志（Api._set_window 置位）
         # v1.8.5 A 域：任务授权 grant 进程内状态（不入 guard.json——铁律）
         self._clock = clock or time.time
@@ -844,6 +846,21 @@ class GuardService:
                     return
 
     # ---- 审计日志 ----
+    def set_trace_hook(self, hook):
+        """W1：trace_id 钩子（Api 装配时注入 lambda: api.current_trace()）。
+
+        注入后每条审计自动带 trace 字段（t_<ts36>_<rand4>）——同一用户请求
+        的 guard/plan/tool 全链路可追。hook 异常/无钩子 → trace=None（不影响
+        审计写入，向后兼容）。
+        """
+        self._trace_hook = hook
+
+    def current_trace(self):
+        try:
+            return self._trace_hook() if self._trace_hook else None
+        except Exception:
+            return None
+
     def audit(self, op, detail=None, action='check', decision=None):
         try:
             entry = {
@@ -853,6 +870,9 @@ class GuardService:
             }
             if decision:
                 entry['decision'] = decision
+            trace = self.current_trace()
+            if trace:
+                entry['trace'] = trace
             os.makedirs(os.path.dirname(self._audit_path), exist_ok=True)
             # 修复 建议④（二轮）：轮转+追加整体持实例锁——多线程并发回调下
             # 轮转与 append 交错会丢行/写进已被轮转走的旧文件

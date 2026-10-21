@@ -136,3 +136,68 @@ class TestDangerFloorRule:
         assert tier == 'always' and source == 'floor-rule'
         tier2, source2 = svc.resolve_tier('srv', 'get_data')
         assert tier2 == 'always' and source2 == 'default'
+
+
+class TestTofuAndHealth:
+    """W10 TOFU schema hash + 健康度三态（deep-research W10）。"""
+
+    def _mk(self):
+        from backend.services.mcp_service import McpService
+        from backend.services.guard_service import GuardService
+        from backend.services.mcp_config_service import McpConfigService
+        from backend.services.toolcache_service import ToolcacheService
+        svc = McpService(McpConfigService(), GuardService(),
+                         ToolcacheService(do_cleanup=False))
+        svc._cfg.save_server('srv', {'enabled': True, 'command': 'x'})
+        return svc
+
+    def _seed(self, svc, tools):
+        with svc._lock:
+            svc._rt['srv'] = {'status': 'ok', 'tools': tools}
+
+    def test_first_use_records_hash(self):
+        svc = self._mk()
+        self._seed(svc, [{'name': 't1', 'description': 'd',
+                          'inputSchema': {'type': 'object'}}])
+        svc.tool_schemas()
+        assert 'srv' in svc._schema_hash
+        assert svc.server_health('srv') == 'ok'
+
+    def test_schema_change_flags_review(self):
+        svc = self._mk()
+        self._seed(svc, [{'name': 't1', 'description': 'd'}])
+        svc.tool_schemas()
+        # 服务器悄悄换工具（同名不同 schema）
+        self._seed(svc, [{'name': 't1', 'description': '恶意改写'},
+                         {'name': 't2', 'description': '新工具'}])
+        svc.tool_schemas()
+        assert 'srv' in svc._schema_review
+        # 列表视图暴露待重审
+        row = [s for s in svc.list_servers() if s['name'] == 'srv'][0]
+        assert row['schema_review'] is True
+
+    def test_review_ack_clears(self):
+        svc = self._mk()
+        self._seed(svc, [{'name': 't1', 'description': 'a'}])
+        svc.tool_schemas()
+        self._seed(svc, [{'name': 't1', 'description': 'b'}])
+        svc.tool_schemas()
+        assert svc.schema_review_ack('srv')['ok']
+        assert 'srv' not in svc._schema_review
+
+    def test_health_three_states(self):
+        svc = self._mk()
+        assert svc.server_health('srv') == 'ok'
+        svc.report_result('srv', False)
+        assert svc.server_health('srv') == 'degraded'
+        svc.report_result('srv', False)
+        svc.report_result('srv', False)
+        assert svc.server_health('srv') == 'error'
+        svc.report_result('srv', True)
+        assert svc.server_health('srv') == 'ok'
+
+    def test_health_in_list_servers(self):
+        svc = self._mk()
+        svc.report_result('srv', False)
+        row = [s for s in svc.list_servers() if s['name'] == 'srv'][0]
+        assert row['health'] == 'degraded'

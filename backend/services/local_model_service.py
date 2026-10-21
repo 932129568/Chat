@@ -844,3 +844,118 @@ class LocalModelService:
 
     def tools_disabled_for(self, local_mode, tool_capable_pref, model):
         return tools_disabled_for(local_mode, tool_capable_pref, model)
+
+
+# ================= W2 readiness 8 项评分（deep-research W2）=================
+# 本地模型「协同就绪度」：混合路由把 understand/validate 阶段交给本地前的
+# 体检。8 项 = tag 固定 / 工具能力 / schema 输出 / 迭代上限 / 路径护栏 /
+# 结构化错误 / 日志可见 / keep_alive 提示。低分项给降级建议（本地做不了
+# 的阶段交云端）——不阻塞主流程，纯建议面。
+READINESS_ITEMS = (
+    'model_tagged', 'tool_capable', 'schema_json', 'iteration_headroom',
+    'path_guard', 'structured_errors', 'logging_visible', 'keep_alive_hint',
+)
+# 单项 0-2 分（0=缺/1=弱/2=足）；≥12/16 建议全本地阶段，8-11 部分本地，
+# <8 建议全云端（本地只做草稿）。阈值与建议文案集中此处便于调。
+READINESS_FULL = 12
+READINESS_PARTIAL = 8
+
+
+def readiness(model_meta=None, cfg=None, probe_info=None):
+    """本地模型协同就绪度评分（纯函数；网络事实经 model_meta/probe_info 注入）。
+
+    Args:
+        model_meta: models() 返回的模型元数据 {id, ctx_window, tool_capable,
+            estimated}（探测不到传 None——按未知保守评分）。
+        cfg: 本地配置 {local_model, local_ctx_window, local_max_iter} 等。
+        probe_info: 探测附加事实 {reachable, keep_alive, error_kind}。
+
+    Returns:
+        dict: {ok, score, max, verdict, items:[{name, score, max, ok, detail}],
+        suggestions:[...]}。verdict ∈ full|partial|cloud。
+    """
+    meta = model_meta or {}
+    cfg = cfg or {}
+    info = probe_info or {}
+    items = []
+    # 端点不可达：一切能力项均「无法验证」——path_guard/logging/keep_alive
+    # 等默认 True 的项也要收 0（不可达时它们不是「配了」而是「不知道」）
+    _unreachable = info.get('reachable') is False
+
+    def _add(name, score, detail):
+        items.append({'name': name, 'score': score, 'max': 2,
+                      'ok': score == 2, 'detail': detail})
+
+    # ① tag 固定：模型元数据已知（非 estimated 猜测）——ctx/tool 能力可信
+    if meta.get('estimated') is False and meta.get('id'):
+        _add('model_tagged', 2, '模型 %s 元数据已识别（ctx=%s）'
+             % (meta.get('id'), meta.get('ctx_window')))
+    elif meta.get('id'):
+        _add('model_tagged', 1, '模型 %s 为保守估计值（ctx/工具能力按默认推）'
+             % meta.get('id'))
+    else:
+        _add('model_tagged', 0, '未获取到模型元数据（探测失败或清单为空）')
+
+    # ② 工具能力：tool_capable——本地模型能否可靠发起工具调用
+    if meta.get('tool_capable') is True:
+        _add('tool_capable', 2, '模型支持工具调用')
+    elif meta.get('tool_capable') is False:
+        _add('tool_capable', 0, '模型无工具调用能力（本地仅可做纯文本草稿）')
+    else:
+        _add('tool_capable', 1, '工具能力未知（按不可用保守处理）')
+
+    # ③ schema 输出：能否约束 JSON 输出（grammar/json mode 提示可达）
+    _add('schema_json', 2 if info.get('schema_json') else 1,
+         '本地支持 JSON 约束输出（grammar/json mode）'
+         if info.get('schema_json') else
+         '未确认 JSON 约束能力（提示词约束可达标，幻觉参数风险略高）')
+
+    # ④ 迭代上限：本地阶段硬预算内可完成的迭代深度（理解 5s/校验 3s）
+    iters = cfg.get('local_max_iter')
+    if isinstance(iters, int) and 1 <= iters <= 3:
+        _add('iteration_headroom', 2, '迭代上限 %d（本地预算内可完成）' % iters)
+    elif isinstance(iters, int) and iters > 3:
+        _add('iteration_headroom', 1, '迭代上限 %d 偏大（本地 5s/3s 预算内可能超时降级）' % iters)
+    else:
+        _add('iteration_headroom', 1, '迭代上限未配置（按默认 1 次）')
+
+    # ⑤ 路径护栏：本地阶段产出是否过工作区门禁（防幻觉路径越界）
+    _add('path_guard', 0 if _unreachable else (2 if info.get('path_guard', True) else 0),
+         '本地产出路径经工作区门禁归一' if info.get('path_guard', True)
+         else '本地产出未过路径门禁（幻觉路径有越界风险）')
+
+    # ⑥ 结构化错误：本地服务错误是否可分类（降级链依赖错误分类）
+    if info.get('error_kind'):
+        _add('structured_errors', 2, '错误已分类：%s' % info.get('error_kind'))
+    elif info.get('reachable') is False:
+        _add('structured_errors', 0, '端点不可达（连接层错误未分类）')
+    else:
+        _add('structured_errors', 1, '错误分类能力未确认')
+
+    # ⑦ 日志可见：路由决策/降级原因是否落盘（可观测性）
+    _add('logging_visible', 0 if _unreachable else (2 if info.get('logging_visible', True) else 0),
+         '路由日志落盘（hybrid-route.jsonl）' if info.get('logging_visible', True)
+         else '路由日志未启用（降级不可追溯）')
+
+    # ⑧ keep_alive 提示：Ollama 常驻防冷启（时延优化项）
+    if _unreachable:
+        _add('keep_alive_hint', 0, '端点不可达，无法确认 keep_alive 配置')
+    elif info.get('keep_alive'):
+        _add('keep_alive_hint', 2, 'keep_alive 已配置（防冷启时延）')
+    else:
+        _add('keep_alive_hint', 1, '未配置 keep_alive（本地阶段可能偶发冷启时延）')
+
+    score = sum(i['score'] for i in items)
+    if score >= READINESS_FULL:
+        verdict = 'full'
+    elif score >= READINESS_PARTIAL:
+        verdict = 'partial'
+    else:
+        verdict = 'cloud'
+    suggestions = []
+    if verdict != 'full':
+        for it in items:
+            if it['score'] < 2:
+                suggestions.append('%s：%s' % (it['name'], it['detail']))
+    return {'ok': True, 'score': score, 'max': 16, 'verdict': verdict,
+            'items': items, 'suggestions': suggestions}
