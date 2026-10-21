@@ -13,6 +13,8 @@ import time
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+from backend import paths
+
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
@@ -92,6 +94,18 @@ class TestLocalCorsProxyE2E:
             threading.Thread(target=self._up.serve_forever, daemon=True).start()
         return self._up
 
+    def _allow_upstream_port(self, up_port):
+        """回环端口收敛（2026-10-21 安全修复）后的 E2E 适配：测试上游的随机
+        临时端口不在已知本地模型端口集——经「用户配置端口」通道放行（写
+        local_base_url + 刷新动态缓存），验证中继/流式本体行为；端口收敛
+        口径本身由 _is_allowed_target 单测（KNOWN_LOCAL_PORTS）覆盖。"""
+        from backend.services import local_proxy as lp
+        cfg_path = os.path.join(paths.CONFIG_DIR, 'config.json')
+        os.makedirs(os.path.dirname(cfg_path), exist_ok=True)
+        with open(cfg_path, 'w', encoding='utf-8') as f:
+            json.dump({'local_base_url': 'http://127.0.0.1:%d/v1' % up_port}, f)
+        lp._DYNAMIC_CACHE['ts'] = 0.0
+
     @staticmethod
     def _post(url, body, headers=None, timeout=30):
         req = urllib.request.Request(url, data=json.dumps(body).encode(), method='POST')
@@ -104,6 +118,7 @@ class TestLocalCorsProxyE2E:
     def test_post_relay_with_cors(self):
         from backend.services.local_proxy import get_proxy
         up_port = self._upstream.server_address[1]
+        self._allow_upstream_port(up_port)
         proxy = get_proxy()
         proxy.ensure_running()
         st, hd, body = self._post(
@@ -162,6 +177,7 @@ class TestLocalCorsProxyE2E:
         """流式：上游分 3 chunk 延迟吐 → 客户端逐 chunk 实时收到（非整体完成后）。"""
         from backend.services.local_proxy import get_proxy
         up_port = self._upstream.server_address[1]
+        self._allow_upstream_port(up_port)
         proxy = get_proxy()
         proxy.ensure_running()
         req = urllib.request.Request('http://127.0.0.1:%d/v1/sse' % proxy.port,

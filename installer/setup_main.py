@@ -18,7 +18,9 @@ GUI 技术栈：复用产品自身的 pywebview + 单文件 HTML（本机构建�
 import os
 import sys
 
-from installer_core import app_version, default_install_dir, install, uninstall
+from installer_core import (app_version, default_install_dir, install,
+                            read_install_manifest, registry_install_location,
+                            uninstall)
 
 SILENT = any(a in ('/S', '/s', '--silent', '-S') for a in sys.argv[1:])
 UNINSTALL = any(a in ('/uninstall', '--uninstall', '-u') for a in sys.argv[1:])
@@ -27,13 +29,41 @@ PURGE = '--purge' in sys.argv[1:]
 
 def _dir_arg(default=None):
     for i, a in enumerate(sys.argv[1:]):
-        if a.startswith('--dir='):
-            return a.split('=', 1)[1]
-        if a.startswith('/D='):
-            return a.split('=', 1)[1]
+        if a.startswith('--dir=') or a.startswith('/D='):
+            v = a.split('=', 1)[1].strip().strip('"')
+            return v or default
         if a in ('--dir', '/D') and i + 2 < len(sys.argv):
-            return sys.argv[i + 2]
+            v = sys.argv[i + 2].strip().strip('"')
+            return v or default
     return default
+
+
+def _resolve_uninstall_dir():
+    """卸载目标定位链（按优先级）：
+
+    1. `--dir` / `/D=` 显式参数（空值已由 _dir_arg 回落，不会命中）；
+    2. frozen 时 Uninstall.exe 所在目录（需含 Harbor.exe 校验防误判）——
+       其中 install.json 的 install_dir 字段优先于注册表读取（安装后
+       目录被移动过时以清单为准，读不到再退回 exe 所在目录本身）；
+    3. 注册表 HKCU Uninstall\\Harbor 的 InstallLocation；
+    4. 默认每用户目录。
+
+    取代原先两处硬编码 default_install_dir()——用户改过安装位置时
+    卸载会打偏（删默认目录、留真实目录）。"""
+    arg = _dir_arg(None)
+    if arg:
+        return arg
+    if getattr(sys, 'frozen', False):
+        exe_dir = os.path.dirname(os.path.abspath(sys.executable))
+        if os.path.exists(os.path.join(exe_dir, 'Harbor.exe')):
+            manifest = read_install_manifest(exe_dir)
+            if manifest and manifest.get('install_dir'):
+                return manifest['install_dir']
+            return exe_dir
+    reg = registry_install_location()
+    if reg:
+        return reg
+    return default_install_dir()
 
 
 def _log(msg):
@@ -54,7 +84,7 @@ def run_silent_install():
 
 
 def run_silent_uninstall():
-    install_dir = _dir_arg(default_install_dir())
+    install_dir = _resolve_uninstall_dir()
     _log('[uninstall] dir=%s purge=%s' % (install_dir, PURGE))
     res = uninstall(install_dir, purge_data=PURGE,
                     progress_cb=lambda i, t, m: _log('[uninstall] %d/%d %s' % (i, t, m)))
@@ -96,7 +126,7 @@ def _uninstall_gui_native():
                  '（含 API Key 与会话记录，不可恢复）。\n选「否」仅卸载程序。',
                  'Harbor 卸载程序 · 用户数据', _MB_YESNO | _MB_ICONWARN)
     purge = (r2 == _MB_YES)
-    res = uninstall(default_install_dir(), purge_data=purge)
+    res = uninstall(_resolve_uninstall_dir(), purge_data=purge)
     if res.get('ok'):
         _msgbox('卸载完成。' + ('用户数据已删除。' if purge else '用户数据保留在 ~/.glm-chat。'),
                 'Harbor 卸载程序', _MB_ICONINFO)

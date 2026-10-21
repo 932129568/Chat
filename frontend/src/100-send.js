@@ -216,6 +216,12 @@ async function planModeRun(task) {
   } catch (e) {
     return;   // 已拒绝（toast 已提示）
   }
+  // 批准：task_id 落库到当前会话（85-session-mgmt 真删 session_purge 的 taskIds 数据源；
+  // 只挂 task_id，不挂整个 plan 对象；65-session-store 白名单同步放行）
+  {
+    const _s = getCurrentSession();
+    if (_s) { _s.plan = { task_id: full.task_id }; saveSessions(); }
+  }
   // 批准：建检查点（git 锚点 + 计划涉及文件快照；空 files 时 git HEAD 仍记录）
   try {
     let ws = '';

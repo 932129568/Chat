@@ -31,7 +31,8 @@ function switchPanel(name) {
     if (_panelLeaving) { _panelLeaving.el.classList.remove('on', 'leaving', 'out-fwd', 'out-back'); _panelLeaving = null; }
     if (oldEl) oldEl.classList.add('leaving', 'out-' + dir);
     if (newEl) newEl.classList.add('on', 'in-' + dir);   // 修复 建议㉝（三轮）：newEl null 守卫（原 L33 无守卫，面板 id 不存在即抛）
-    MOTION.onAnimEnd(newEl, 'animationend', MOTION.panel()).then(() => newEl.classList.remove('in-' + dir));
+    // 修复（本轮）：onAnimEnd 同样过 newEl null 守卫——面板 id 缺失时不得调 MOTION.onAnimEnd(null)（.then 内再抛）
+    if (newEl) MOTION.onAnimEnd(newEl, 'animationend', MOTION.panel()).then(() => newEl.classList.remove('in-' + dir));
     if (oldEl) {
       _panelLeaving = { el: oldEl };
       MOTION.onAnimEnd(oldEl, 'animationend', MOTION.panelOut()).then(() => {

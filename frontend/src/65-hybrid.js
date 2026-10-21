@@ -157,9 +157,28 @@ function hybridWire() {
     const el = hyEl(id);
     if (el) el.addEventListener('change', () => {
       const patch = {};
-      if (id === 'hyBudgetUnderstand') patch.local_budget_understand_s = parseInt(el.value, 10);
-      if (id === 'hyBudgetValidate') patch.local_budget_validate_s = parseInt(el.value, 10);
-      if (id === 'hyConfGate') patch.confidence_gate = parseFloat(el.value);
+      // 字段级校验（防 NaN 直传后端：number input 清空/手输非法值时不静默坏数据）
+      if (id === 'hyBudgetUnderstand') {
+        const v = parseInt(el.value, 10);
+        if (!Number.isInteger(v) || v < 1 || v > 30) {
+          hyToast('本地硬预算需为 1-30 的整数（秒）', 'warn'); hybridRefresh(); return;
+        }
+        patch.local_budget_understand_s = v;
+      }
+      if (id === 'hyBudgetValidate') {
+        const v = parseInt(el.value, 10);
+        if (!Number.isInteger(v) || v < 1 || v > 30) {
+          hyToast('本地硬预算需为 1-30 的整数（秒）', 'warn'); hybridRefresh(); return;
+        }
+        patch.local_budget_validate_s = v;
+      }
+      if (id === 'hyConfGate') {
+        const v = parseFloat(el.value);
+        if (!(v >= 0.5 && v <= 0.95)) {
+          hyToast('置信门需为 0.5-0.95 之间的小数', 'warn'); hybridRefresh(); return;
+        }
+        patch.confidence_gate = v;
+      }
       hybridSave(patch);
     });
   });
@@ -212,6 +231,8 @@ async function hybridSave(patch) {
   } catch (e) {
     if (seq !== hybridReqSeq) return;
     hyToast('混合路由配置保存失败: ' + ((e && e.message) || String(e)), 'err');
+    // 桥接层异常同属失败：回弹 UI 到当前配置（防表单停留在未保存的脏值）
+    if (typeof hybridCfg !== 'undefined' && hybridCfg) hybridRenderConfig(hybridCfg, 'file');
     hybridState = 'error';
   }
 }
@@ -324,28 +345,37 @@ function hybridResetSplit() {
 
 /* ---------- W2 就绪度检测（2026-10-21 补前端面板；后端 local_readiness 现成） ----------
  * 8 项评分 + verdict（full 本地可跑/partial 部分阶段交云端/cloud 全云端）+ 低分建议。 */
-function hyRdEl(id) { return document.getElementById(id); }
+let hyRdSeq = 0;          // 就绪度检测 last-wins（同 hybridReqSeq 先例）
+function hyRdEl(id) { return (typeof document !== 'undefined') ? document.getElementById(id) : null; }
 async function hybridReadinessRun() {
   const btn = hyRdEl('hyReadinessBtn');
   const list = hyRdEl('hyRdList');
   const vd = hyRdEl('hyRdVerdict');
   const light = hyRdEl('hyRdLight');
   if (!btn || !list) return;
+  // 仅本地系预设可检测（云端预设端点不是本机模型服务，检测无意义）
+  if (typeof connectIsLocalPreset === 'function' && !connectIsLocalPreset()) {
+    if (typeof toast === 'function') toast('请先在「连接」中切换到本地模型预设（Ollama/LM Studio 等）', 'warn');
+    return;
+  }
   const baseInp = document.getElementById('localBaseUrl') || document.getElementById('providerBase');
-  const modelInp = document.getElementById('localModelSelect') || document.getElementById('providerModel');
+  const modelInp = document.getElementById('localModelSelect') || document.getElementById('modelSelect');
   const base = ((baseInp && baseInp.value) || '').trim();
   const model = ((modelInp && modelInp.value) || '').trim();
   if (!base) { if (typeof toast === 'function') toast('请先在「连接」中填写端点地址', 'warn'); return; }
+  const seq = ++hyRdSeq;
   btn.disabled = true; btn.textContent = '检测中…';
   list.style.display = 'none'; vd.textContent = '';
   if (light) light.style.display = 'none';
   try {
     const raw = await callApi('local_readiness', [base, model], 45000);
+    if (seq !== hyRdSeq) return;               // last-wins：旧检测静默丢弃
     const r = JSON.parse(raw || '{}');
     if (!r || !r.ok) { if (typeof toast === 'function') toast('检测失败', 'err'); return; }
     const VD = { full: ['ok', '可全本地'], partial: ['warn', '部分阶段交云端'], cloud: ['err', '建议全云端'] };
     const v = VD[r.verdict] || VD.cloud;
-    vd.textContent = '就绪度 ' + r.score + '/' + r.max + ' · ' + v[1];
+    vd.textContent = '就绪度 ' + r.score + '/' + r.max + ' · ' + v[1] +
+      (r.model ? ' · ' + r.model : '');
     if (light) { light.className = 'hy-light ' + v[0]; light.style.display = ''; }
     const esc = (t) => (typeof escapeHtml === 'function' ? escapeHtml(String(t)) : String(t));
     list.innerHTML = (r.items || []).map(it =>
@@ -357,8 +387,9 @@ async function hybridReadinessRun() {
       ? '<div class="rd-sug">建议：' + esc(r.suggestions.join('；')) + '</div>' : '');
     list.style.display = '';
   } catch (e) {
+    if (seq !== hyRdSeq) return;
     if (typeof toast === 'function') toast('检测失败：' + ((e && e.message) || e), 'err');
   } finally {
-    btn.disabled = false; btn.textContent = '检测本地模型就绪度';
+    if (seq === hyRdSeq) { btn.disabled = false; btn.textContent = '检测本地模型就绪度'; }
   }
 }

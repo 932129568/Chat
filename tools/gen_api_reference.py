@@ -2,6 +2,10 @@
 """生成 api-reference.md（deliverables/）：从 Api 类实扫——get_api_info 契约面
 + _V12_EXTRA 隐身面分组，签名/docstring 首段抽取。零手抄（手抄必漂移）。
 用法：python tools/gen_api_reference.py（CI/发布前跑，输出即文档）。
+
+⚠ 副作用警告：main() 里实例化 Api() 不是纯内省——Api.__init__ 会创建
+~/.glm-chat 数据目录并启动本地代理线程。本工具仅限开发机运行，勿在生产/
+用户机或 CI 通用 runner 上跑（会落配置文件、起常驻线程）。
 """
 import inspect
 import io
@@ -36,6 +40,7 @@ def _doc(fn):
 
 
 def main():
+    print('警告：本工具会创建 ~/.glm-chat 并启动本地代理线程，仅限开发机运行', flush=True)
     api = Api()
     contract_methods = set(json.loads(api.get_api_info())['methods'])
     out = []

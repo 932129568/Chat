@@ -956,6 +956,20 @@ async function runAgentLoop(s, apiKey) {
       }
       renderSessionList();
     }
+    /* v1.8.0 M3：计划正常跑完 → 收尾摘要 + 回滚入口
+     * 修复：原在 catch 内引用 try 块级 let finished——越域 ReferenceError，
+     * 且错误路径也会误跑收尾。移到 try 内 for 循环结束之后（renderSessionList() 之后）。 */
+    if (!userStopped && finished && typeof planCurrent !== 'undefined' && planCurrent &&
+        planCurrent.status === 'running') {
+      try {
+        (planCurrent.steps || []).forEach((x, i) => {
+          if (x.status === 'pending' || x.status === 'doing') planStepStatus(i, 'done');
+        });
+        if (typeof planFinish === 'function') {
+          planFinish('✓ ' + (planCurrent.steps || []).length + ' 步全部完成 · 校验通过 · 0 个未决事项');
+        }
+      } catch (e) {}
+    }
     if (userStopped && aiContent) {
       // 修复（2026-10-18）：工具执行阶段暂停（无 AbortError）的收尾提示
       const note = document.createElement('div');
@@ -1004,18 +1018,6 @@ async function runAgentLoop(s, apiKey) {
       }
       toast('请求失败', 'err', { detail: String(err.message || '').slice(0, 400) });
       saveSessions();
-    }
-    /* v1.8.0 M3：计划正常跑完 → 收尾摘要 + 回滚入口 */
-    if (!userStopped && finished && typeof planCurrent !== 'undefined' && planCurrent &&
-        planCurrent.status === 'running') {
-      try {
-        (planCurrent.steps || []).forEach((x, i) => {
-          if (x.status === 'pending' || x.status === 'doing') planStepStatus(i, 'done');
-        });
-        if (typeof planFinish === 'function') {
-          planFinish('✓ ' + (planCurrent.steps || []).length + ' 步全部完成 · 校验通过 · 0 个未决事项');
-        }
-      } catch (e) {}
     }
   } finally {
     isStreaming = false;

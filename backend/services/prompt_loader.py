@@ -14,6 +14,7 @@
 import hashlib
 import json
 import os
+import re
 
 _LOG = None
 
@@ -67,6 +68,14 @@ def load(prompt_id):
         _log().warning('prompts manifest 无 id: %s', prompt_id)
         return ('', '')
     fname = entry.get('file') or (prompt_id + '.md')
+    # 防路径穿越：manifest 的 file 必须是纯文件名（basename 自等且无 '..'）——
+    # 非法值（含目录/../ 绝对路径）记 warning 并回落默认名，不让 manifest
+    # 把读取范围扩到 prompts/ 之外
+    fname = str(fname)
+    if os.path.basename(fname) != fname or '..' in fname:
+        _log().warning('prompts manifest file 字段非法（回落默认名）: '
+                       'id=%s file=%r', prompt_id, fname)
+        fname = prompt_id + '.md'
     path = os.path.join(prompts_dir(), fname)
     try:
         with open(path, encoding='utf-8') as f:
@@ -86,12 +95,17 @@ def load(prompt_id):
 
 
 def render(prompt_id, **kwargs):
-    """读提示词并做 {placeholder} 替换（缺键不替换、保持原样可诊断）。"""
+    """读提示词并做 {placeholder} 替换（缺键不替换、保持原样可诊断）。
+
+    一次性替换（``re.sub`` 单遍扫描）：逐键 ``str.replace`` 是 O(键数×文本长)
+    的多遍扫描，且替换值里含 ``{other}`` 时会连锁二次替换；单遍 + 缺键原样
+    保留（``kwargs.get`` 取不到即返回匹配自身）。
+    """
     text, version = load(prompt_id)
     if not text:
         return ('', version)
-    for k, v in kwargs.items():
-        text = text.replace('{%s}' % k, str(v))
+    text = re.sub(r'\{(\w+)\}',
+                  lambda m: str(kwargs.get(m.group(1), m.group(0))), text)
     return (text, version)
 
 

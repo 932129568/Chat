@@ -346,7 +346,12 @@ async function agentGuardCheck(op, detail) {
     toast('已拒绝 AI 的本次调用', 'ok');
     return { blocked: JSON.stringify({ info: msg, skipped: true }), decision: 'deny', token: null };
   }
-  if (r.checkbox && !dangerous) agentTrusted.add(trustKey);
+  if (r.checkbox && !dangerous) {
+    agentTrusted.add(trustKey);
+    // 修复：会话信任登记到后端（与 26-guard.js:147 同口径）——原仅存前端 Set，
+    // 后端 enforce_exec 的会话信任态收不到 → 提档后「本会话不再提示」仍被后端拦
+    try { callApi('guard_session_trust', [op]).catch(() => {}); } catch (e) {}
+  }
   // 换一次性 confirm token（op 级；detail 摘要与后端 enforce 同口径）
   let token = null;
   try {

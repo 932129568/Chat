@@ -52,6 +52,7 @@ BUDGET_FIELDS = {'understand': 'local_budget_understand_s',
 CLOUD_PRICE_PER_1K = 0.002
 DEGRADE_FAIL_STREAK = 3          # 3 连败 → unavailable（§5.1②）
 DEGRADE_PROBE_INTERVAL_S = 60    # unavailable 期间的周期探测间隔
+ROUTE_LOG_MAX_BYTES = 2 * 1024 * 1024   # 路由日志轮转阈值（超限改名 .1，只留一代）
 
 # 分类关键词表（可解释规则：命中即得分，reason 记录命中词）
 _CATEGORY_KEYWORDS = {
@@ -67,6 +68,15 @@ _CATEGORY_KEYWORDS = {
                 'generate', 'create', 'refactor', 'fix', 'code'),
 }
 _QUESTION_CHARS = ('?', '？')
+
+
+def _kw_hit(low, kw):
+    """关键词命中判定：ASCII 词加 ``\\b`` 词边界（防 'how' 命中 'however' /
+    'show' 之类裸子串误判），中文保持子串（无词边界概念）。"""
+    k = str(kw)
+    if k.isascii():
+        return re.search(r'\b%s\b' % re.escape(k), low) is not None
+    return k in low
 
 
 def _utc_now():
@@ -104,7 +114,7 @@ def classify_task(text, context=None):
     reasons = []
 
     for cat, keywords in _CATEGORY_KEYWORDS.items():
-        hits = [kw for kw in keywords if kw in low]
+        hits = [kw for kw in keywords if _kw_hit(low, kw)]
         if hits:
             gained = min(len(hits), 3) * 1.0
             scores[cat] += gained
@@ -211,11 +221,13 @@ class HybridRouter:
             ``.corrupt-<ts>`` + 落盘默认）。部分合法文件按默认值补齐缺键。
         """
         data = None
+        source = 'default'      # 前置：合法 JSON 但非对象（list/str 等）时
+        #                         也不会漏赋值（修 UnboundLocalError）
         try:
             with open(self._path, 'r', encoding='utf-8') as f:
                 data = json.load(f)
         except FileNotFoundError:
-            source = 'default'
+            pass
         except Exception as e:
             # 损坏：备份 + 落盘默认（不静默吞损坏——保留现场供用户排查）
             self._log.warning('混合路由配置损坏，按默认值重建: %r', e)
@@ -381,6 +393,13 @@ class HybridRouter:
             from .. import paths as _paths
             log_path = os.path.join(_paths.LOG_DIR, 'hybrid-route.jsonl')
             os.makedirs(_paths.LOG_DIR, exist_ok=True)
+            # 轮转：超 2MB 改名 .1（只保留一代——路由日志只作近期追溯，
+            # 无界增长会拖慢读取/吃满磁盘；改名失败不阻塞决策）
+            try:
+                if os.path.getsize(log_path) > ROUTE_LOG_MAX_BYTES:
+                    os.replace(log_path, log_path + '.1')
+            except OSError:
+                pass
             rec = dict(d)
             rec['ts'] = datetime.datetime.now().isoformat(timespec='seconds')
             with open(log_path, 'a', encoding='utf-8') as f:

@@ -143,7 +143,7 @@ function applyLocalMetaBadge() {
     badge.className = 'local-badge';
   }
 }
-let localMetaCache = {};    // model -> {ctx_window, tool_capable, estimated}
+let localMetaCache = Object.create(null);   // model -> {ctx_window, tool_capable, estimated}（null 原型：防 __proto__/constructor 等键踩原型链）
 
 /* ---- A2：并行探测（4 端口并行，各 2s 超时，总墙钟 ≤1s 目标） ---- */
 // 修复 54（三轮）：busy 守卫——防抖自动识别（connectScheduleIdentify 800ms）可能在
@@ -161,7 +161,7 @@ async function localProbeNow() {
     const r = JSON.parse(await callApi('local_probe', []));
     if (box) box.innerHTML = '';
     if (!r.ok) { toast('探测失败：' + (r.error || ''), 'err'); return; }
-    localMetaCache = {};    // 新探测结果 → 元数据缓存失效
+    localMetaCache = Object.create(null);    // 新探测结果 → 元数据缓存失效（null 原型同上）
     // 修复 54（三轮）：reachable 改 for...of + await——原 forEach 内 localLoadModels
     // 火跑不 await（无 .catch 兜底虽不会 unhandled rejection——其内部全捕获，但结果
     // 顺序/按钮标签恢复时序与探测竞态；await 后串行确定）
@@ -181,6 +181,10 @@ async function localProbeNow() {
             && PRESETS[it.kind] && PRESETS[it.kind].local
             && typeof connectCurrentPreset === 'function' && connectCurrentPreset() !== it.kind) {
           await connectApplyPreset(it.kind, { animate: false, base: it.base_url, quiet: true });
+          // quiet 预设不落盘（36-connect connectApplyPresetNow 对 quiet 跳过
+          // queueSaveConfig）——探测命中后补存 + 同步，让 Base URL 真正写盘
+          if (typeof connectSyncState === 'function') connectSyncState();
+          if (typeof queueSaveConfig === 'function') queueSaveConfig();
         }
         await localLoadModels(it.base_url);
       }
@@ -227,7 +231,7 @@ async function localLoadModels(baseUrl) {
     if (curBase && curBase !== base) return;
     if (!r.ok) { toast('获取模型清单失败：' + (r.error || ''), 'err'); return; }
     const models = r.models || [];
-    localMetaCache = {};
+    localMetaCache = Object.create(null);
     models.forEach(m => { localMetaCache[m.id] = m; });
     refreshLocalModelOptions(models.map(m => m.id), localState.model);
     applyLocalMetaBadge();

@@ -218,18 +218,24 @@ def parse_results(engine, html):
         由调用方走 engine_retry 换引擎，ux-flows 流程 1）。
     """
     eng = str(engine or '').strip().lower()
-    root = build_tree(html)
-    if eng == 'bing':
-        raw = _parse_bing(root)
-    elif eng == 'duckduckgo':
-        raw = _parse_ddg(root)
-    elif eng == 'baidu':
-        raw = _parse_baidu(root)
-    elif eng == 'google':
-        raw = _parse_google(root)
-    else:
-        raw = _parse_generic(root)
-    return [_finalize(i, item) for i, item in enumerate(raw, 1)]
+    try:
+        root = build_tree(html)
+        if eng == 'bing':
+            raw = _parse_bing(root)
+        elif eng == 'duckduckgo':
+            raw = _parse_ddg(root)
+        elif eng == 'baidu':
+            raw = _parse_baidu(root)
+        elif eng == 'google':
+            raw = _parse_google(root)
+        else:
+            raw = _parse_generic(root)
+        return [_finalize(i, item) for i, item in enumerate(raw, 1)]
+    except RecursionError:
+        # 病态深树（万层嵌套标签）触发递归上限：按「解析为空」返回，
+        # 调用方走 engine_retry 换引擎（ux-flows 流程 1）——不把
+        # RecursionError 抛进搜索管线
+        return []
 
 
 def _finalize(position, item):

@@ -106,11 +106,20 @@ function removeAttachment(i) { attachments.splice(i, 1); renderPreview(); }
 let _attachCount = 0;
 function renderPreview() {
   const box = document.getElementById('attachPreview');
+  if (!box) return;   // null 守卫：容器不存在（vm 沙箱/未挂载）时静默跳过
   const n = attachments.length;
   if (n === 0) {
     if (_attachCount > 0 && box.classList.contains('show') && !box.classList.contains('hiding')) {
       box.classList.add('hiding');
-      const done = () => { try { box.classList.remove('show', 'hiding'); box.innerHTML = ''; } catch (e) {} };
+      const done = () => {
+        // 退场竞态复核：动画期间又有附件加入（renderPreview 已清 hiding 并重填），
+        // 不得把 show 剥掉/把新内容清空（菜单「开了却看不见」同款事故）
+        if (!box.classList.contains('hiding')) return;
+        try {
+          box.classList.remove('show', 'hiding');
+          if (attachments.length === 0) box.innerHTML = '';   // 仅计数为 0 才清空
+        } catch (e) {}
+      };
       if (typeof MOTION !== 'undefined' && !MOTION.instant()) {
         MOTION.onAnimEnd(box, 'animationend', MOTION.compOut()).then(done);
       } else { done(); }

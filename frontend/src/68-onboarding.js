@@ -67,8 +67,20 @@ function obStepHtml(id) {
       '</div></div>';
   }
   if (id === 'source') {
-    const presets = (typeof connectPresets === 'function') ? connectPresets() : [];
-    const list = presets.length ? presets : [
+    // 修复：原硬编码回落表与 36-connect.js PRESETS 漂移（新预设不出现、旧文案失真）——
+    // 且 connectPresets 函数根本不存在，恒走回落。改读单一事实源 connectPresetIds() +
+    // PRESETS（取 id+name+desc；PRESETS 无 desc 字段，按 local/glm_capable/free_tier 派生）。
+    let list = [];
+    if (typeof connectPresetIds === 'function' && typeof PRESETS !== 'undefined') {
+      list = connectPresetIds().map(pid => {
+        const meta = PRESETS[pid] || {};
+        const desc = meta.local ? '本机模型 · 免 Key'
+          : (meta.glm_capable ? 'GLM 官方 · 国内直连'
+          : (meta.free_tier ? '免费层 · 需 PAT' : 'OpenAI 兼容'));
+        return { id: pid, name: meta.name || pid, desc: desc };
+      });
+    }
+    if (!list.length) list = [
       { id: 'glm', name: '智谱 GLM', desc: 'glm-5.3 系列 · 国内直连' },
       { id: 'deepseek', name: 'DeepSeek', desc: 'OpenAI 兼容 · 高性价比' },
       { id: 'ollama', name: 'Ollama（本地）', desc: '本机模型 · 免 Key' }
@@ -115,37 +127,52 @@ function obWireStep(id) {
     const test = obRoot.querySelector('#obTest');
     if (test) test.onclick = () => obTestKey();
     const local = obRoot.querySelector('#obLocal');
-    if (local) local.onclick = () => { obFinish(); };
+    if (local) local.onclick = () => {
+      // 修复：原仅关闭向导——「跳过 Key」的意图是切本地服务。改应用 ollama
+      // 预设（免 Key）并跳转设置面板，让用户在本地面板继续配置。
+      if (typeof connectApplyPreset === 'function') {
+        try { connectApplyPreset('ollama', { animate: true }); } catch (e) {}
+      }
+      if (typeof navSwitch === 'function') navSwitch('settings');
+      obFinish();
+    };
     const input = obRoot.querySelector('#obKey');
     if (input) setTimeout(() => input.focus(), 80);
   }
 }
 
+let _obTestBusy = false;   // obTestKey 防连点闸门
 async function obTestKey() {
   const input = obRoot.querySelector('#obKey');
   const stat = obRoot.querySelector('#obKeyStat');
   const key = input ? String(input.value || '').trim() : '';
   if (!key) { if (stat) { stat.textContent = '请先填入 Key'; stat.className = 'ob-keystat err'; } return; }
+  if (_obTestBusy) return;   // 防连点：测试进行中忽略重复点击
   if (stat) { stat.textContent = '正在测试连接…'; stat.className = 'ob-keystat'; }
   // 写入既有 Key 字段（复用设置连接块的保存链）
   const apiKeyEl = (typeof document !== 'undefined') ? document.getElementById('apiKey') : null;
   if (apiKeyEl) apiKeyEl.value = key;
   if (typeof queueSaveConfig === 'function') queueSaveConfig();
+  _obTestBusy = true;
   try {
-    if (typeof testProviderConnection === 'function') {
-      const r = await testProviderConnection();
-      const d = (typeof r === 'string') ? JSON.parse(r) : r;
-      if (d && d.ok) {
-        if (stat) { stat.textContent = '✓ 连接成功'; stat.className = 'ob-keystat ok'; }
-        if (typeof toast === 'function') toast('连接成功', 'ok');
-      } else {
-        if (stat) { stat.textContent = '✗ ' + ((d && d.error) || '连接失败'); stat.className = 'ob-keystat err'; }
-      }
+    // 修复：原调全局不存在的 testProviderConnection——typeof 恒 false，恒走
+    // else 分支假报「已保存（测试连接入口不可用）」。改调真实通道
+    // test_provider_endpoint（Key 已入 #apiKey 并 queueSaveConfig，后端按配置
+    // 取钥；云端口径同 36-connect connectTestNow：[base, key, model, 15, false]）。
+    const base = (typeof connectBaseUrl === 'function') ? connectBaseUrl() : '';
+    const model = (typeof connectModelValue === 'function') ? connectModelValue() : '';
+    const raw = await callApi('test_provider_endpoint', [base, '', model, 15, false], 20000);
+    const d = JSON.parse(raw || '{}');
+    if (d && d.ok) {
+      if (stat) { stat.textContent = '✓ 连接成功'; stat.className = 'ob-keystat ok'; }
+      if (typeof toast === 'function') toast('连接成功', 'ok');
     } else {
-      if (stat) { stat.textContent = '✓ 已保存（测试连接入口不可用）'; stat.className = 'ob-keystat ok'; }
+      if (stat) { stat.textContent = '✗ ' + ((d && d.error) || '连接失败'); stat.className = 'ob-keystat err'; }
     }
   } catch (e) {
     if (stat) { stat.textContent = '✗ ' + (e && e.message || e); stat.className = 'ob-keystat err'; }
+  } finally {
+    _obTestBusy = false;
   }
 }
 

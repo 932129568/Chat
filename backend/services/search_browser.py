@@ -16,12 +16,14 @@
 纯 IO 边界：本模块是搜索栈唯一直接触网的模块（urllib），窗口操作经 pywebview；
 ``import`` 无副作用（webview 延迟导入），可在无 GUI 环境导入与单测。
 """
+import ipaddress
 import os
 import re
 import socket
 import threading
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 
 from .. import paths
@@ -51,6 +53,48 @@ USER_DATA_DIR_NAME = 'search_webview'
 _ALLOWED_SCHEME = re.compile(r'^https?://', re.IGNORECASE)
 
 
+def _is_public_host(host):
+    """host 是否解析到公网地址（SSRF 防护；ipaddress + getaddrinfo）。
+
+    拒绝 private / loopback / link_local / reserved / multicast / unspecified
+    （含 127/8、10/8、192.168/16、169.254/16、::1、fe80::/10、fc00::/7 等）——
+    防搜索窗口/直连被抓包成本内网探测代理（browser_open 可被诱导访问
+    元数据端点 169.254.169.254 或内网管理口）。
+
+    口径（2026-10-21 修订）：字面 IP 直接判定；域名解析成功且全部落私网段
+    → 拒绝；**解析失败放行**——本机 DNS 瞬时不可用时若 fail-closed 会误杀
+    全部正常搜索（fetch 会经同一解析器自然失败，拦截无增益），且令调用方
+    依赖实时 DNS 产生抖动。已知边界：DNS rebinding（检查时公网、抓取时
+    私网）不在此威胁模型内。
+    """
+    h = str(host or '').strip().lower().rstrip('.')
+    if not h:
+        return False
+    # 字面 IP（v4/v6，可带 zone id）：不触 DNS，直接判定
+    try:
+        ip = ipaddress.ip_address(h.split('%', 1)[0])
+        return not (ip.is_private or ip.is_loopback or ip.is_link_local or
+                    ip.is_reserved or ip.is_multicast or ip.is_unspecified)
+    except ValueError:
+        pass
+    try:
+        infos = socket.getaddrinfo(h, None)
+    except Exception:
+        return True        # DNS 失败：放行（fetch 经同一解析器自然失败）
+    saw_addr = False
+    for info in infos:
+        addr = str(info[4][0]).split('%', 1)[0]   # 去 zone id（fe80::1%eth0）
+        try:
+            ip = ipaddress.ip_address(addr)
+        except ValueError:
+            return False
+        saw_addr = True
+        if ip.is_private or ip.is_loopback or ip.is_link_local or \
+                ip.is_reserved or ip.is_multicast or ip.is_unspecified:
+            return False
+    return saw_addr
+
+
 class SearchBrowser:
     """搜索次窗通道：``open_url(url)`` → ``{ok, html, channel, error?}``。
 
@@ -77,6 +121,9 @@ class SearchBrowser:
         self._recycler = None
         self._stop_evt = threading.Event()
         self._idle_recycle = bool(idle_recycle)
+        # evaluate_js 可泵送性（首次 join 超时即置 False：后续 open_url 跳过
+        # 窗口路径直接走 urllib，不再养僵尸线程——沙箱实证限制）
+        self._dom_pumpable = True
 
     # ---------------- 窗口装配（注入模式，installer_gui InstallerBridge 同款） ----------------
 
@@ -161,18 +208,26 @@ class SearchBrowser:
             return {'ok': False, 'error': 'NAV_BLOCKED',
                     'message': '已阻止非 http(s) 导航: %s' % u[:80],
                     'hint': '浏览器搜索/打开仅支持 http/https 链接'}
+        # 内网防护（SSRF）：解析目标 host，私网/环回/链路本地等一律拒绝
+        #（DNS 解析失败按拒绝——fail-closed；helper 与 search_service.browser_open 共用）
+        host = urllib.parse.urlsplit(u).hostname
+        if not _is_public_host(host):
+            return {'ok': False, 'error': 'NAV_BLOCKED',
+                    'message': '已阻止访问内网/环回地址: %s' % u[:80],
+                    'hint': '禁止访问内网/环回地址'}
         self._touch()
         self._start_recycler()
-        win = self._ensure_window()
-        if win is not None:
-            r = self._load_via_window(win, u)
-            if r.get('ok'):
-                r['channel'] = 'window'
-                return r
-            # 降级链（规范 §5.1③）：窗口超时/不可用/读 DOM 失败 → urllib 兜底。
-            # 机制静默（不阻塞主流程），降级事实由响应 channel='urllib' 标注。
-            self._log.info('搜索次窗路径失败（%s），回落 urllib: %s',
-                           r.get('error'), u[:80])
+        if self._dom_pumpable:
+            win = self._ensure_window()
+            if win is not None:
+                r = self._load_via_window(win, u)
+                if r.get('ok'):
+                    r['channel'] = 'window'
+                    return r
+                # 降级链（规范 §5.1③）：窗口超时/不可用/读 DOM 失败 → urllib 兜底。
+                # 机制静默（不阻塞主流程），降级事实由响应 channel='urllib' 标注。
+                self._log.info('搜索次窗路径失败（%s），回落 urllib: %s',
+                               r.get('error'), u[:80])
         r = self._fetch_via_urllib(u)
         r['channel'] = 'urllib'
         return r
@@ -191,11 +246,8 @@ class SearchBrowser:
         def _on_loaded():
             loaded.set()
 
-        try:
-            win.load_url(url)
-        except Exception as e:
-            return {'ok': False, 'error': 'WINDOW_UNAVAILABLE',
-                    'message': '搜索窗口加载失败: %r' % e}
+        # 先订阅再导航：load_url 之后 loaded 可能同步/极快触发（缓存页/
+        # about:blank 跳转），后订阅会漏事件 → 白等 8s 看门狗超时
         events = getattr(win, 'events', None)
         subscribed = False
         if events is not None and getattr(events, 'loaded', None) is not None:
@@ -204,6 +256,11 @@ class SearchBrowser:
                 subscribed = True
             except Exception:
                 subscribed = False
+        try:
+            win.load_url(url)
+        except Exception as e:
+            return {'ok': False, 'error': 'WINDOW_UNAVAILABLE',
+                    'message': '搜索窗口加载失败: %r' % e}
         try:
             if not loaded.wait(LOAD_TIMEOUT_SECONDS):
                 return {'ok': False, 'error': 'TIMEOUT',
@@ -228,6 +285,11 @@ class SearchBrowser:
 
         Returns:
             str | None：HTML 字符串；None = 不可用（异常/超时/空）。
+
+        首次 join 超时即置 ``_dom_pumpable=False``（本沙箱会话消息循环无法
+        泵送 evaluate_js——两次实证的已知限制）：超时的工作线程已成为僵尸
+        （join 不回来，daemon 线程只能等进程退出），后续 open_url 跳过窗口
+        路径直接走 urllib，不再每请求养一个僵尸线程。
         """
         box = {}
 
@@ -241,7 +303,8 @@ class SearchBrowser:
         t.start()
         t.join(READ_DOM_TIMEOUT_SECONDS)
         if t.is_alive():
-            return None       # evaluate_js 无法泵送（沙箱实证）——窗口路径不可用
+            self._dom_pumpable = False    # 僵尸线程已养成：窗口路径整体退役
+            return None
         if 'error' in box:
             self._log.debug('evaluate_js 读取失败: %r', box['error'])
             return None

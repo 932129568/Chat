@@ -31,6 +31,7 @@ import threading
 import time
 
 from .. import paths
+from ..fio import atomic_write_json
 from ..logging_setup import get_logger
 
 # ---------------- Win32 常量 ----------------
@@ -752,9 +753,10 @@ class SandboxService:
                         ur = plim.get('ui_restrict')
                         if ur in _UI_LEVELS:
                             self._cfg['limits'][pname]['ui_restrict'] = ur
-                os.makedirs(os.path.dirname(self._path), exist_ok=True)
-                with open(self._path, 'w', encoding='utf-8') as f:
-                    json.dump(self._cfg, f, ensure_ascii=False, indent=2)
+                # 修复（本轮）：非原子直写改原子写（tmp + fsync + os.replace，
+                # 带 WinError32 退避重试）——原 open('w') 截断式直写，写一半
+                # 崩溃/断电即半截 JSON，沙箱配置（含 fail-closed 开关）全丢。
+                atomic_write_json(self._path, self._cfg, indent=2)
             return '{"ok":true}'
         except Exception as e:
             self._log.exception('沙箱配置保存失败')

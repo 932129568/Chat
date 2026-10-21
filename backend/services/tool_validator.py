@@ -6,8 +6,9 @@
 工程载体，也让既有工具面（写文件/命令/搜索/软件调用）受益。
 
 设计口径：
-- **纯函数优先**：除文件存在性外全部零 IO（文件存在性经调用方注入的
-  ``exists_fn`` 检查器，测试可桩）。
+- **纯函数优先**：除文件存在性外全部零 IO（文件存在性/大小经 ``exists_fn`` /
+  ``size_fn`` 检查器；缺省走真实 FS——生产单例（get_validator）用
+  ``os.path.exists``/``os.path.getsize``，测试可注入桩）。
 - **verdict 结构**：``{ok, kind, confidence, reason, retryable, suggestion}``
   ——confidence 0-1（相关度/完整度量化）；retryable 标记是否值得改写重试
   （换引擎/去限定词/简词）；suggestion 为人话改写建议（reformulate 提示）。
@@ -24,6 +25,7 @@
 - software ：software_call(gui/uri)（window_verified / protocol 回显）
 - generic  ：其余工具/MCP（结构非空 + 无 error 字段）
 """
+import os
 import re
 
 # verdict kind 全集（前端徽标/审计对齐）
@@ -96,11 +98,14 @@ class ToolValidator:
     def __init__(self, exists_fn=None, size_fn=None):
         """
         Args:
-            exists_fn: 文件存在性检查器（path -> bool；测试可桩）。
-            size_fn: 文件大小检查器（path -> int；缺省回落 exists_fn 存在即过）。
+            exists_fn: 文件存在性检查器（path -> bool；测试可桩）。缺省
+                ``os.path.exists``——生产单例（``get_validator``）走真实 FS。
+            size_fn: 文件大小检查器（path -> int；测试可桩）。缺省
+                ``os.path.getsize``（取不到时抛异常，由 validate_file 的
+                「存在性核验异常」分支按成功放行——thin 0.4）。
         """
-        self._exists_fn = exists_fn or (lambda p: False)
-        self._size_fn = size_fn or (lambda p: 0)
+        self._exists_fn = exists_fn or os.path.exists
+        self._size_fn = size_fn or os.path.getsize
 
     # ---------------- 入口 ----------------
     def validate(self, tool, result, context=None):
@@ -176,13 +181,22 @@ class ToolValidator:
                         '正文提取有效（%d 字符）' % len(content))
 
     def validate_command(self, result):
-        """命令/CLI：退出码语义 + stderr 已知模式人话。"""
+        """命令/CLI：退出码语义 + stderr 已知模式人话。
+
+        exit_code 为 None（执行器未给出退出码——超时清剿/异常路径）≠ 成功：
+        判 MALFORMED，不再静默当 0 放行（假阳性 ok 会骗过 Agent 的判断力）。
+        """
         r = result or {}
         if r.get('ok') is False:
             return _verdict(False, KIND_FAILED, 0.0,
                             '调用失败：' + str(r.get('error') or '未知错误'), retryable=False)
+        raw = r.get('exit_code', 0)
+        if raw is None:
+            return _verdict(False, KIND_MALFORMED, 0.0,
+                            '命令结果缺少 exit_code（执行器未返回退出码）',
+                            retryable=True, suggestion='重试或检查执行器回显')
         try:
-            code = int(r.get('exit_code', 0))
+            code = int(raw)
         except (TypeError, ValueError):
             code = 0
         if code == 0:

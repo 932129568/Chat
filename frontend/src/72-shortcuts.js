@@ -21,6 +21,15 @@ const SC_MOUSE = [
   { desc: '搜索结果点击标题看原文预览浮层' }
 ];
 
+/* 常量入 innerHTML 前的统一转义（优先复用 50-markdown 的 escapeHtml；
+   vm 单模块沙箱未加载时回落本地实现——防常量改版引入 HTML 注入面） */
+function _scEsc(s) {
+  const t = String(s == null ? '' : s);
+  if (typeof escapeHtml === 'function') return escapeHtml(t);
+  return t.replace(/&/g, '&amp;').replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
 function scOpen() {
   if (typeof document === 'undefined') return;
   scClose();
@@ -30,20 +39,20 @@ function scOpen() {
   card.className = 'modal-card sc-card';
   card.setAttribute('role', 'dialog');
   card.setAttribute('aria-modal', 'true');
-  const kbd = ks => ks.map(k => '<kbd class="sc-kbd">' + String(k).replace(/</g, '&lt;') + '</kbd>').join('<span class="sc-plus">+</span>');
+  const kbd = ks => ks.map(k => '<kbd class="sc-kbd">' + _scEsc(k) + '</kbd>').join('<span class="sc-plus">+</span>');
   card.innerHTML =
     '<h3>快捷键与命令</h3>' +
     '<div class="sub">键盘、斜杠命令与流式控制（全部实接）</div>' +
     '<div class="sc-sec">键盘</div>' +
     SC_SHORTCUTS.map(x =>
       '<div class="sc-row"><span class="sc-keys">' + kbd(x.keys) + '</span>' +
-      '<span class="sc-desc">' + x.desc + '</span></div>').join('') +
+      '<span class="sc-desc">' + _scEsc(x.desc) + '</span></div>').join('') +
     '<div class="sc-sec">斜杠命令（输入框输入）</div>' +
     SC_COMMANDS.map(x =>
-      '<div class="sc-row"><span class="sc-keys"><code class="sc-cmd">' + x.cmd + '</code></span>' +
-      '<span class="sc-desc">' + x.desc + '</span></div>').join('') +
+      '<div class="sc-row"><span class="sc-keys"><code class="sc-cmd">' + _scEsc(x.cmd) + '</code></span>' +
+      '<span class="sc-desc">' + _scEsc(x.desc) + '</span></div>').join('') +
     '<div class="sc-sec">鼠标操作</div>' +
-    SC_MOUSE.map(x => '<div class="sc-row"><span class="sc-desc only">· ' + x.desc + '</span></div>').join('') +
+    SC_MOUSE.map(x => '<div class="sc-row"><span class="sc-desc only">· ' + _scEsc(x.desc) + '</span></div>').join('') +
     '<div class="modal-acts"><button class="modal-btn primary sc-ok">知道了</button></div>';
   mask.appendChild(card);
   document.body.appendChild(mask);
@@ -53,7 +62,8 @@ function scOpen() {
   setTimeout(() => { const b = card.querySelector('.sc-ok'); if (b) b.focus(); }, 60);
 }
 function scEsc(e) {
-  if (e.key === 'Escape') { e.stopPropagation(); scClose(); }
+  // 不 stopPropagation：Esc 应继续冒泡给其他浮层（设置/搜索面板/图片查看）各自收尾
+  if (e.key === 'Escape') scClose();
 }
 function scClose() {
   const mask = document.querySelector('.sc-mask');
@@ -62,8 +72,11 @@ function scClose() {
 }
 
 /** ? 键打开（输入框/文本区聚焦时不抢键；与 Ctrl+N 不冲突）。 */
+let _scBound = false;   // 幂等守卫：防 boot 重入/重复调用叠监听器（? 连开两个浮层）
 function shortcutsInit() {
   if (typeof document === 'undefined') return false;
+  if (_scBound) return true;   // 已接线：直接返回（同 63-search-panel __spWired 先例）
+  _scBound = true;
   document.addEventListener('keydown', (e) => {
     if (e.key !== '?') return;
     const tag = (e.target && e.target.tagName) || '';

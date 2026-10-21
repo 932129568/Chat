@@ -22,7 +22,6 @@
 const SP_POLL_INTERVAL_MS = 1000;      // search_status 轮询间隔（§2.4）
 const SP_STATUS_TIMEOUT_MS = 15000;    // 纯内存状态读，快失败（§2.1 表）
 const SP_SEARCH_TIMEOUT_MS = 90000;    // browser_search（extract=full 时前端可传 150000）
-const SP_OPEN_TIMEOUT_MS = 60000;      // browser_open（§2.1 表）
 const SP_TAKEOVER_TIMEOUT_MS = 90000;  // browser_takeover（§2.1 表）
 const SP_STATS_TIMEOUT_MS = 15000;     // search_cache_stats
 // 后端 phase → 阶段文案（§2.3 四件套映射表；motion-spec §2.1 为动效真相源）
@@ -48,6 +47,7 @@ let searchPanelState = 'idle'; // idle|pending|success|error|captcha
 let searchPollTimer = null;    // 1s 轮询定时器句柄
 let searchTakeoverId = null;   // 当前接管会话（captcha 态非空）
 let searchLastPayload = null;  // 最近一次成功载荷（原文预览/重渲染用）
+let spStatsSeq = 0;            // 脚注统计 last-wins（同 searchReqSeq 先例）
 
 /* ---------- typeof 守卫取值（§2.5：vm 沙箱无 DOM 不炸） ---------- */
 function searchPanelEl() {
@@ -112,6 +112,11 @@ function searchPanelInit() {
   return true;
 }
 function searchPanelWire() {
+  const wirePanel = searchPanelEl();
+  if (wirePanel) {
+    if (wirePanel.__spWired) return;      // 幂等：防重复接线（监听器翻倍）
+    wirePanel.__spWired = true;
+  }
   const close = spEl('spClose');
   if (close) close.addEventListener('click', () => searchPanelClose());
   const fold = spEl('spFold');
@@ -119,7 +124,9 @@ function searchPanelWire() {
   const btn = spEl('spSearchBtn');
   if (btn) btn.addEventListener('click', () => {
     const input = spEl('spInput');
-    searchPanelRunSearch({ query: input ? input.value : '' });
+    const q = input ? input.value : '';
+    if (!q.trim()) { spToast('先输入检索词', 'warn'); return; }   // 空 query 前置校验
+    searchPanelRunSearch({ query: q });
   });
   const cont = spEl('spTakeoverContinue');
   if (cont) cont.addEventListener('click', () => searchPanelTakeoverAction('continue'));
@@ -198,6 +205,16 @@ function searchPanelClose() {
 
 /* ---------- 三态 + last-wins 主入口（C 域 25-tool-exec 分发亦走此函数） ---------- */
 async function searchPanelRunSearch(params) {
+  // 新搜索取代在途接管会话（流程 2：旧 takeover 失效须通知 Agent 循环收尾，
+  // 否则挂起的工具轮次永久悬挂）
+  if (searchTakeoverId) {
+    if (typeof harborTakeoverNotify === 'function') {
+      harborTakeoverNotify({ ok: false, error: { code: 'CAPTCHA_ABORTED',
+        message: '已被新的搜索请求取代' } });
+    }
+    searchTakeoverId = null;
+    searchPanelHideTakeover();
+  }
   const seq = ++searchReqSeq;                       // ②序号登记
   searchPanelSetState('pending');
   searchPanelOpen();                                // 打开即起轮询（≥3s 可见等待）
@@ -219,6 +236,17 @@ async function searchPanelRunSearch(params) {
       searchPanelShowTakeover(d.error);
       searchPanelSetState('captcha');
     } else {
+      // 通用错误同样清洗接管区：轮询镜像（searchPanelSetPhase）可能已把
+      // captcha 快照的 takeover_id 挂进 searchTakeoverId，搜索失败时须收起
+      // 接管 UI 并通知 Agent 收尾（防挂起的工具轮次永久悬挂）
+      if (searchTakeoverId) {
+        if (typeof harborTakeoverNotify === 'function') {
+          harborTakeoverNotify({ ok: false, error: { code: 'CAPTCHA_ABORTED',
+            message: '接管会话已失效或失败，本次搜索已放弃' } });
+        }
+        searchTakeoverId = null;
+        searchPanelHideTakeover();
+      }
       searchPanelRenderError((d && d.error) || { code: 'INTERNAL', message: '搜索失败' });
       searchPanelSetState('error');
     }
@@ -228,11 +256,13 @@ async function searchPanelRunSearch(params) {
       message: (e && e.message) || String(e) });
     searchPanelSetState('error');
   } finally {
-    const btn2 = spEl('spSearchBtn');
-    if (btn2) btn2.disabled = false;                // 终态恢复（pending 防连点）
-    const bar2 = spEl('spProgressBar');
-    if (bar2) bar2.classList.remove('indet');       // 停不确定扫光（确定进度由 phase 驱动）
-    searchPanelRefreshStats();
+    if (seq === searchReqSeq) {
+      const btn2 = spEl('spSearchBtn');
+      if (btn2) btn2.disabled = false;              // 终态恢复（pending 防连点）
+      const bar2 = spEl('spProgressBar');
+      if (bar2) bar2.classList.remove('indet');     // 停不确定扫光（确定进度由 phase 驱动）
+    }
+    searchPanelRefreshStats();                      // last-wins 无关：脚注统计无害
   }
 }
 
@@ -244,6 +274,7 @@ async function searchPanelTakeoverAction(action) {
   const ab = spEl('spTakeoverAbort');
   if (cont) cont.disabled = true;                   // 防连点（后端亦幂等）
   if (ab) ab.disabled = true;
+  let retrying = false;   // CAPTCHA_REQUIRED 重试中：接管会话仍在提示，保持禁用
   try {
     const raw = await spCallApi('browser_takeover', [searchTakeoverId, action],
       SP_TAKEOVER_TIMEOUT_MS);
@@ -260,6 +291,7 @@ async function searchPanelTakeoverAction(action) {
       // typeof 守卫——vm 单模块沙箱无 60-agent-loop 时不炸）
       if (typeof harborTakeoverNotify === 'function') harborTakeoverNotify(d);
     } else if (d && d.error && d.error.code === 'CAPTCHA_REQUIRED') {
+      retrying = true;                              // 非终态：会话续跑，不解禁按钮
       const n = (d.error.retry || 1);
       spToast('验证未通过，请重试（' + n + '/' + (d.error.max_retries || 3) + '）', 'warn');
     } else if (d && d.error && d.error.code === 'CAPTCHA_ABORTED') {
@@ -271,15 +303,29 @@ async function searchPanelTakeoverAction(action) {
       // v1.8.0 C 域：放弃终态同样通知（Agent 换引擎/告知用户）
       if (typeof harborTakeoverNotify === 'function') harborTakeoverNotify(d);
     } else {
+      // 通用错误：接管会话已失效——清洗接管区并通知 Agent 收尾（防挂起）
+      searchTakeoverId = null;
+      searchPanelHideTakeover();
       searchPanelRenderError((d && d.error) || { code: 'INTERNAL', message: '操作失败' });
       searchPanelSetState('error');
+      if (typeof harborTakeoverNotify === 'function') {
+        harborTakeoverNotify({ ok: false, error: { code: 'CAPTCHA_ABORTED',
+          message: '接管会话已失效或失败，本次搜索已放弃' } });
+      }
     }
   } catch (e) {
     if (seq !== searchReqSeq) return;
     spToast('接管操作失败：' + ((e && e.message) || String(e)), 'err');
+    // 桥接层异常同属非终态失败：通知 Agent 放弃本轮（防工具轮次永久挂起）
+    if (typeof harborTakeoverNotify === 'function') {
+      harborTakeoverNotify({ ok: false, error: { code: 'CAPTCHA_ABORTED',
+        message: '接管会话已失效或失败，本次搜索已放弃' } });
+    }
   } finally {
-    if (cont) cont.disabled = false;
-    if (ab) ab.disabled = false;
+    if (seq === searchReqSeq && !retrying) {
+      if (cont) cont.disabled = false;
+      if (ab) ab.disabled = false;
+    }
     searchPanelRefreshStats();
   }
 }
@@ -304,6 +350,12 @@ async function searchPanelPollOnce() {
     return;   // 轮询快失败不打扰（下一拍再试；后端继续跑不依赖轮询）
   }
   if (!d || !d.ok) return;
+  // 终态快照（active=false 且 phase done/failed）只在 pending 期驱动 UI：
+  // 否则上一轮搜索的 done 会覆盖新面板的就绪/成功态（相位 pill/进度条回退）
+  if (d.active === false && (d.phase === 'done' || d.phase === 'failed')) {
+    searchPanelStopPolling();
+    if (searchPanelState !== 'pending') return;
+  }
   if (d.active === false && d.phase !== 'done' && d.phase !== 'failed') {
     searchPanelStopPolling();                       // 无活跃搜索 → 停
     return;
@@ -396,7 +448,8 @@ function searchPanelRenderResults(d) {
     top.appendChild(pos);
     const a = document.createElement('a');
     a.className = 'sp-item-title';
-    a.href = r.url || '#';
+    // scheme 白名单：仅 http/https 可点（防 javascript:/file: 等危险协议）
+    a.href = (/^https?:\/\//i.test(String(r.url || ''))) ? r.url : '#';
     a.target = '_blank';
     a.rel = 'noopener';
     a.textContent = r.title || r.url || '（无标题）';
@@ -450,6 +503,7 @@ function searchPanelRenderError(e) {
   }
 }
 function searchPanelShowTakeover(err) {
+  searchPanelSetState('captcha');                    // 入状态机：轮询检出的接管亦不可关闭
   const box = spEl('spTakeover');
   if (box) box.style.display = '';
   const pill = spEl('spPill');
@@ -471,8 +525,10 @@ function searchPanelHideTakeover() {
 async function searchPanelRefreshStats() {
   const foot = spEl('spFoot');
   if (!foot) return;
+  const seq = ++spStatsSeq;                          // last-wins：旧统计静默丢弃
   try {
     const raw = await spCallApi('search_cache_stats', [], SP_STATS_TIMEOUT_MS);
+    if (seq !== spStatsSeq) return;
     const d = JSON.parse(raw || '{}');
     if (d && d.ok) {
       foot.textContent = '缓存 ' + d.entries + ' 条 · 命中 ' + d.hits +

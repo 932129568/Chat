@@ -92,6 +92,9 @@ _STDERR_HINTS = (
 _STDLIB_RUN = subprocess.run
 _NO_WINDOW = getattr(subprocess, 'CREATE_NO_WINDOW', 0)
 
+# {name} 占位符（save 侧 arg_schema 声明校验用；与 _build_argv/_fill_template 同口径）
+_PLACEHOLDER_RE = re.compile(r'\{([a-zA-Z_][a-zA-Z0-9_]*)\}')
+
 
 def _utc_now():
     """ISO8601 UTC（§4.3：全库统一 'Z' 后缀；秒级精度）。"""
@@ -315,21 +318,33 @@ def validate_args(schema, args):
     minLength-maxLength / pattern。返回 violations[{path,expect,got}]；
     空列表 = 通过。路径门禁（x-workspace-path）不在此层——由调用方
     software_call 在工作区归一后执行（需要根路径）。
+
+    畸形 schema 防御（消费端）：schema 非对象 / properties 非对象 /
+    required 非数组 / 单个 property 定义非对象 → 回落空集不抛——
+    非法定义由 save 侧入拒绝（注册表文件被手改时此处保底不炸管线）。
     """
     violations = []
-    props = (schema or {}).get('properties') or {}
-    required = (schema or {}).get('required') or []
+    schema = schema if isinstance(schema, dict) else {}
+    props = schema.get('properties') or {}
+    if not isinstance(props, dict):
+        props = {}
+    required = schema.get('required') or []
+    if not isinstance(required, (list, tuple)):
+        required = []
     if not isinstance(args, dict):
         return [{'path': '(root)', 'expect': 'object',
                  'got': _summarize(args)}]
     for name in required:
         v = args.get(name)
         if v is None or (isinstance(v, str) and not v.strip()):
-            spec = dict(props.get(name) or {})
+            spec = props.get(name) if isinstance(props.get(name), dict) else {}
+            spec = dict(spec)
             spec['_required'] = True
             violations.append({'path': name, 'expect': _expect_text(spec),
                                'got': _summarize(v)})
     for name, spec in props.items():
+        if not isinstance(spec, dict):
+            continue          # 畸形 property 定义：跳过（save 侧已拒）
         if name not in args:
             continue
         v = args[name]
@@ -388,11 +403,23 @@ def validate_args(schema, args):
 
 
 def gen_example(schema):
-    """按 arg_schema 生成正确示例（必填项填默认值/示例/类型占位——§3.2）。"""
-    props = (schema or {}).get('properties') or {}
+    """按 arg_schema 生成正确示例（必填项填默认值/示例/类型占位——§3.2）。
+
+    畸形 schema 防御（同 validate_args 口径）：非对象 / properties 非对象 /
+    单个 property 定义非对象 → 按空处理，不抛（example 只服务于自校正回显，
+    坏定义不应把错误路径本身打炸）。
+    """
+    schema = schema if isinstance(schema, dict) else {}
+    props = schema.get('properties') or {}
+    if not isinstance(props, dict):
+        props = {}
+    required = schema.get('required') or []
+    if not isinstance(required, (list, tuple)):
+        required = []
     out = {}
-    for name in (schema or {}).get('required') or []:
-        spec = props.get(name) or {}
+    for name in required:
+        spec = props.get(name)
+        spec = spec if isinstance(spec, dict) else {}
         if 'default' in spec:
             out[name] = spec['default']
         elif 'example' in spec:
@@ -508,6 +535,33 @@ def _find_window_title(pattern):
     return found[0] if found else None
 
 
+def _shell_execute(uri):
+    """ShellExecuteW 协议启动（os.startfile 不可用时的回退）。
+
+    取代 ``cmd /c start``：后者把 uri 拼进行命令行，含 ``&``/``|`` 等元字符时
+    会执行额外命令（命令行注入面）；ShellExecuteW 按结构化参数交 shell，
+    无命令行解析注入面。
+
+    Returns:
+        bool：True = 已交 shell 启动。ShellExecuteW 返回 HINSTANCE——≤32 为
+        SE_ERR_* 错误码，>32 为实例句柄；restype 显式声明 HINSTANCE 防默认
+        c_int 截断把 64 位句柄误判成错误码（同 _declare_win32_gui 口径）。
+    """
+    if not hasattr(ctypes, 'windll'):
+        return False
+    try:
+        from ctypes import wintypes
+        shell32 = ctypes.windll.shell32
+        shell32.ShellExecuteW.restype = wintypes.HINSTANCE
+        shell32.ShellExecuteW.argtypes = [wintypes.HWND, wintypes.LPCWSTR,
+                                          wintypes.LPCWSTR, wintypes.LPCWSTR,
+                                          wintypes.LPCWSTR, wintypes.INT]
+        rc = shell32.ShellExecuteW(None, 'open', str(uri), None, None, 1)
+        return int(rc) > 32
+    except Exception:
+        return False
+
+
 def default_gui_launcher(exe, argv, expected_title, timeout=GUI_VERIFY_TIMEOUT_S,
                          clock=None):
     """GUI 启动 + 标题核验（默认实现；测试可注入替身）。
@@ -523,7 +577,9 @@ def default_gui_launcher(exe, argv, expected_title, timeout=GUI_VERIFY_TIMEOUT_S
         return {'launched': False, 'error': 'Win32 签名声明失败'}
     k32 = ctypes.windll.kernel32
     app = str(exe or '')
-    cmdline = ' '.join([app] + [str(a) for a in (argv or [])])
+    # list2cmdline：含空格/引号的参数按 Windows 命令行规则补引号——裸 join 会把
+    # "C:\My Dir\a.txt" 拆成两个参数（参数错位 + 经 GUI 动作注入额外参数）
+    cmdline = subprocess.list2cmdline([app] + [str(a) for a in (argv or [])])
     si = _STARTUPINFOW()
     si.cb = ctypes.sizeof(si)
     pi = _PROCESS_INFORMATION()
@@ -807,6 +863,7 @@ class SoftwareService:
             return {'error': '至少需要一个 action'}
         norm_actions = []
         seen = set()
+        declared = set()          # 各 action arg_schema.properties 键并集
         for act in actions:
             if not isinstance(act, dict):
                 return {'error': 'action 必须是对象'}
@@ -822,6 +879,17 @@ class SoftwareService:
                                                'properties': {}}
             if not isinstance(schema, dict):
                 return {'error': 'action %s 的 arg_schema 必须是对象' % aname}
+            sprops = schema.get('properties')
+            if sprops is None:
+                sprops = {}
+            elif not isinstance(sprops, dict):
+                return {'error': 'action %s 的 arg_schema.properties '
+                        '必须是对象' % aname}
+            sreq = schema.get('required')
+            if sreq is not None and not isinstance(sreq, (list, tuple)):
+                return {'error': 'action %s 的 arg_schema.required '
+                        '必须是数组' % aname}
+            declared.update(sprops)
             item = {'name': aname, 'risk': arisk, 'arg_schema': schema}
             if kind == 'uri':
                 item['uri_template'] = str(act.get('uri_template')
@@ -834,7 +902,23 @@ class SoftwareService:
                     return {'error': 'action %s 需要 argv 模板（字符串数组，'
                                      '支持 {arg} 占位）' % aname}
                 item['argv'] = [str(a) for a in argv]
+                # 占位符必须已在 arg_schema.properties 声明：未声明的 {key}
+                # 会绕过 schema 校验直达命令行（_build_argv 缺失即 KeyError
+                # 的根源）——缺失即拒，回显动作名与占位符名
+                for token in item['argv']:
+                    for key in _PLACEHOLDER_RE.findall(token):
+                        if key not in sprops:
+                            return {'error': 'action %s 的 argv 占位符 '
+                                    '{%s} 未在 arg_schema.properties 中声明'
+                                    % (aname, key)}
             norm_actions.append(item)
+        # version_args 占位符同口径：探测期无参数可填，未声明的 {key} 会原样
+        # 漏进命令行——必须已在某 action 的 arg_schema.properties 声明
+        for token in [str(a) for a in (entry.get('version_args') or [])]:
+            for key in _PLACEHOLDER_RE.findall(token):
+                if key not in declared:
+                    return {'error': 'version_args 占位符 {%s} 未在 '
+                            'arg_schema.properties 中声明' % key}
         with self._lock:
             self._user[name] = self._normalize({
                 'name': name, 'kind': kind, 'risk_default': risk,
@@ -1080,10 +1164,16 @@ class SoftwareService:
             return True
 
     def _version_output(self, exe, version_args):
-        """跑 version 命令取输出（探测用；stdout+stderr 合并，小超时）。"""
+        """跑 version 命令取输出（探测用；stdout+stderr 合并，小超时）。
+
+        探测同样走沙箱（read 档）：version 子进程与调用路径同款限制——
+        未沙箱化的探测可被伪装的「已安装软件」利用来执行任意命令
+        （find→version 两步都过沙箱，fail-closed 口径一致）。
+        """
         try:
             r = self._runner([str(exe)] + [str(a) for a in version_args],
-                             None, PROBE_VERSION_TIMEOUT_S, None)
+                             None, PROBE_VERSION_TIMEOUT_S,
+                             self._sandbox_limits('read'))
         except Exception as e:
             self._log.debug('version 探测执行失败: %r', e)
             return ''
@@ -1149,8 +1239,10 @@ class SoftwareService:
         # ---- 安装/身份校验（unknown 先按需探测，避免陈缓存误判）----
         status = entry.get('status')
         if status == 'unknown':
+            # 探测可能跑 15s 级 version 子进程：持锁跑会阻塞 software_list /
+            # save 等全部注册表操作——锁外探测，persist 再短暂持锁
+            status = self._probe_one(software).get('status')
             with self._lock:
-                status = self._probe_one(software).get('status')
                 self._persist()
         if status == 'missing':
             self._audit('software_call', {'software': software, 'action': action,
@@ -1370,7 +1462,14 @@ class SoftwareService:
         software = entry['name']
         action = act['name']
         tpl = str(act.get('uri_template') or entry.get('uri_template') or '')
-        uri = self._fill_template(tpl, args)
+        try:
+            uri = self._fill_template(tpl, args)
+        except KeyError as e:
+            self._audit('software_call', {'software': software,
+                                          'action': action, 'risk': risk,
+                                          'source': source}, 'call', 'block')
+            return _error('BAD_PARAMS', '参数缺失: %s' % e,
+                          '可用参数见 arg_schema')
         if not re.match(r'^[a-zA-Z][a-zA-Z0-9+.-]*:', uri or ''):
             self._audit('software_call', {'software': software,
                                           'action': action, 'risk': risk,
@@ -1381,18 +1480,16 @@ class SoftwareService:
         t0 = self._clock()
         try:
             os.startfile(uri)
-        except Exception as e:
-            # 回退：cmd /c start（某些环境 startfile 不可用）
-            try:
-                subprocess.run(['cmd', '/c', 'start', '', uri],
-                               capture_output=True, timeout=15,
-                               creationflags=_NO_WINDOW)
-            except Exception as e2:
-                self._audit('software_call', {'software': software,
-                                              'action': action, 'risk': risk,
-                                              'source': source}, 'call',
+        except Exception:
+            # 回退：ShellExecuteW（cmd /c start 有命令行注入面——uri 含 & 等
+            # 元字符时会执行额外命令；ShellExecuteW 结构化参数无此面）
+            if not _shell_execute(uri):
+                self._audit('software_call',
+                            {'software': software, 'action': action,
+                             'risk': risk, 'source': source}, 'call',
                             'error')
-                return _error('INTERNAL', '协议启动失败: %s / %s' % (e, e2),
+                return _error('INTERNAL',
+                              '协议启动失败（startfile/ShellExecuteW 均不可用）',
                               '请检查协议是否已注册（默认程序关联）')
         duration_ms = int((self._clock() - t0) * 1000)
         protocol = uri.split(':', 1)[0].lower()

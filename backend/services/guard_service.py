@@ -211,6 +211,16 @@ class GuardService:
             incoming = json.loads(cfg_json) if isinstance(cfg_json, str) else cfg_json
             if not isinstance(incoming, dict):
                 incoming = {}
+            # 修复 A6：先做全量校验再改内存——原实现边应用边校验，
+            # trustedOps 非法时前半段（tiers/名单）已落 self._cfg 才早退，
+            # 内存被污染且与磁盘不一致
+            trusted = incoming.get('trustedOps')
+            if trusted is not None:
+                if not isinstance(trusted, list):
+                    return json.dumps({'error': 'trustedOps 必须是数组'}, ensure_ascii=False)
+                for op in trusted:
+                    if str(op) not in GUARD_OPS:
+                        return json.dumps({'error': '未知的信任操作: %s' % op}, ensure_ascii=False)
             with self._lock:
                 tiers = incoming.get('tiers')
                 if isinstance(tiers, dict):
@@ -224,14 +234,8 @@ class GuardService:
                 if isinstance(incoming.get('protect_processes'), list):
                     self._cfg['protect_processes'] = [str(p).lower().strip()
                                                       for p in incoming['protect_processes'] if str(p).strip()]
-                # 修复 UX-2（v1.4）：持久信任读写（op 级；未知 op 拒绝）
-                trusted = incoming.get('trustedOps')
+                # 修复 UX-2（v1.4）：持久信任读写（op 级；未知 op 上面已拒）
                 if trusted is not None:
-                    if not isinstance(trusted, list):
-                        return json.dumps({'error': 'trustedOps 必须是数组'}, ensure_ascii=False)
-                    for op in trusted:
-                        if str(op) not in GUARD_OPS:
-                            return json.dumps({'error': '未知的信任操作: %s' % op}, ensure_ascii=False)
                     self._cfg['trustedOps'] = [str(op) for op in trusted]
                 self._write_cfg_locked()   # 修复 S8：原子写
             return '{"ok":true}'
@@ -349,7 +353,11 @@ class GuardService:
         grant = self._effective_grant()
         if grant is not None:
             need = _OP_GRANT_SCOPES.get(op)
-            if need is None or need in grant['scope']:
+            # 修复 S2（严重，fail-open）：原 `need is None or need in scope`——
+            # 未映射 op（如 web_search/software_call/mcp_call）在任何授权内
+            # 一律放行，授权面被无声放大。改为仅「有映射且 scope 覆盖」才
+            # 经授权放行；未映射 op 继续走 op 档/确认（fail-closed）。
+            if need is not None and need in grant['scope']:
                 # R6：授权内操作刷新空闲计时（idle_deadline = 现在 + 1800s）
                 self._touch_grant(grant)
                 return {'action': 'allow', 'via': 'grant',
@@ -443,8 +451,23 @@ class GuardService:
 
     # ---- confirm token（修复 S4①：一次性 + TTL + 绑定 op+detail 摘要）----
     @staticmethod
+    def _args_digest(arguments):
+        """工具参数摘要（W4：token 绑定实参——防「确认 A 参数、执行 B 参数」）。
+        json.dumps sort_keys 定序 + [:400] 截断；不可序列化 → str 截断。"""
+        try:
+            return json.dumps(arguments if arguments is not None else {},
+                              sort_keys=True, ensure_ascii=False)[:400]
+        except (TypeError, ValueError):
+            return str(arguments)[:400]
+
+    @staticmethod
     def _canonical_detail(op, detail):
-        """detail 归一化：token 签发与执行点校验用同一摘要，避免键序/类型差异误判。"""
+        """detail 归一化：token 签发与执行点校验用同一摘要，避免键序/类型差异误判。
+
+        修复 W4：mcp_call 增绑 arguments 摘要、software_call 绑 software+action、
+        web_search 绑 query——原这三类 op 摘要为空/仅 server+tool，确认后
+        篡改实参仍能过 token 校验。
+        """
         d = detail or {}
         if op == 'delete_path':
             return {'path': str(d.get('path') or '')}
@@ -461,7 +484,13 @@ class GuardService:
         if op == 'open_app':
             return {'path': str(d.get('path') or '')[:200]}   # 修复 W9（三轮）
         if op == 'mcp_call':
-            return {'server': str(d.get('server') or ''), 'tool': str(d.get('tool') or '')}
+            return {'server': str(d.get('server') or ''), 'tool': str(d.get('tool') or ''),
+                    'args': GuardService._args_digest(d.get('arguments'))}
+        if op == 'software_call':
+            return {'software': str(d.get('software') or '')[:60],
+                    'action': str(d.get('action') or '')[:40]}
+        if op == 'web_search':
+            return {'query': str(d.get('query') or '')[:200]}
         return {}
 
     @classmethod
@@ -547,20 +576,23 @@ class GuardService:
     def _effective_grant(self):
         """当前活跃授权（惰性过期修剪：TTL 与空闲先到者生效——R6）。
 
+        修复 A6：顺带清扫 _grants 中**全部**已过期项——原只剪当前授权，
+        历史授权（revoke 前新建过/被替换的）残留在 map 里无限堆积。
         过期授权在首次访问时移除并落审计（decision=expired）；无活跃授权
         返回 None。持锁调用（RLock 可重入）。
         """
         with self._lock:
+            now = self._clock()
+            for gid in [g for g, gr in self._grants.items()
+                        if now >= gr['expires_at'] or now >= gr['idle_deadline']]:
+                grant = self._grants.pop(gid)
+                if self._current_grant_id == gid:
+                    self._current_grant_id = None
+                expired_by = 'ttl' if now >= grant['expires_at'] else 'idle'
+                self._audit_grant_expired(gid, expired_by, grant)
             gid = self._current_grant_id
             grant = self._grants.get(gid) if gid else None
             if grant is None:
-                return None
-            now = self._clock()
-            if now >= grant['expires_at'] or now >= grant['idle_deadline']:
-                expired_by = 'ttl' if now >= grant['expires_at'] else 'idle'
-                self._grants.pop(gid, None)
-                self._current_grant_id = None
-                self._audit_grant_expired(gid, expired_by, grant)
                 return None
             return grant
 

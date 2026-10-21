@@ -18,11 +18,13 @@ guard_service 五层判定链拦截（架构 §2.3），检查点只管「恢复
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import time
 
 from .. import paths
+from ..fio import atomic_write_json
 
 # 检查点上限（ux-flows 流程 10 与自主调研 §6 同口径）
 CKPT_MAX_BYTES = 200 * 1024 * 1024
@@ -30,6 +32,24 @@ CKPT_MAX_FILES = 500
 
 STEP_STATUSES = ('pending', 'doing', 'done', 'blocked', 'skipped')
 PLAN_STATUSES = ('planning', 'approved', 'running', 'done', 'blocked')
+
+# task_id 安全校验（修复：路径穿越根因——'..'/'a/b'/'C:\\x' 等形态曾可
+# 借 _task_path/_ckpt_path 的字符串拼接逃出 plans//checkpoints/ 目录）
+_TID_RE = re.compile(r'^[A-Za-z0-9_-]{1,64}$')
+_TID_ERR = 'task_id 非法（仅限字母数字 _ -，≤64）'
+
+
+def _safe_tid(task_id):
+    """task_id → 安全 tid（strip 后匹配 ^[A-Za-z0-9_-]{1,64}$）。
+
+    非法（含路径分隔符/点号/超长/空）→ raise ValueError(_TID_ERR)，
+    由各入口转成 {'ok': False, 'error': ...}（check_tool 风格），异常
+    不得穿透 js_api。
+    """
+    tid = str(task_id or '').strip()
+    if not _TID_RE.match(tid):
+        raise ValueError(_TID_ERR)
+    return tid
 
 
 def _plans_dir():
@@ -41,15 +61,20 @@ def _ckpts_dir():
 
 
 def _task_path(task_id):
-    return os.path.join(_plans_dir(), '%s.json' % str(task_id))
+    return os.path.join(_plans_dir(), '%s.json' % _safe_tid(task_id))
 
 
 def _ckpt_path(task_id):
-    return os.path.join(_ckpts_dir(), str(task_id))
+    return os.path.join(_ckpts_dir(), _safe_tid(task_id))
 
 
 def _new_task_id():
     return 'task_%d' % int(time.time() * 1000)
+
+
+def _ms_tag():
+    """毫秒级时间戳标签（.rollback-bak 备份名防互覆用，A4）。"""
+    return time.strftime('%Y%m%d_%H%M%S') + '.%03d' % int((time.time() % 1) * 1000)
 
 
 CKPT_KEEP = 3   # 方案 §6.5：默认保留最近 3 份，旧的随新 checkpoint 创建清理
@@ -115,7 +140,10 @@ class PlanService(object):
     # ---------------- 计划 ----------------
     def create(self, title, steps, task_id=None):
         """steps: [{'text': str, 'risk': 'l0'|'l2'|''}]；返回 {ok, task_id, plan}。"""
-        tid = str(task_id or _new_task_id())
+        try:
+            tid = _safe_tid(task_id) if task_id else _new_task_id()
+        except ValueError:
+            return {'ok': False, 'error': _TID_ERR}
         norm = []
         for i, s in enumerate(steps or []):
             if isinstance(s, str):
@@ -137,21 +165,29 @@ class PlanService(object):
         }
         os.makedirs(_plans_dir(), exist_ok=True)
         try:
-            with open(_task_path(tid), 'w', encoding='utf-8') as f:
-                json.dump(plan, f, ensure_ascii=False, indent=1)
+            # 修复 A3：原子写（tmp+fsync+replace），崩溃不留半截 JSON
+            atomic_write_json(_task_path(tid), plan, indent=1)
         except OSError as e:
             return {'ok': False, 'error': '计划落盘失败: %s' % e}
         return {'ok': True, 'task_id': tid, 'plan': plan}
 
     def get(self, task_id):
-        p = _task_path(task_id)
+        try:
+            p = _task_path(task_id)
+        except ValueError:
+            return {'ok': False, 'error': _TID_ERR}
         if not os.path.exists(p):
             return {'ok': False, 'error': '计划不存在: %s' % task_id}
         try:
             with open(p, 'r', encoding='utf-8') as f:
-                return {'ok': True, 'plan': json.load(f)}
+                plan = json.load(f)
         except (OSError, ValueError) as e:
             return {'ok': False, 'error': '计划读取失败: %s' % e}
+        # 修复 A3：损坏文件（非对象 / steps 非数组）显式报错——
+        # 不把脏数据透给 update 与前端状态机
+        if not (isinstance(plan, dict) and isinstance(plan.get('steps'), list)):
+            return {'ok': False, 'error': '计划文件损坏'}
+        return {'ok': True, 'plan': plan}
 
     def update(self, task_id, status=None, step_index=None, step_status=None):
         """改计划状态或某步骤状态；返回 {ok, plan}。"""
@@ -161,8 +197,12 @@ class PlanService(object):
         plan = g['plan']
         if status is not None:
             st = str(status)
-            if st in PLAN_STATUSES:
-                plan['status'] = st
+            # 修复 A3：非法 status 显式报错（原静默忽略仍返回 ok，
+            # 调用方以为批准/推进成功）
+            if st not in PLAN_STATUSES:
+                return {'ok': False, 'error': 'status 非法（合法值: %s）'
+                        % '/'.join(PLAN_STATUSES)}
+            plan['status'] = st
         if step_index is not None and step_status is not None:
             try:
                 idx = int(step_index)
@@ -170,14 +210,17 @@ class PlanService(object):
                 return {'ok': False, 'error': 'step_index 必须是整数'}
             if 0 <= idx < len(plan['steps']):
                 ss = str(step_status)
-                if ss in STEP_STATUSES:
-                    plan['steps'][idx]['status'] = ss
+                # 修复 A3：非法 step_status 显式报错（原静默忽略）
+                if ss not in STEP_STATUSES:
+                    return {'ok': False, 'error': 'step_status 非法（合法值: %s）'
+                            % '/'.join(STEP_STATUSES)}
+                plan['steps'][idx]['status'] = ss
             else:
                 return {'ok': False, 'error': 'step_index 越界'}
         plan['updated_at'] = time.strftime('%Y-%m-%dT%H:%M:%S')
         try:
-            with open(_task_path(task_id), 'w', encoding='utf-8') as f:
-                json.dump(plan, f, ensure_ascii=False, indent=1)
+            # 修复 A3：原子写（tmp+fsync+replace）
+            atomic_write_json(_task_path(task_id), plan, indent=1)
         except OSError as e:
             return {'ok': False, 'error': '计划保存失败: %s' % e}
         return {'ok': True, 'plan': plan}
@@ -208,12 +251,16 @@ class PlanService(object):
         非 git：复制文件到 ~/.glm-chat/checkpoints/<task_id>/（上限 200MB/500）。
         返回 {ok, mode: 'git'|'snapshot'|'none', snapshot_count, git_head, warnings[]}。
         """
+        try:
+            tid = _safe_tid(task_id)
+        except ValueError:
+            return {'ok': False, 'error': _TID_ERR}
         ws = os.path.realpath(ws_dir or os.getcwd())
         warnings = []
         head = _git_head(ws)
-        manifest = {'task_id': str(task_id), 'ws_dir': ws, 'git_head': head,
+        manifest = {'task_id': tid, 'ws_dir': ws, 'git_head': head,
                     'created_at': _now(), 'files': []}
-        snap_dir = _ckpt_path(task_id)
+        snap_dir = _ckpt_path(tid)
         total = 0
         count = 0
         for rel in (files or []):
@@ -248,8 +295,8 @@ class PlanService(object):
         # manifest 始终落盘（git 锚点模式同样需要 rollback 时读回 sha）
         try:
             os.makedirs(snap_dir, exist_ok=True)
-            with open(os.path.join(snap_dir, 'manifest.json'), 'w', encoding='utf-8') as f:
-                json.dump(manifest, f, ensure_ascii=False, indent=1)
+            # 修复 A3：原子写（manifest 损坏=回滚不可用，同计划文件口径）
+            atomic_write_json(os.path.join(snap_dir, 'manifest.json'), manifest, indent=1)
         except OSError as e:
             return {'ok': False, 'error': '检查点清单落盘失败: %s' % e}
         mode = 'git' if head else ('snapshot' if count else 'none')
@@ -263,8 +310,12 @@ class PlanService(object):
     def checkpoint_rollback(self, task_id, ws_dir=None):
         """回滚到任务开始前。git 锚点：reset --hard <sha>（工作区需干净由调用方确认）；
         快照：逐文件恢复（先备份当前版为 .rollback-bak）。返回 {ok, restored[], failed[], mode}。"""
+        try:
+            tid = _safe_tid(task_id)
+        except ValueError:
+            return {'ok': False, 'error': _TID_ERR}
         ws = os.path.realpath(ws_dir or os.getcwd())
-        snap_dir = _ckpt_path(task_id)
+        snap_dir = _ckpt_path(tid)
         mf_path = os.path.join(snap_dir, 'manifest.json')
         restored, failed = [], []
         if os.path.exists(mf_path):
@@ -288,6 +339,9 @@ class PlanService(object):
                     failed.append('git reset 失败: %s' % r.stderr.decode('utf-8', 'replace')[:200])
                 except Exception as e:
                     failed.append('git reset 异常: %s' % e)
+                # 修复 A4：git 锚点回滚失败不再误落 snapshot 分支误报模式——
+                # 显式返回 mode='git' + failed（快照目录此时并无内容可恢复）
+                return {'ok': False, 'mode': 'git', 'restored': restored, 'failed': failed}
             for item in manifest.get('files', []):
                 if not item.get('snapshot'):
                     continue
@@ -298,7 +352,11 @@ class PlanService(object):
                     continue
                 try:
                     if os.path.exists(dst):
-                        shutil.copy2(dst, dst + '.rollback-bak')   # 先备份当前版
+                        bak = dst + '.rollback-bak'
+                        if os.path.exists(bak):
+                            # 修复 A4：毫秒时间戳防互覆（重复回滚不冲掉上次备份）
+                            bak = '%s.rollback-bak.%s' % (dst, _ms_tag())
+                        shutil.copy2(dst, bak)   # 先备份当前版
                     shutil.copy2(src, dst)
                     restored.append(item.get('path'))
                 except OSError:
@@ -306,10 +364,13 @@ class PlanService(object):
             return {'ok': not failed or bool(restored), 'mode': 'snapshot',
                     'restored': restored, 'failed': failed}
         # 无快照目录：尝试 git 锚点（create 时记在计划里的场景由调用方传 files 重建）
-        return {'ok': False, 'error': '未找到检查点: %s（可能创建时超限降级为仅记录）' % task_id}
+        return {'ok': False, 'error': '未找到检查点: %s（可能创建时超限降级为仅记录）' % tid}
 
     def checkpoint_list(self, task_id):
-        snap_dir = _ckpt_path(task_id)
+        try:
+            snap_dir = _ckpt_path(task_id)
+        except ValueError:
+            return {'ok': False, 'error': _TID_ERR}
         mf_path = os.path.join(snap_dir, 'manifest.json')
         if not os.path.exists(mf_path):
             return {'ok': True, 'files': [], 'mode': 'none'}

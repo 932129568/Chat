@@ -38,6 +38,11 @@ function pcScrollChat() {
     if (c) c.scrollTop = c.scrollHeight;
   }
 }
+/* 动效时长单一事实源（00-motion MOTION；vm 沙箱/未加载时回落——
+   纪律：JS 禁硬编码毫秒数，CSS 变量改令牌即全站生效） */
+function pcCompOutMs() {
+  return (typeof MOTION !== 'undefined' && MOTION.compOut) ? MOTION.compOut() : 140;
+}
 
 /* ---------- 计划卡渲染 ---------- */
 function planCardRender(plan) {
@@ -83,6 +88,12 @@ function planCardRender(plan) {
 
 /** 展示计划（ux-flows 流程 8 plan_review 态）。 */
 async function planShow(plan) {
+  // 在途保护：旧计划仍挂起 → AbortError 收尾（防 agent loop 双挂起互相踩）
+  if (planResolveApprove) {
+    const old = planResolveApprove;
+    planResolveApprove = null;
+    try { old.reject(new DOMException('计划已被新的计划取代', 'AbortError')); } catch (e) {}
+  }
   planCurrent = plan;
   planCardRender(plan);
   // 等用户批准（agent loop 挂起）；拒绝 → 抛 AbortError 由调用方转为「已拒绝」
@@ -94,6 +105,13 @@ async function planShow(plan) {
 function planCardApprove() {
   const card = planCardEl;
   if (!card || !planResolveApprove) return;
+  // 前置守卫：批准后 planModeRun 会以任务文本走原发送链，若此刻有生成任务
+  // 在途，sendMessage 入口的 isStreaming 检查会把这次发送静默吞掉（任务永不
+  // 执行）。根因在 100-send 的裸 sendMessage；此处先行拦截并给用户人话。
+  if (typeof isStreaming !== 'undefined' && isStreaming) {
+    pcToast('当前有生成任务进行中，请稍候再批准', 'warn');
+    return;
+  }
   const acts = pcEl('planActs');
   const badge = pcEl('planBadge');
   if (badge) { badge.className = 'plan-badge running'; badge.textContent = '执行中'; }
@@ -119,7 +137,7 @@ function planCardReject() {
   card.style.transition = 'opacity var(--dur-comp-out) var(--ease-in-soft),transform var(--dur-comp-out) var(--ease-in-soft)';
   card.style.opacity = '0';
   card.style.transform = 'translateY(calc(-1 * var(--shift-comp)))';
-  setTimeout(() => { card.remove(); if (planCardEl === card) planCardEl = null; }, 300);
+  setTimeout(() => { card.remove(); if (planCardEl === card) planCardEl = null; }, pcCompOutMs());
   const r = planResolveApprove;
   planResolveApprove = null;
   if (r) r.reject(new DOMException('计划已被用户拒绝', 'AbortError'));
@@ -165,6 +183,14 @@ function planFinish(summaryText) {
 let planResolveDev = null;
 function planDeviationShow(desc) {
   if (typeof document === 'undefined' || !planCardEl) return Promise.resolve('continue');
+  // 在途保护：旧偏差条仍挂起 → 以 'continue' 收尾（防 agent loop 双挂起）
+  if (planResolveDev) {
+    const old = planResolveDev;
+    planResolveDev = null;
+    try { old('continue'); } catch (e) {}
+    const oldBar = pcEl('devBar');
+    if (oldBar) oldBar.remove();
+  }
   const bar = document.createElement('div');
   bar.className = 'dev-bar flash';
   bar.id = 'devBar';
@@ -185,7 +211,7 @@ function planDeviationShow(desc) {
         bar.style.transition = 'opacity var(--dur-panel-out) var(--ease-in-soft),transform var(--dur-panel-out) var(--ease-in-soft)';
         bar.style.opacity = '0';
         bar.style.transform = 'translateY(calc(-1 * var(--shift-panel)))';
-        setTimeout(() => bar.remove(), 300);
+        setTimeout(() => bar.remove(), pcCompOutMs());
         if (planResolveDev) { planResolveDev(act); planResolveDev = null; }
       };
     });
@@ -193,8 +219,18 @@ function planDeviationShow(desc) {
 }
 
 /* ---------- 批量澄清表单（ux-flows 流程 9） ---------- */
+let planResolveClarify = null;   // 挂起的澄清 resolve（在途保护用）
 function clarifyShow(questions) {
   if (typeof document === 'undefined' || !planCardEl) return Promise.resolve({});
+  // 在途保护：旧澄清表单仍挂起 → 以 {} 收尾并移除旧表单
+  // （不移则两颗同 id 表单并存，getElementById 只会给旧表单接线）
+  if (planResolveClarify) {
+    const old = planResolveClarify;
+    planResolveClarify = null;
+    try { old({}); } catch (e) {}
+    const oldForm = pcEl('clarifyCard');
+    if (oldForm) oldForm.remove();
+  }
   const qs = (questions || []).slice(0, 5);   // 协议上限 5 问
   const form = document.createElement('div');
   form.className = 'clr-form';
@@ -225,13 +261,19 @@ function clarifyShow(questions) {
     };
   });
   return new Promise(resolve => {
+    planResolveClarify = resolve;
     const submit = (allDefault) => {
       const answers = {};
-      form.querySelectorAll('.clr-opt.on').forEach(o => { answers[o.dataset.q] = o.dataset.o; });
+      if (allDefault) {
+        // 全按默认：取各题 q.default（勿信 .on——用户可能改过选择）
+        qs.forEach((q, i) => { answers[i] = (q.default || 0); });
+      } else {
+        form.querySelectorAll('.clr-opt.on').forEach(o => { answers[o.dataset.q] = o.dataset.o; });
+      }
       form.querySelectorAll('.clr-q').forEach(q => q.style.opacity = '.55');
       form.style.transition = 'opacity var(--dur-comp-out) var(--ease-in-soft)';
       form.style.opacity = '0';
-      setTimeout(() => form.remove(), 300);
+      setTimeout(() => form.remove(), pcCompOutMs());
       // 后端收集（缺项默认值）——失败也不阻断（本地同款兜底）
       pcCall('clarify_collect', [qs, answers], 15000)
         .then(raw => { try { resolve(JSON.parse(raw || '{}').resolved || []); } catch (e) { resolve([]); } })
@@ -300,12 +342,16 @@ async function ckptRollbackFlow(taskId, host) {
   const cancel = box.querySelector('#rbCancel');
   if (cancel) cancel.onclick = () => box.remove();
   const confirm = box.querySelector('#rbConfirm');
-  if (confirm) confirm.onclick = () => rbTwice(confirm, taskId, box, list.files || []);
+  if (confirm) confirm.onclick = () => rbTwice(confirm, taskId, box);
 }
 
-function rbTwice(btn, taskId, box, files) {
+function rbTwice(btn, taskId, box) {
   if (btn.dataset.armed) {
     if (btn._rbTimer) clearTimeout(btn._rbTimer);
+    // 三连点防护：执行分支入口即卸武装 + 禁用——否则第三次点击会再进
+    // armed 分支对同一任务重复发起 checkpoint_rollback（双回滚竞态）
+    btn.dataset.armed = '';
+    btn.disabled = true;
     btn.textContent = '恢复中…';
     const rows = box.querySelectorAll('.ckpt-row');
     pcCall('checkpoint_rollback', [taskId], 60000)
@@ -316,8 +362,9 @@ function rbTwice(btn, taskId, box, files) {
         const failed = d.failed || [];
         rows.forEach((r, i) => setTimeout(() => {
           const p = r.querySelector('.f').textContent;
-          const okHit = restored.some(x => String(x).indexOf(p) >= 0);
-          const badHit = failed.some(x => String(x).indexOf(p) >= 0);
+          // 精确匹配或后缀匹配（禁裸 indexOf 子串：'/a/b.txt' 会误中 '/x/a/b.txt.bak'）
+          const okHit = restored.some(x => { const s = String(x); return s === p || s.endsWith(p); });
+          const badHit = failed.some(x => { const s = String(x); return s === p || s.endsWith(p); });
           if (okHit) { r.classList.add('restored'); r.querySelector('.s').textContent = '已恢复'; }
           else if (badHit) { r.classList.add('failed'); r.querySelector('.s').textContent = '失败'; }
         }, i * 120));

@@ -67,9 +67,13 @@ class McpService:
         self._toolcache = toolcache
         self._rt = {}
         self._lock = threading.RLock()
-        # 修复 ㉒：净化名 → 原名反解映射（tool_schemas 重建时刷新）
-        self._server_alias = {}      # 净化 server 段 -> 原始服务器名
-        self._tool_alias = {}        # (净化 server 段, 净化 tool 段含 _2 后缀) -> 原始工具名
+        # 修复 ㉒：净化函数名 → 原名反解映射（tool_schemas 重建时刷新）。
+        # 修复 alias 碰撞（本轮）：tool_alias 以**完整净化函数名**为键存
+        # (server, tool) 二元组——原按 split('__',2) 猜段存 (server 段,
+        # tool 段)，server 名含 '__' 时猜出的段与其它条目互相覆盖，派发被
+        # 路由到错服务器；前端 mcpParseName 的 (.+?)__(.+) 分段与本键
+        # （'mcp__%s__%s' 重建）无损互换。server 段单独映射已不需要，移除。
+        self._tool_alias = {}        # 完整净化函数名 -> (原始服务器名, 原始工具名)
         # W10 楼层规则统计（tool_schemas 上次调用的截断/跳过计数；未调用为零值）
         self._floor_stats = {'truncated_desc': 0, 'skipped_per_server': 0,
                              'skipped_total': 0, 'emitted': 0}
@@ -161,6 +165,16 @@ class McpService:
             self._schema_hash[name] = hashlib.sha256(
                 canon.encode('utf-8')).hexdigest()
         return {'ok': True, 'name': name}
+
+    def _schema_review_pending(self, server):
+        """W10 TOFU：server 是否处于「工具 schema 已变更、待人工重审」态。
+
+        tool_schemas 检测到 schema hash 与快照不符时入列；check_tool/
+        call_tool 判定链最前面据此阻断（原仅标记不阻断——供应链偷袭
+        场景下「只标 blocked」等于不阻断）。人工在 mcp 面板确认
+        （schema_review_ack）后解除。"""
+        with self._lock:
+            return server in self._schema_review
 
     def save_server(self, name: str, cfg: dict, activate: bool = False) -> dict:
         """配置保存便捷入口（Api 装配用；实际逻辑在 McpConfigService）。"""
@@ -262,7 +276,7 @@ class McpService:
             names = sorted(n for n, e in self._rt.items()
                            if e.get('status') == 'ok' and n in enabled)
         out, used = [], {}
-        server_alias, tool_alias = {}, {}
+        tool_alias = {}
         n_trunc_desc = n_skip_server = n_skip_total = 0
         for name in names:
             entry = self._rt.get(name) or {}
@@ -276,11 +290,13 @@ class McpService:
                     break
                 fname = self._unique_name(
                     self.function_name(name, tool.get('name', '')), used)
-                # 修复 ㉒：登记净化名反解映射（_2 去重后缀/特殊字符在派发时可还原原名）
-                segs = fname.split('__', 2)
-                if len(segs) == 3:
-                    server_alias[segs[1]] = name
-                    tool_alias[(segs[1], segs[2])] = tool.get('name', '')
+                # 修复 ㉒：登记净化函数名反解映射（_2 去重后缀/特殊字符在派发时可还原原名）
+                # 修复 alias 碰撞（本轮）：以完整净化函数名为键存 (server, tool) 二元组
+                # ——原 split('__', 2) 猜段时，server 名含 '__'（如 'a__b'）会使猜出的
+                # server 段与其它条目互相覆盖（server_alias['a'] 被后写的服务器抢走），
+                # 派发时 _resolve_names 把调用路由到错服务器。完整键 + 前端
+                # mcpParseName 的 (.+?)__(.+) 分段无损互換，杜绝碰撞。
+                tool_alias[fname] = (name, tool.get('name', ''))
                 desc = '[MCP·%s] %s' % (
                     name, tool.get('description') or tool.get('name') or '')
                 if len(desc) > self.MAX_TOOL_DESC_CHARS:
@@ -301,12 +317,13 @@ class McpService:
                               for n in names)
             n_skip_total = max(0, total_tools - len(out))
         with self._lock:
-            self._server_alias = server_alias
             self._tool_alias = tool_alias
             # W10 TOFU：schema hash 快照（server → sha256(tools 规范化 JSON)）。
             # 首次见 → 记录（trust on first use）；与快照不符 → schema_review
-            # 状态（该 server 工具标 blocked-re-review，防「服务器悄悄换工具」
-            # 的供应链偷袭）。哈希只覆盖 name+description+inputSchema+annotations
+            # 状态（该 server 工具在 check_tool/call_tool 判定链最前面被阻断——
+            # block/error + 审计，防「服务器悄悄换工具」的供应链偷袭；人工在
+            # mcp 面板 schema_review_ack 后解除）。哈希只覆盖
+            # name+description+inputSchema+annotations
             # （ tierOverrides 等用户配置不算服务器侧变更）。
             for name in names:
                 entry = self._rt.get(name) or {}
@@ -400,13 +417,20 @@ class McpService:
                 return cand
 
     def _resolve_names(self, server, tool):
-        """修复 ㉒：前端从净化函数名（mcp__srv__tool[_2]）反解出原始 server/tool。"""
-        skey = str(server or '')
-        tkey = str(tool or '')
+        """修复 ㉒：前端从净化函数名（mcp__srv__tool[_2]）反解出原始 server/tool。
+
+        修复 alias 碰撞（本轮）：以完整净化函数名为键查 tool_alias——
+        前端 mcpParseName 的 (.+?)__(.+) 分段经 'mcp__%s__%s' 可无损重建
+        原函数名；不再 split('__',2) 猜段（server 名含 '__' 时猜出的段会
+        互相覆盖，派发到错服务器）。未命中（LLM  hallucination/表未建）→
+        原样返回，由下游 cfg 不存在分支给人话错误。
+        """
+        fkey = 'mcp__%s__%s' % (str(server or ''), str(tool or ''))
         with self._lock:
-            real_server = self._server_alias.get(skey, server)
-            real_tool = self._tool_alias.get((skey, tkey), tool)
-        return real_server, real_tool
+            hit = self._tool_alias.get(fkey)
+        if hit is not None:
+            return hit[0], hit[1]
+        return server, tool
 
     def resolve_tier(self, server: str, tool: str):
         """(tier, source)：tierOverrides > 注解+楼层规则推导 > 兜底 always。
@@ -442,6 +466,14 @@ class McpService:
     def check_tool(self, server: str, tool: str, arguments: dict = None) -> dict:
         """定档判定（前端确认框依据）：off=allow / always|session=confirm / 不可用=block。"""
         server, tool = self._resolve_names(server, tool)   # 修复 ㉒：净化名反解
+        # W10 TOFU（本轮：标记升级为真阻断）：工具 schema 静默变更待人工重审
+        # 期间，该 server 全部工具在判定链最前面拦截（原只 tool_schemas 标记
+        # schema_review + 面板提示，check/call 不拦——供应链偷袭场景等于不阻断）。
+        if self._schema_review_pending(server):
+            self._audit(server, tool, arguments, 'block')
+            return {'action': 'block',
+                    'reason': 'MCP 服务器 %s 工具 schema 已变更，需人工重审后才能继续调用'
+                              '（mcp 面板确认）' % server}
         cfg = self._cfg.get_server(server)
         if not cfg:
             self._audit(server, tool, arguments, 'block')
@@ -465,6 +497,13 @@ class McpService:
         session 档须 token 或后端会话信任——前端注入伪造 decision='allow' 不再够用。"""
         arguments = arguments or {}
         server, tool = self._resolve_names(server, tool)   # 修复 ㉒：净化名反解
+        # W10 TOFU（本轮：标记升级为真阻断）：工具 schema 静默变更待人工重审
+        # 期间，该 server 全部工具在判定链最前面拦截（原只 tool_schemas 标记
+        # schema_review + 面板提示，call 不拦——供应链偷袭场景等于不阻断）。
+        if self._schema_review_pending(server):
+            self._audit(server, tool, arguments, 'block')
+            return {'error': 'MCP 服务器 %s 工具 schema 已变更，需人工重审后才能继续调用'
+                            '（mcp 面板确认）' % server}
         cfg = self._cfg.get_server(server)
         if not cfg:
             self._audit(server, tool, arguments, 'block')
@@ -487,8 +526,11 @@ class McpService:
         # 修复 S4①：武装后 token/会话信任后端强制（未武装环境保持原 decision 矩阵）
         if tier != 'off' and getattr(self._guard, 'armed', False):
             trust_key = '%s__%s' % (server, tool)
+            # 修复 W4：token 绑定实参摘要（arguments）——防「确认 A 参数、
+            # 执行 B 参数」；签发侧（前端确认框）须传同口径 detail
             token_ok = bool(token) and self._guard.consume_token(
-                'mcp_call', {'server': server, 'tool': tool}, token)
+                'mcp_call', {'server': server, 'tool': tool,
+                             'arguments': arguments}, token)
             # 修复 W4（二轮）：信任判定不区分档位（与 guard 信任前移同型）——
             # 原只在 session 档查信任，always 档「本会话不再提示」登记后永不生效
             with self._lock:
@@ -510,7 +552,8 @@ class McpService:
             # 用户在界面确认过，不应因服务器拉起失败被白扣一次确认
             if token and hasattr(self._guard, 'refund_token'):
                 try:
-                    self._guard.refund_token('mcp_call', {'server': server, 'tool': tool}, token)
+                    self._guard.refund_token('mcp_call', {'server': server, 'tool': tool,
+                                                          'arguments': arguments}, token)
                 except Exception:
                     pass
             self._audit(server, tool, arguments, 'decision', decision, tier, source)
@@ -518,8 +561,12 @@ class McpService:
         # 实现 v1.6 W21：stale 300s 自动重 List（S3 规格的生产调用方）——list_changed
         # 通知漏达/刷新失败后的兜底；refreshing 去抖防双弹，status stale→ok 由
         # _refresh_tools 收口（无状态错乱）。
+        # 修复时钟基不匹配（本轮）：entry['last_list_at'] 是 time.monotonic()
+        # 打点（_relist/_refresh_tools/test_server 同口径），而 stale_needs_relist
+        # 默认 now 取 time.time()——两者相差 epoch 秒数，恒判 stale：每次调用都
+        # 触发一次后台 tools/list 往返 + status 被拍成 stale。显式传单调时钟对齐。
         try:
-            if stale_needs_relist(entry.get('last_list_at')):
+            if stale_needs_relist(entry.get('last_list_at'), now=time.monotonic()):
                 self._on_list_changed(server)
         except Exception:
             # 修复 N18（四轮）：删除合并残留死代码——原 `pass` 之后还有 `return {'error': error}`
@@ -749,11 +796,13 @@ class McpService:
                     entry['client'] = None
                     closed += 1
         # 修复 S2（v1.5.1）：关闭全部温启条目（pop 出 client 逐个关，防子进程泄漏）
+        # 修复 W2（本轮）：pop_expired 对过期条目同样返回 client 本体——原 pop 对
+        # 过期条目返回 None，shutdown 时过期 client 无人关闭（温启条目泄漏）。
         for server in self._warm.stats()['warm']:
-            stale = self._warm.pop(server)
-            if stale is not None:
+            client, _expired = self._warm.pop_expired(server)
+            if client is not None:
                 try:
-                    stale.close()
+                    client.close()
                 except Exception:
                     pass
                 closed += 1
@@ -772,7 +821,11 @@ class McpService:
             with self._lock:
                 entries = list(self._rt.items())
             for srv_name, entry in entries:
-                with entry['lock']:
+                # 修复（本轮）：entry 可能为外部/测试注入的裸 dict（无 'lock' 键）——
+                # 原直接 entry['lock'] 令 reaper 线程 KeyError 崩溃后永不回收
+                # （idle 收割静默停摆，且线程异常仅以 warning 形式闪现）。
+                # 与 list_servers/get_server_detail 同口径：缺锁回落新锁。
+                with entry.get('lock', threading.RLock()):
                     client = entry.get('client')
                     if client is not None and now - (entry.get('last_used') or now) > IDLE_TIMEOUT:
                         # 修复 S2（v1.5.1）设计修正：到期直接关闭（原语义）——不停留
@@ -783,6 +836,11 @@ class McpService:
                         except Exception:
                             pass
                         entry['client'] = None
+                        # 修复（本轮）：回收后 status 复位为 stale——原仅清 client，
+                        # status 残留 'ok'，tool_schemas 仍把该 server 当活服务器发射
+                        # 函数定义（LLM 调用才在 _get_or_spawn 冷启，面板/注入视图
+                        # 与真实状态不符）。stale → 面板显示需重连，语义诚实。
+                        entry['status'] = 'stale'
                         self._warm.unregister(srv_name)
                         self._log.info('MCP 服务器空闲超 %ss，已回收子进程', IDLE_TIMEOUT)
             # 修复 S2：warm 过期条目清理（reap 返回 (server, client) 对，直接 close——原
@@ -858,10 +916,14 @@ class McpService:
             # 按需拉起
             # 修复 S2（v1.5.1）：温启优先——warm 表有活 client（启用/测试后保留的）
             # 直接上车，跳过 spawn（首调用零延迟）；死的/过期的丢弃再走冷启
-            warm_client = self._warm.get(name)
+            # 修复 W2（本轮）：warm 路径经 pop_expired 取出条目本体——原 get 命中
+            # 过期分支只摘表、不返回 client，过期条目（含仍活着的 stdio 子进程/
+            # HTTP 连接）无人关闭，直接泄漏；现在过期/已死的 client 都在本路径
+            # 显式 close 后再走冷启。
+            warm_client, warm_expired = self._warm.pop_expired(name)
             if warm_client is not None:
                 try:
-                    if warm_client.is_alive():
+                    if not warm_expired and warm_client.is_alive():
                         if self._gen.get(name, 0) != gen:
                             # 实现 v1.6 W25：温启采用前发现代际已变（forget 竞态）
                             try:
@@ -874,17 +936,16 @@ class McpService:
                         entry['status'] = 'ok'
                         entry['last_error'] = ''
                         entry['last_used'] = time.monotonic()
-                        self._warm.touch(name)   # 修复 N2（四轮）：温启上车同样续期
+                        self._warm.register(name, warm_client)   # 重新登记=续期（N2 同口径）
                         self._relist(entry, warm_client)
                         return warm_client, None
                 except Exception:
                     pass
-                # 温启条目已死：摘掉并冷启
+                # 温启条目已死/已过期：关掉再冷启（close 防子进程/连接泄漏）
                 try:
                     warm_client.close()
                 except Exception:
                     pass
-                self._warm.unregister(name)
             client, error = self._spawn_client(name, cfg)
             if error:
                 entry['status'] = 'error'

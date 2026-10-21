@@ -52,7 +52,12 @@ async function loadWebdavConfigNow() {
     set('webdavPath', r.remote_path || '/glm-chat-backup');
     set('webdavConflict', r.conflict_policy || 'ask');
     webdavMarkSnapshot();
-  } catch (e) { /* 后端不可用（旧 exe）：留空表单 */ }
+  } catch (e) {
+    /* 后端不可用（旧 exe）：留空表单 */
+    /* 修复：以当前（空）表单为脏检查基线——否则快照永为 null，用户后续
+       手填的地址/账号永不判脏，导出/恢复会静默使用后端旧配置（W35 失效） */
+    webdavMarkSnapshot();
+  }
 }
 if (typeof document !== 'undefined' && document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', loadWebdavConfigNow);

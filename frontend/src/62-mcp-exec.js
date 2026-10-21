@@ -94,10 +94,12 @@ async function mcpGuardCheck(name, args) {
     toast('已拒绝 AI 的 MCP 工具调用', 'ok');
     return { blocked: JSON.stringify({ info: msg, skipped: true }), decision: 'deny', token: null };
   }
-  // 修复 S4①：同意后换一次性 confirm token（op='mcp_call'，绑定 server+tool 摘要）
+  // 修复 S4①：同意后换一次性 confirm token（op='mcp_call'，绑定 server+tool+arguments
+  // 摘要——W4：实参也进摘要，防确认后篡改参数；与后端 mcp_service.call_tool 的
+  // consume_token detail 同口径）
   let token = null;
   try {
-    const t = JSON.parse(await callApi('guard_confirm_token', ['mcp_call', JSON.stringify({ server: p.server, tool: p.tool })]));
+    const t = JSON.parse(await callApi('guard_confirm_token', ['mcp_call', JSON.stringify({ server: p.server, tool: p.tool, arguments: args || {} })]));
     if (t && t.token) token = t.token;
   } catch (e) { /* 旧 exe 无此方法：留空按 legacy 直调（新后端会强制拦截并返回人话错误） */ }
   // 修复 S11（三轮）：写侧与读侧对称——local 模式勾选"不再提示"不写入 session 信任

@@ -80,7 +80,12 @@ async function startUpdateFlow() {
     for (;;) {
       if (++polls > 1000) throw new Error('下载超时（10 分钟），请重试');
       await new Promise(r2 => setTimeout(r2, 600));
-      const st = JSON.parse(await callApi('get_update_progress', []));
+      // 瞬时桥错/JSON 错不致死：续试下一拍（总超时仍由 polls 上限兜底）
+      let st = null;
+      try {
+        st = JSON.parse(await callApi('get_update_progress', []));
+      } catch (e) { continue; }
+      if (!st) continue;
       if (st.state === 'downloading') { setMsg('正在下载 v' + _updateInfo.latest + '… ' + (st.pct || 0) + '%'); continue; }
       if (st.state === 'done') break;
       if (st.state === 'error') throw new Error(st.error || '下载失败');

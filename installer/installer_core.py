@@ -94,11 +94,28 @@ def free_space_mb(path):
         return -1
 
 
+def _nearest_existing_dir(path):
+    """向上找最近的存在祖先目录；都不存在返回 None。"""
+    p = os.path.abspath(path)
+    while True:
+        if os.path.isdir(p):
+            return p
+        parent = os.path.dirname(p)
+        if parent == p:
+            return None
+        p = parent
+
+
 def check_target(path):
     """目标目录体检。返回 (ok, warn, need_admin)。
 
     warn 非空 = 可安装但需提示（如选 Program Files 会影响自动更新）；
     need_admin=True 时 warn 说明原因（Zen 案例：系统级目录阻碍自更新 [外]）。
+
+    注意：本函数只做体检，不创建目录——每次按键都 makedirs 会把
+    「只是浏览/改主意」变成磁盘副作用；目录创建只发生在 install() 正式执行处。
+    写探测改在「向上最近的已存在祖先目录」上进行，语义等价（安装时由
+    install() 负责 makedirs）。
     """
     path = os.path.abspath(path)
     low = path.lower().replace('/', '\\')
@@ -108,9 +125,13 @@ def check_target(path):
     if need_admin:
         warn = ('所选目录位于系统保护区（Program Files/Windows），写入需要管理员权限，'
                 '且日后自动更新可能因权限不足而失败。建议使用默认的每用户目录。')
+    if os.path.exists(path) and not os.path.isdir(path):
+        return False, '目标路径已存在同名文件，不能作为安装目录。', need_admin
+    probe_dir = _nearest_existing_dir(path)
+    if probe_dir is None:
+        return False, '目录不存在（且无法定位可写祖先）：%s' % path, need_admin
     try:
-        os.makedirs(path, exist_ok=True)
-        probe = os.path.join(path, '.harbor-write-test')
+        probe = os.path.join(probe_dir, '.harbor-write-test')
         with open(probe, 'w') as f:
             f.write('ok')
         os.remove(probe)
@@ -202,6 +223,21 @@ def unregister_uninstall(test_root=None):
         return False
 
 
+def registry_install_location(test_root=None):
+    """读 HKCU 卸载项的 InstallLocation；无项/读失败返回 None。
+
+    卸载目标定位链的一环（--dir > Uninstall.exe 所在目录(+install.json) >
+    注册表 > 默认目录）；test_root 供单测隔离。"""
+    import winreg
+    try:
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER,
+                            test_root or _UNINSTALL_KEY) as k:
+            v, _ = winreg.QueryValueEx(k, 'InstallLocation')
+            return (v or '').strip() or None
+    except OSError:
+        return None
+
+
 # ---------------- 安装 / 卸载 ----------------
 
 def _sha256(path):
@@ -236,6 +272,14 @@ def install(target, progress_cb=None, desktop_shortcut=True, start_menu=True,
     if not os.path.exists(payload):
         return {'ok': False, 'error': '安装包损坏：找不到应用载荷 Harbor.exe',
                 'install_dir': target, 'warnings': warnings}
+
+    # 目录创建只保留在 install() 正式执行处（check_target 不再有 makedirs 副作用）
+    try:
+        os.makedirs(target, exist_ok=True)
+    except OSError as e:
+        return {'ok': False, 'error': '无法创建安装目录：%s' % e,
+                'install_dir': target, 'warnings': warnings}
+
     dest = os.path.join(target, 'Harbor.exe')
 
     cb(1, '正在复制程序文件…')
@@ -313,6 +357,42 @@ def _rmtree_retry(path, retries=3):
     return not os.path.exists(path)
 
 
+def _self_delete_needed(install_dir):
+    """当前运行的 Uninstall.exe 是否正位于 install_dir（frozen 卸载器自删场景）。
+
+    场景：用户经「应用与功能」或安装目录内双击 Uninstall.exe 卸载——
+    exe 运行中时 install_dir 删不掉自身文件，需等进程退出后由外部进程补删。
+    非 frozen（开发/测试直跑 Python）或 exe 不在安装目录内时返回 False。
+    """
+    if not getattr(sys, 'frozen', False):
+        return False
+    try:
+        exe = os.path.abspath(sys.executable)
+    except Exception:
+        return False
+    return (os.path.basename(exe).lower() == UNINSTALLER_NAME.lower()
+            and os.path.dirname(exe) == os.path.abspath(install_dir))
+
+
+def _schedule_delayed_delete(install_dir):
+    """spawn detached PowerShell：等自身 pid 退出 → 500ms → 递归删安装目录。
+
+    creationflags=CREATE_NO_WINDOW|DETACHED_PROCESS（无黑窗、不随父进程
+    生命周期被回收）。返回 True=已挂起延迟删除；False=调用方回落即时删除。
+    """
+    ps = ("Wait-Process -Id %d -ErrorAction SilentlyContinue; "
+          'Start-Sleep -Milliseconds 500; '
+          "Remove-Item -Recurse -Force '%s'" % (os.getpid(), _ps_escape(install_dir)))
+    try:
+        subprocess.Popen(['powershell', '-NoProfile', '-ExecutionPolicy', 'Bypass',
+                          '-WindowStyle', 'Hidden', '-Command', ps],
+                         creationflags=(getattr(subprocess, 'CREATE_NO_WINDOW', 0)
+                                        | getattr(subprocess, 'DETACHED_PROCESS', 0)))
+        return True
+    except Exception:
+        return False
+
+
 def uninstall(install_dir, purge_data=False, progress_cb=None):
     """卸载：删快捷方式 + 注册表项 + 安装目录。默认保留用户数据（~/.glm-chat）。"""
     warnings = []
@@ -338,7 +418,15 @@ def uninstall(install_dir, purge_data=False, progress_cb=None):
 
     cb(3, '正在删除程序文件…')
     if os.path.isdir(install_dir):
-        if not _rmtree_retry(install_dir):
+        if _self_delete_needed(install_dir):
+            # 卸载器自身在安装目录内：运行时删不掉自己，挂起退出后补删，
+            # 跳过即时 rmtree（必然残留且误导 warnings）。
+            if not _schedule_delayed_delete(install_dir):
+                if not _rmtree_retry(install_dir):
+                    warnings.append('部分文件未能删除（可能被占用）：%s' % install_dir)
+            else:
+                warnings.append('卸载程序自身位于安装目录内，文件将在退出后完成删除。')
+        elif not _rmtree_retry(install_dir):
             warnings.append('部分文件未能删除（可能被占用）：%s' % install_dir)
 
     cb(4, '正在处理用户数据…')

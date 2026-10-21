@@ -40,7 +40,7 @@ from .. import paths
 from ..logging_setup import get_logger
 from .search_adapters import (DEFAULT_ENGINE, ENGINES, build_query_url,
                               parse_results)
-from .search_browser import SearchBrowser
+from .search_browser import SearchBrowser, _is_public_host
 from .search_extract import DEFAULT_MAX_CHARS, extract_main_content
 from .toolcache_service import ToolcacheService
 
@@ -280,7 +280,9 @@ class SearchService:
         self._misses = 0
         # 任务注册表（search_status 数据源；有界）
         self._tasks = {}
-        self._task_order = deque(maxlen=_TASK_KEEP)
+        # 无界 deque：maxlen 会静默丢弃最旧 id 而不同步清 _tasks（只增不删的
+        # 根因）——淘汰改由 _evict_tasks 显式联动两结构
+        self._task_order = deque()
         self._active_task_id = None
         # takeover 注册表（CAPTCHA 人工接管状态机）
         self._takeovers = {}
@@ -680,6 +682,13 @@ class SearchService:
         if extract == 'none':
             for it in items:
                 it['snippet'] = ''
+                # extra 仅 extract=full 有意义：none 请求不得把正文泄漏回包
+                #（缓存内仍存全量，不影响后续 full 请求）
+                it.pop('extra', None)
+        elif extract == 'snippet':
+            for it in items:
+                # snippet 档同样不泄漏 extra.content（full 提取产物）
+                it.pop('extra', None)
         fitted, truncated, full_ref = self._fit_results(items)
         payload = {
             'ok': True,
@@ -823,23 +832,25 @@ class SearchService:
             self._audit('search_takeover', {'takeover_id': tk}, 'takeover', 'abort')
             return _error('CAPTCHA_ABORTED', '用户已放弃人工验证',
                           'Agent 可更换搜索引擎或告知用户')
-        # continue：幂等（防连点竞态——规范 §2.2 接管行）
-        if entry['state'] == 'resolved':
+        # continue：幂等 + 连点竞态防护（检查-置值原子化——规范 §2.2 接管行）。
+        # _captcha_payload 不取锁，无重入死锁面；状态判定与抢占同一临界区。
+        with self._lock:
+            state = entry['state']
+            if state == 'prompting':
+                entry['state'] = 'rechecking'      # 原子抢占：并发 continue 只放行一个
+        if state == 'resolved':
             return entry.get('result') or _error(
                 'TAKEOVER_NOT_FOUND', '接管会话结果已清理，请重新发起搜索')
-        if entry['state'] in ('aborted', 'expired'):
+        if state in ('aborted', 'expired'):
             return _error('CAPTCHA_ABORTED', '本次人工验证已放弃',
                           '请重新发起搜索')
-        if entry['state'] == 'rechecking':
+        if state == 'rechecking':
             return self._captcha_payload(entry)   # 在途复检：返回当前态
         # ---- 复检（规范 §3.1 末注：evaluate_js 复检在本环境不可用——
         # 回落「重取页面 + 特征检测」；通过即原管线续跑）----
-        entry['state'] = 'rechecking'
-        entry['retries'] += 1
         task_id = entry.get('task_id')
         self._set_phase(task_id, 'captcha', '正在检查验证结果…', takeover=entry)
-        self._audit('search_takeover', {'takeover_id': tk,
-                                        'retry': entry['retries']},
+        self._audit('search_takeover', {'takeover_id': tk},
                     'takeover', 'continue')
         fetch = self._browser.open_url(entry['url'])
         if not fetch.get('ok'):
@@ -853,7 +864,10 @@ class SearchService:
         sig = _captcha_signal(html)
         results = parse_results(entry['engine'], html)
         if sig and not results:
-            # 仍验证页：重试 ≤3，耗尽自动放弃（ux-flows 流程 2 步骤 5）
+            # 仍验证页：重试 ≤3，耗尽自动放弃（ux-flows 流程 2 步骤 5）。
+            # 计数放在取数成功之后——仅「确认为验证页」才消耗一次重试
+            # （与 _enter_captcha 续跑分支口径一致；取数失败不计数）
+            entry['retries'] += 1
             if entry['retries'] >= entry['max_retries']:
                 entry['state'] = 'aborted'
                 self._forget_takeover(tk)
@@ -911,7 +925,17 @@ class SearchService:
             }
             self._task_order.append(task_id)
             self._active_task_id = task_id
+            self._evict_tasks()
         return task_id
+
+    def _evict_tasks(self):
+        """任务注册表淘汰（有界防泄漏）：保留最近 _TASK_KEEP 个，
+        跳过 _active_task_id（_set_phase/_end_task 仍在写它）。"""
+        while len(self._task_order) > _TASK_KEEP:
+            old = self._task_order.popleft()
+            if old == self._active_task_id:
+                continue
+            self._tasks.pop(old, None)
 
     def _set_phase(self, task_id, phase, message=None, **extra):
         """更新任务阶段（message=None 表示保持原消息；extra 覆盖字段）。"""
@@ -991,6 +1015,10 @@ class SearchService:
                         task = t
                         break
             if task is None:
+                if task_id:
+                    # 传了 id 但查无任务（已淘汰/从未存在）：显式标记，
+                    # 与「无活跃搜索」区分——前端可止轮询而非误判终态
+                    return {'ok': True, 'active': False, 'unknown_task': True}
                 return {'ok': True, 'active': False}
             snap = dict(task)
             if snap.get('takeover'):
@@ -1043,6 +1071,13 @@ class SearchService:
             self._audit('web_open', {'url': url[:200]}, 'open', 'block')
             return _error('NAV_BLOCKED', '仅支持 http/https 链接',
                           '其他协议（file:// 等）已被禁止导航', url=url[:200])
+        # 内网防护（SSRF）：私网/环回/链路本地目标一律拒绝（DNS 失败按拒绝
+        # ——fail-closed）；helper 与 search_browser.open_url 共用同一口径
+        import urllib.parse as _urlparse
+        if not _is_public_host(_urlparse.urlsplit(url).hostname):
+            self._audit('web_open', {'url': url[:200]}, 'open', 'block')
+            return _error('NAV_BLOCKED', '已阻止访问内网/环回地址',
+                          '禁止访问内网/环回地址', url=url[:200])
         selector = p.get('selector')
         if selector is not None:
             selector = str(selector).strip()

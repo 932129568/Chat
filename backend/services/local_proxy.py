@@ -23,8 +23,9 @@ edgechromium.py 硬编码 AdditionalBrowserArguments 覆盖环境变量，Creati
   就会拦掉实际请求的自定义头）。
 
 安全硬约束：``X-Harbor-Target`` 的 host 必须是回环（localhost / 127.0.0.1 / ::1，
-hostname 精确比较——``http://localhost.evil.com`` 之类子串绕过无效）——否则 403。
-防代理被滥用为开放中继（开放中继可让任意网页经本机打内网/外网）。
+hostname 精确比较——``http://localhost.evil.com`` 之类子串绕过无效）且端口落在
+已知本地模型端口集/用户配置端口，或云端白名单域名——否则 403。防代理被滥用为
+开放中继（开放中继可让任意网页经本机打内网/外网或本机任意本地服务）。
 
 契约红线：
 
@@ -49,6 +50,11 @@ TARGET_HEADER = 'X-Harbor-Target'
 # 回环白名单（与 local_model_service._local_hostname 同口径；hostname 精确比较，
 # 防 http://localhost.evil.com 之类绕过）
 LOOPBACK_HOSTS = ('localhost', '127.0.0.1', '::1')
+# 已知本地模型服务端口（Ollama 11434 / LM Studio 1234 / llama.cpp 8080 /
+# vLLM 8000 / FreeToken Desktop 1919）——回环放行收敛到此集 + 用户配置端口：
+# 全端口放行等于把本代理变成「本机任意服务开放中继」（任意网页经本机打
+# Redis/MySQL/内网 Web 等未认证本地服务），收敛到模型端口集堵死该面
+KNOWN_LOCAL_PORTS = frozenset({11434, 1234, 8000, 8080, 1919})
 # 云端目标白名单（2026-10-21 P0 修复）：主流云端大模型 API 域名。前端 fetch
 # 直连云端端点时会被 EdgeWebView 的系统代理栈拦截（用户机器挂 Clash/系统代理
 # → Failed to fetch，而浏览器与后端直连均正常，两侧行为分裂且浏览器 fetch
@@ -62,17 +68,22 @@ CLOUD_HOSTS = ('open.bigmodel.cn', 'bigmodel.cn',
                'api.deepseek.com', 'api.moonshot.cn',
                'dashscope.aliyuncs.com', 'models.github.ai',
                'api.openai.com', 'api.anthropic.com')
-_DYNAMIC_CACHE = {'ts': 0.0, 'hosts': ()}
+_DYNAMIC_CACHE = {'ts': 0.0, 'hosts': (), 'ports': ()}
 _DYNAMIC_TTL = 10.0     # config.json 动态白名单缓存秒数（改配置后 10s 内生效）
 
 
 def _dynamic_hosts():
     """用户配置的端点 host（provider base_url / local_base_url）——用户自己
-    配的端点即用户意图，动态放行。读 config.json（小文件，10s 缓存）。"""
+    配的端点即用户意图，动态放行。读 config.json（小文件，10s 缓存）。
+
+    同一趟读取顺带收集「回环端点的端口」进 ``_DYNAMIC_CACHE['ports']``
+    （经 ``_dynamic_ports`` 暴露）——用户自配的本地模型端口同样放行。
+    """
     now = time.monotonic()
     if now - _DYNAMIC_CACHE['ts'] < _DYNAMIC_TTL:
         return _DYNAMIC_CACHE['hosts']
     hosts = set()
+    ports = set()
     try:
         import json as _json
         from .. import paths as _paths
@@ -84,11 +95,22 @@ def _dynamic_hosts():
                 u = urllib.parse.urlsplit(str(cfg.get(key) or '').strip())
                 if u.hostname:
                     hosts.add(u.hostname.lower())
+                    if u.hostname.lower() in LOOPBACK_HOSTS and u.port:
+                        ports.add(int(u.port))
     except Exception:
         pass          # 读不到不阻塞（白名单静态部分仍生效）
     _DYNAMIC_CACHE['ts'] = now
     _DYNAMIC_CACHE['hosts'] = tuple(hosts)
+    _DYNAMIC_CACHE['ports'] = tuple(ports)
     return _DYNAMIC_CACHE['hosts']
+
+
+def _dynamic_ports():
+    """用户配置的回环端口（base_url/local_base_url 落在回环 host 上的端口）。"""
+    now = time.monotonic()
+    if now - _DYNAMIC_CACHE['ts'] >= _DYNAMIC_TTL:
+        _dynamic_hosts()          # 缓存过期：同一趟读取顺带刷新 ports
+    return _DYNAMIC_CACHE.get('ports') or ()
 CHUNK_SIZE = 8192             # 流式转发块大小（SSE 实时性：读一块写一块即 flush）
 FORWARD_TIMEOUT = 300         # 单次 socket 超时（秒）——本地慢推理首 token 可能很久
 MAX_BODY = 32 * 1024 * 1024   # 请求体上限（32MB；chat 请求体通常 <1MB，防恶意大包）
@@ -101,21 +123,28 @@ def _extra_cloud_hosts():
 
 
 def _is_allowed_target(target):
-    """X-Harbor-Target 目标是否放行：回环（本地模型）+ 云端白名单（GLM）。
+    """X-Harbor-Target 目标是否放行：回环（本地模型，端口收敛）+ 云端白名单。
 
-    hostname 精确比较（不用子串——防 http://localhost.evil.com / 
+    hostname 精确比较（不用子串——防 http://localhost.evil.com /
     open.bigmodel.cn.evil.com 之类绕过）；scheme 仅 http/https；
     解析失败按拒绝处理（fail-closed）。
+
+    回环侧收敛到「已知本地模型端口集 + 用户配置端口」：回环 ≠ 本地模型，
+    全放行等于把代理开成本机任意服务的中继（任意网页可经本机探内网/
+    打未认证本地服务）。
     """
     try:
         u = urllib.parse.urlsplit(str(target or '').strip())
         host = (u.hostname or '').lower()
+        port = u.port
     except Exception:
         return False
     if u.scheme and u.scheme not in ('http', 'https'):
         return False
     if host in LOOPBACK_HOSTS:
-        return True
+        if port is None:
+            return False       # 未显式给端口（80/443）不在模型端口集，拒
+        return port in KNOWN_LOCAL_PORTS or port in _dynamic_ports()
     return host in CLOUD_HOSTS + _extra_cloud_hosts() + _dynamic_hosts()
 
 
@@ -300,7 +329,9 @@ class _ProxyHandler(BaseHTTPRequestHandler):
                 chunk = _read_chunk(body_source, min(CHUNK_SIZE, remaining))
                 if not chunk:
                     break
-                self._write(chunk)
+                if not self._write(chunk):
+                    break          # 客户端断开（用户点停止）：停止排空，
+                    # 不再读上游——防连锁把上游/代理线程全挂住
                 remaining -= len(chunk)
             return
 
@@ -311,17 +342,25 @@ class _ProxyHandler(BaseHTTPRequestHandler):
             chunk = _read_chunk(body_source, CHUNK_SIZE)
             if not chunk:
                 break
-            self._write(b'%x\r\n' % len(chunk) + chunk + b'\r\n')
+            if not self._write(b'%x\r\n' % len(chunk) + chunk + b'\r\n'):
+                return              # 客户端断开：终止帧也不必写
         self._write(b'0\r\n\r\n')
 
     def _write(self, data):
         """写一块并立即 flush（SSE 实时性：块到即发，不等整体结束）。
-        客户端中途断开（用户点停止）→ 静默标记连接作废，不刷栈。"""
+        客户端中途断开（用户点停止）→ 静默标记连接作废，不刷栈。
+
+        Returns:
+            bool：False = 写入失败（客户端已断开，连接作废）——调用方
+            （_relay 循环）据此中断排空，防连锁死等。
+        """
         try:
             self.wfile.write(data)
             self.wfile.flush()
+            return True
         except Exception:
             self.close_connection = True
+            return False
 
 
 class LocalCorsProxy:

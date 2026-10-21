@@ -119,32 +119,44 @@ class ConfigService:
         return {'dir': ''}
 
     def sessions_path(self):
-        """当前 sessions.json 绝对路径（自选目录优先；目录失效回落默认）。"""
-        d = self._history_cfg()['dir']
-        if d and os.path.isdir(d):
-            return os.path.join(d, 'sessions.json')
-        return paths.SESSIONS_PATH
+        """当前 sessions.json 绝对路径（自选目录优先；目录失效回落默认）。
+
+        修复 W4：整段持 self._lock（RLock）——history.json 读-判-用与
+        调用方后续的读/写之间不再有竞态窗口；目录失效时落 warning
+        （原静默回落，用户换了移动盘/目录被删后无迹可查）。
+        """
+        with self._lock:
+            d = self._history_cfg()['dir']
+            if d and os.path.isdir(d):
+                return os.path.join(d, 'sessions.json')
+            if d:
+                self._log.warning('历史目录失效，回落默认 sessions.json: %s', d)
+            return paths.SESSIONS_PATH
 
     def get_sessions(self):
         try:
-            p = self.sessions_path()
-            if os.path.exists(p):
-                with open(p, 'r', encoding='utf-8') as f:
-                    return f.read()
+            with self._lock:
+                p = self.sessions_path()
+                if os.path.exists(p):
+                    with open(p, 'r', encoding='utf-8') as f:
+                        return f.read()
         except Exception as e:
             self._log.warning('会话列表读取失败: %r', e)
         return '[]'
 
     def save_sessions(self, data):
         try:
-            # 修复 S8：写入前先校验是合法 JSON（前端传入串损坏时不再把 sessions.json 写坏）
-            parsed = json.loads(data) if isinstance(data, str) else data
-            if not isinstance(parsed, list):
-                return err('sessions 必须是 JSON 数组，未写入')
-            p = self.sessions_path()
-            os.makedirs(os.path.dirname(p), exist_ok=True)
-            atomic_write_text(p,
-                              data if isinstance(data, str) else json.dumps(data, ensure_ascii=False))
+            # 修复 W4：解析-校验-取路径-写入整段持锁（原 sessions_path() 在锁外，
+            # 与 history_dir_set 切换目录存在读旧路径写新内容的竞态）
+            with self._lock:
+                # 修复 S8：写入前先校验是合法 JSON（前端传入串损坏时不再把 sessions.json 写坏）
+                parsed = json.loads(data) if isinstance(data, str) else data
+                if not isinstance(parsed, list):
+                    return err('sessions 必须是 JSON 数组，未写入')
+                p = self.sessions_path()
+                os.makedirs(os.path.dirname(p), exist_ok=True)
+                atomic_write_text(p,
+                                  data if isinstance(data, str) else json.dumps(data, ensure_ascii=False))
             return '{"ok":true}'
         except Exception as e:
             return err(e)
@@ -195,26 +207,52 @@ class ConfigService:
             self._log.debug('purge ws 失败（可忽略）: %r', e)
         # ③ plan json + ④ checkpoint 目录（按前端传入 task_ids）
         from . import plan_service as _ps
+        plans_real = os.path.realpath(_ps._plans_dir())
+        ckpts_real = os.path.realpath(_ps._ckpts_dir())
         for tid in tasks:
             tid = str(tid or '').strip()
             if not tid:
                 continue
             try:
-                tp = _ps._task_path(tid)
-                if os.path.exists(tp):
+                # 修复：tid 过 plan_service._safe_tid 校验（路径穿越根因治理）——
+                # 非法 tid skip 并 warning，不抛（purge 是批量收口，单条坏数据
+                # 不应中断其余痕迹清理）
+                safe_tid = _ps._safe_tid(tid)
+            except ValueError:
+                self._log.warning('purge 跳过非法 task_id: %r', tid)
+                continue
+            try:
+                tp = _ps._task_path(safe_tid)
+                # 修复：删除前 realpath 包含校验（双保险——即使 _task_path
+                # 未来改动也逃不出 plans/ 目录）
+                if os.path.exists(tp) and \
+                        os.path.realpath(tp).startswith(plans_real + os.sep):
                     os.remove(tp)
                     removed['plans'] += 1
-                cp = _ps._ckpt_path(tid)
-                if os.path.isdir(cp):
+                cp = _ps._ckpt_path(safe_tid)
+                if os.path.isdir(cp) and \
+                        os.path.realpath(cp).startswith(ckpts_real + os.sep):
                     shutil.rmtree(cp, ignore_errors=True)
                     removed['checkpoints'] += 1
             except Exception as e:
-                self._log.warning('purge plan/ckpt %s 失败: %r', tid, e)
+                self._log.warning('purge plan/ckpt %s 失败: %r', safe_tid, e)
         return {'ok': True, 'sid': sid, 'removed': removed}
 
     # ---- 历史存放目录（history.json；独立文件，config.json 零污染）----
-    _SENSITIVE_DIRS = ('c:\\windows', 'c:\\program files', 'c:\\program files (x86)',
-                       'c:\\programdata', 'c:\\$recycle.bin', 'c:\\system volume information')
+    @staticmethod
+    def _sensitive_dirs():
+        """系统敏感目录名单（修复 W6：按系统根动态生成）。
+
+        原硬编码 'c:\\windows' 等前缀——Windows 装在非 C 盘（D:\\Windows）时
+        名单整体失效。改为：sys_root = SYSTEMROOT（缺失回落 C:\\Windows），
+        取其盘符替换 'c:' 前缀；另无论盘符拒绝 sys_root 本身。
+        """
+        sys_root = (os.environ.get('SYSTEMROOT') or 'C:\\Windows') \
+            .replace('/', '\\').rstrip('\\') or 'C:\\Windows'
+        drive = os.path.splitdrive(sys_root)[0].lower() or 'c:'
+        names = ('windows', 'program files', 'program files (x86)',
+                 'programdata', '$recycle.bin', 'system volume information')
+        return [drive + '\\' + n for n in names] + [sys_root.lower()]
 
     def history_dir_get(self):
         """当前历史存放目录（'' = 默认 ~/.glm-chat/）。"""
@@ -225,39 +263,49 @@ class ConfigService:
     def history_dir_set(self, dir_path, migrate=False):
         """设置历史存放目录（空串=恢复默认）。
 
-        校验：目录必须已存在且可写；禁系统敏感目录（Windows/Program Files 等）；
-        realpath 归一（防 symlink/junction 绕过与重复登记）。
-        migrate=True：把旧 sessions.json 搬到新目录（已存在则跳过，不覆盖）。
-        返回 {ok, dir, migrated} 或 {error: 人话}。
+        校验：目录必须已存在且可写；禁系统敏感目录（Windows/Program Files 等，
+        W6 起按系统根动态生成）；realpath 归一（防 symlink/junction 绕过与
+        重复登记）。migrate=True：把**当前生效的** sessions.json 搬到新目录
+        （W9：源取 sessions_path() 当时值，非恒定默认路径；已存在则跳过，
+        不覆盖）。返回 {ok, dir, migrated, migrated_from} 或 {error: 人话}。
+
+        修复 W4：整段持 self._lock（RLock）——校验-迁移-落 history.json
+        与并发 get/save_sessions 不再交错。
         """
-        d = str(dir_path or '').strip()
-        if not d:
-            # 恢复默认
-            self._save_history_cfg('')
-            return {'ok': True, 'dir': '', 'migrated': False}
-        norm = os.path.realpath(os.path.abspath(os.path.expanduser(d)))
-        if not os.path.isdir(norm):
-            return {'error': '目录不存在：%s（请先创建）' % d}
-        if not os.access(norm, os.W_OK):
-            return {'error': '目录不可写：%s' % norm}
-        low = norm.lower().rstrip('\\/')
-        for s in self._SENSITIVE_DIRS:
-            if low == s or low.startswith(s + '\\'):
-                return {'error': '不能使用系统目录：%s' % norm}
-        migrated = False
-        old_default = paths.SESSIONS_PATH
-        if migrate and os.path.isfile(old_default) and \
-                os.path.realpath(os.path.dirname(old_default)) != norm:
-            dst = os.path.join(norm, 'sessions.json')
-            if not os.path.exists(dst):
-                try:
-                    import shutil
-                    shutil.copy2(old_default, dst)
-                    migrated = True
-                except Exception as e:
-                    return {'error': '迁移失败: %s' % e}
-        self._save_history_cfg(norm)
-        return {'ok': True, 'dir': norm, 'migrated': migrated}
+        with self._lock:
+            d = str(dir_path or '').strip()
+            if not d:
+                # 恢复默认
+                self._save_history_cfg('')
+                return {'ok': True, 'dir': '', 'migrated': False, 'migrated_from': ''}
+            norm = os.path.realpath(os.path.abspath(os.path.expanduser(d)))
+            if not os.path.isdir(norm):
+                return {'error': '目录不存在：%s（请先创建）' % d}
+            if not os.access(norm, os.W_OK):
+                return {'error': '目录不可写：%s' % norm}
+            low = norm.lower().rstrip('\\/')
+            for s in self._sensitive_dirs():
+                if low == s or low.startswith(s + '\\'):
+                    return {'error': '不能使用系统目录：%s' % norm}
+            migrated = False
+            migrated_from = ''
+            # 修复 W9：迁移源取当前生效 sessions.json（自选目录已切换过的
+            # 场景下旧数据在那，不在恒定默认路径）
+            src = self.sessions_path()
+            if migrate and os.path.isfile(src) and \
+                    os.path.realpath(os.path.dirname(src)) != norm:
+                dst = os.path.join(norm, 'sessions.json')
+                if not os.path.exists(dst):
+                    try:
+                        import shutil
+                        shutil.copy2(src, dst)
+                        migrated = True
+                        migrated_from = src
+                    except Exception as e:
+                        return {'error': '迁移失败: %s' % e}
+            self._save_history_cfg(norm)
+            return {'ok': True, 'dir': norm, 'migrated': migrated,
+                    'migrated_from': migrated_from}
 
     def _save_history_cfg(self, dir_abs):
         """history.json 原子写（dir 绝对路径；''=默认）。"""
@@ -317,9 +365,13 @@ class ConfigService:
     def delete_memory(self, index):
         """实现 v1.8.0 W11：删除 memory.json 数组第 index 条（0 起；原子写）。
 
+        双轨收敛（本轮）：删除动作转调 MemoryService.delete（与 append_memory
+        同一数据通道）——原此处自持一套 pop/write，kind 懒迁移口径与上限
+        淘汰各走一套，删完视图可能与 append 不一致。
         边界校验不静默夹逼：bool/None/float 等非整数形态与越界下标一律
         {'error': {'code': 'BAD_PARAMS', ...}}（数字字符串按 int 解析）；
-        memory.json 损坏（非数组）→ BAD_PARAMS 结构异常人话。
+        结构异常（建议17：直接读文件判型，绕过 get_memory→list 归一）与
+        越界均保持人话 shape；MemoryService 侧异常同样防御性映射。
         成功返回 {'ok': True, 'index': idx, 'remaining': N}。"""
         try:
             idx = self._coerce_index(index)
@@ -328,18 +380,33 @@ class ConfigService:
                               'hint': '传入要删除的记忆序号（从 0 开始）'}}
         try:
             with self._lock:
-                items = json.loads(self.get_memory())
-                if not isinstance(items, list):
+                # 修复 建议17：直接读文件判型（绕过 get_memory→list 归一）——
+                # memory.json 损坏（非数组/JSON 解析失败）时原实现被归一成
+                # 空列表、报「序号越界：共 0 条」，用户无从知道是文件坏了
+                try:
+                    with open(paths.MEMORY_PATH, encoding='utf-8') as f:
+                        raw = json.load(f)
+                except FileNotFoundError:
+                    raw = []
+                except Exception as e:
+                    return {'error': {'code': 'BAD_PARAMS',
+                                      'message': '记忆文件结构异常（%s），暂不能删除' % e,
+                                      'hint': '可手工编辑 memory.json 修复'}}
+                if not isinstance(raw, list):
                     return {'error': {'code': 'BAD_PARAMS',
                                       'message': '记忆文件结构异常（不是数组），暂不能删除',
-                                      'hint': '可手工编辑 ~/.glm-chat/memory.json 修复'}}
-                if idx < 0 or idx >= len(items):
+                                      'hint': '可手工编辑 memory.json 修复'}}
+                if idx < 0 or idx >= len(raw):
                     return {'error': {'code': 'BAD_PARAMS',
-                                      'message': '序号越界：当前共 %d 条记忆' % len(items),
+                                      'message': '序号越界：当前共 %d 条记忆' % len(raw),
                                       'hint': '刷新列表后重试；序号从 0 开始'}}
-                items.pop(idx)
-                atomic_write_json(paths.MEMORY_PATH, items)
-                return {'ok': True, 'index': idx, 'remaining': len(items)}
+                # 删除动作本体转调 MemoryService.delete（弹栈 + 原子写；
+                # 上面的越界/结构异常已适配人话，此处防御性映射残余错误）
+                r = self._memory().delete(idx)
+                if 'error' in r:
+                    return {'error': {'code': 'BAD_PARAMS', 'message': r['error'],
+                                      'hint': '刷新列表后重试；序号从 0 开始'}}
+                return {'ok': True, 'index': idx, 'remaining': r['remaining']}
         except Exception as e:
             self._log.warning('记忆删除失败: %r', e)
             return {'error': {'code': 'INTERNAL', 'message': str(e)}}

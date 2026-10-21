@@ -314,40 +314,8 @@ function updateSessionTitle(text) {
  * （sessions 条目 + ws 绑定 + plan json + checkpoint 目录）。
  */
 
-/* 历史目录 UI 动态样式（JS 注入，零 template 改动——UI 并行协作纪律） */
-(function _hdStyle() {
-  if (document.getElementById('hdDynamicStyle')) return;
-  const st = document.createElement('style');
-  st.id = 'hdDynamicStyle';
-  st.textContent =
-    '.history-foot{padding:6px 8px 10px;border-top:1px solid var(--glass-border);}' +
-    '.history-dir-btn{width:100%;text-align:left;background:none;border:1px solid transparent;' +
-    'border-radius:8px;padding:6px 8px;font-size:11.5px;color:var(--text-3);cursor:pointer;' +
-    'overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}' +
-    '.history-dir-btn:hover{border-color:var(--glass-border);color:var(--text-1);}' +
-    '.history-dir-mask{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9999;' +
-    'display:flex;align-items:center;justify-content:center;}' +
-    '.history-dir-panel{width:min(440px,92vw);background:var(--bg-2,#fff);color:var(--text-1);' +
-    'border:1px solid var(--glass-border);border-radius:14px;padding:18px;' +
-    'box-shadow:0 18px 50px rgba(0,0,0,.25);}' +
-    '.hd-title{font-size:14px;font-weight:600;margin-bottom:6px;}' +
-    '.hd-desc{font-size:11.5px;color:var(--text-3);margin-bottom:12px;line-height:1.5;}' +
-    '.hd-row{margin-bottom:10px;}' +
-    '.hd-input{width:100%;box-sizing:border-box;padding:7px 9px;font-size:12px;' +
-    'border:1px solid var(--glass-border);border-radius:8px;background:var(--bg-1);' +
-    'color:var(--text-1);}' +
-    '.hd-btns{display:flex;gap:8px;align-items:center;}' +
-    '.hd-btn{padding:6px 12px;font-size:12px;border:1px solid var(--glass-border);' +
-    'border-radius:8px;background:var(--bg-1);color:var(--text-1);cursor:pointer;}' +
-    '.hd-btn:hover{border-color:var(--text-3);}' +
-    '.hd-primary{background:var(--accent,#2563eb);border-color:var(--accent,#2563eb);color:#fff;}' +
-    '.hd-chk{font-size:11.5px;color:var(--text-3);display:flex;gap:5px;align-items:center;' +
-    'margin-left:auto;cursor:pointer;}' +
-    '.hd-msg{font-size:11.5px;min-height:16px;margin-top:4px;}' +
-    '.hd-msg.ok{color:var(--ok);}' +
-    '.hd-msg.err{color:var(--err);}';
-  document.head.appendChild(st);
-})();
+/* 历史目录 UI 样式已由模板 index.template.html:1991-2029 官方样式承载
+ * （变量均已定义）——原 _hdStyle IIFE 动态注入与模板样式冲突，删除。 */
 
 function ensureHistoryFoot() {
   if (document.getElementById('historyFoot')) return;
@@ -375,6 +343,8 @@ function _shortDir(d) {
   const s = String(d || '');
   return s.length > 22 ? '…' + s.slice(-21) : s;
 }
+/* hdSave 防连点闸门（保存期间忽略重复点击并禁用面板按钮） */
+let _hdBusy = false;
 function showHistoryDirPanel() {
   if (document.getElementById('historyDirMask')) return;
   const mask = document.createElement('div');
@@ -413,8 +383,13 @@ function showHistoryDirPanel() {
     } catch (e) { say('目录选择失败', false); }
   });
   document.getElementById('hdSave').addEventListener('click', async () => {
+    if (_hdBusy) return;   // 防连点：保存进行中忽略重复点击
     const d = input.value.trim();
     if (!d) { say('请输入目录路径', false); return; }
+    _hdBusy = true;
+    // 保存期间禁用三个按钮（hdSave/hdClose/hdBrowse），防重复提交与误关面板
+    const _hdBtns = ['hdSave', 'hdClose', 'hdBrowse'].map(bid => document.getElementById(bid)).filter(Boolean);
+    _hdBtns.forEach(b => { b.disabled = true; });
     try {
       const raw = JSON.parse(await callApi('history_dir_set', [d, document.getElementById('hdMigrate').checked], 60000) || '{}');
       if (raw.error) { say(raw.error, false); return; }
@@ -422,6 +397,7 @@ function showHistoryDirPanel() {
       refreshHistoryFoot();
       setTimeout(() => mask.remove(), 800);
     } catch (e) { say('保存失败: ' + (e.message || e), false); }
+    finally { _hdBusy = false; _hdBtns.forEach(b => { b.disabled = false; }); }
   });
   document.getElementById('hdDefault').addEventListener('click', async () => {
     try {
@@ -438,6 +414,9 @@ function showHistoryDirPanel() {
  * 前端 filter + saveSessions 后调 purge 保底——后端写失败也不留残留。 */
 const _origDeleteSession = deleteSession;
 deleteSession = async function (id, e) {
+  // 修复：新版真删覆盖丢失原守卫——补回 stopPropagation 与流式拦截
+  if (e && typeof e.stopPropagation === 'function') e.stopPropagation();
+  if (isStreaming && id === currentSessionId) { toast('正在生成回复，请先停止', 'warn'); return; }
   const r = await uiConfirm({ title: '删除对话', body: '确定彻底删除这条对话？历史条目、工作区绑定、计划与检查点快照都将真删除，不可恢复。', danger: true, okText: '彻底删除' });
   if (!r.ok) return;
   const s = sessions.find(x => x.id === id) || {};

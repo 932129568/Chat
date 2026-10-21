@@ -44,22 +44,33 @@ function autoCropCanvas(c) {
     return out;
   } catch (e) { return c; }
 }
+const COMPRESS_IMG_TIMEOUT_MS = 3000;   // 解码兜底：onload 不触发（异常 dataUrl）时 3s 回落原图，防 Promise 永久挂起
 function compressImage(dataUrl, maxSide = 1024, quality = 0.75, crop = false) {
   return new Promise((resolve) => {
+    let settled = false;
+    let timer = null;
+    const finish = (v) => {
+      if (settled) return;
+      settled = true;
+      if (timer) clearTimeout(timer);
+      resolve(v);
+    };
+    // 3s 兜底：img.onload/onerror 都不触发时回落原 dataUrl（附件链不卡死）
+    timer = setTimeout(() => finish(dataUrl), COMPRESS_IMG_TIMEOUT_MS);
     const img = new Image();
     img.onload = () => {
       const scale = Math.min(1, maxSide / Math.max(img.width, img.height));
-      if (scale >= 1 && dataUrl.length < 300000 && !crop) { resolve(dataUrl); return; }
+      if (scale >= 1 && dataUrl.length < 300000 && !crop) { finish(dataUrl); return; }
       const c = document.createElement('canvas');
       c.width = Math.round(img.width * scale);
       c.height = Math.round(img.height * scale);
       c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
       try {
         const out = crop ? autoCropCanvas(c) : c;
-        resolve(out.toDataURL('image/jpeg', quality));
-      } catch (e) { resolve(dataUrl); }
+        finish(out.toDataURL('image/jpeg', quality));
+      } catch (e) { finish(dataUrl); }
     };
-    img.onerror = () => resolve(dataUrl);
+    img.onerror = () => finish(dataUrl);
     img.src = dataUrl;
   });
 }

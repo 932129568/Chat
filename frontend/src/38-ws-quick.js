@@ -36,7 +36,12 @@ async function wsQuickClose() {
   if (!menu || !menu.classList.contains('show')) return;
   if (menu.classList.contains('hiding')) return;
   menu.classList.add('hiding');
-  const done = () => { try { menu.classList.remove('show', 'hiding'); } catch (e) {} };
+  const done = () => {
+    // 退场竞态守卫：动画期间若被重开（wsQuickToggle 移除 hiding + 加 show），
+    // 不得把 show 一并剥掉（菜单会「开了却看不见」）
+    if (!menu.classList.contains('hiding')) return;
+    try { menu.classList.remove('show', 'hiding'); } catch (e) {}
+  };
   if (typeof MOTION !== 'undefined' && !MOTION.instant()) {
     MOTION.onAnimEnd(menu, 'animationend', MOTION.compOut()).then(done);
   } else { done(); }
@@ -125,30 +130,25 @@ async function wsQuickPick(p) {
   if (!p) return;
   const sel = document.getElementById('wsSel');
   if (sel) sel.value = p;               // 同步面板下拉（单一事实源）
-  await onWsSelect(p);
-  wsQuickRefresh();
+  try { await onWsSelect(p); } finally { wsQuickRefresh(); }   // 委托异常也要刷新（防状态残留）
 }
 /** 本会话独立勾选 → 委托 onIndToggle。 */
 async function wsQuickInd(on) {
   const wsInd = document.getElementById('wsInd');
   if (wsInd) wsInd.checked = on;        // 同步面板勾选
-  await onIndToggle(on);
-  wsQuickRefresh();
+  try { await onIndToggle(on); } finally { wsQuickRefresh(); }
 }
 /** 启用工作区（未启用态显示）→ 委托 onFolderEnabled。 */
 async function wsQuickEnable() {
   const wsEnabled = document.getElementById('wsEnabled');
   if (wsEnabled) wsEnabled.checked = true;
-  await onFolderEnabled(true);
-  wsQuickRefresh();
+  try { await onFolderEnabled(true); } finally { wsQuickRefresh(); }
 }
 /** 浏览… → 委托 browseWs（面板同款系统选择器）。 */
 async function wsQuickBrowse() {
-  await browseWs();
-  wsQuickRefresh();
+  try { await browseWs(); } finally { wsQuickRefresh(); }
 }
 /** 跟随全局 → 委托 unbindSession。 */
 async function wsQuickUnbind() {
-  await unbindSession();
-  wsQuickRefresh();
+  try { await unbindSession(); } finally { wsQuickRefresh(); }
 }

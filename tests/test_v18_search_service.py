@@ -678,10 +678,13 @@ class TestSearchBrowserWindow:
 
     def test_urllib_http_error_mapping(self, monkeypatch):
         def _raise(req, timeout=None):
-            raise urllib.error.HTTPError('https://x/', 429, 'Too Many', {}, None)
+            raise urllib.error.HTTPError('https://www.bing.com/', 429, 'Too Many', {}, None)
         monkeypatch.setattr(urllib.request, 'urlopen', _raise)
         b = SearchBrowser(idle_recycle=False)
-        r = b.open_url('https://x/')
+        # SSRF 防护（2026-10-21）：host 须可解析到公网——'https://x/' 这类
+        # 不可解析主机按 fail-closed 拒（NAV_BLOCKED），故用可解析公网主机
+        # 验 HTTP 码映射（urlopen 已桩，主机选择不影响映射断言）
+        r = b.open_url('https://www.bing.com/')
         assert r['ok'] is False and r['error'] == 'ENGINE_UNREACHABLE'
         assert r['http_status'] == 429
 
@@ -692,7 +695,7 @@ class TestSearchBrowserWindow:
             raise urllib.error.URLError(socket.timeout('timed out'))
         monkeypatch.setattr(urllib.request, 'urlopen', _raise)
         b = SearchBrowser(idle_recycle=False)
-        r = b.open_url('https://x/')
+        r = b.open_url('https://www.bing.com/')
         assert r['error'] == 'TIMEOUT'
 
     def test_idle_recycle_and_shutdown(self, monkeypatch):

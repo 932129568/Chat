@@ -25,6 +25,7 @@ import threading
 import time
 
 from ..logging_setup import get_logger
+from .mcp_transport_http import urlopen_no_redirect   # 修复 W18：禁跟随重定向（防跨域引导/凭证泄漏）
 
 # 更新清单地址：优先从 config.json 的 update_manifest_url 读取（前端可配）。
 # ⚠ 此为占位默认源（github.com/harbor/harbor 并非真实仓库），分发前必须：
@@ -80,12 +81,19 @@ class UpdateService:
         """拉取 manifest JSON：{version, url, sha256, notes}。比对 APP_VERSION。
 
         无新版本 → {'update_available': False}；网络失败 → {'error': ...}（前端静默处理）。
+        修复 W18（本轮）：manifest_url 仅允许 https，且走 urlopen_no_redirect
+        （禁自动重定向）——http 明文清单可被中间人篡改版本号/下载地址；
+        重定向可把请求引到任意主机。原裸 urlopen 两风险都不防。
         """
         url = str(manifest_url or DEFAULT_MANIFEST_URL).strip()
+        if not url.lower().startswith('https://'):
+            return json.dumps({'error': '更新清单地址必须使用 https（已拒绝 %s）'
+                               % (url.split('://')[0] if '://' in url else url)},
+                              ensure_ascii=False)
         try:
             import urllib.request
             req = urllib.request.Request(url, headers={'User-Agent': 'Harbor/' + APP_VERSION})
-            with urllib.request.urlopen(req, timeout=10) as resp:
+            with urlopen_no_redirect(req, timeout=10) as resp:
                 data = json.loads(resp.read().decode('utf-8'))
             if not isinstance(data, dict) or 'version' not in data:
                 return json.dumps({'error': '更新清单格式无效'}, ensure_ascii=False)
@@ -140,7 +148,6 @@ class UpdateService:
         tmp_path = None
         try:
             import urllib.request
-            from .mcp_transport_http import urlopen_no_redirect   # 修复 W18：禁跟随重定向（防跨域引导）
             os.makedirs(UPDATE_DIR, exist_ok=True)
             tmp_path = os.path.join(UPDATE_DIR, 'harbor-%s.exe.tmp' % (version or 'new'))
             req = urllib.request.Request(url, headers={'User-Agent': 'Harbor/' + APP_VERSION})
@@ -294,6 +301,10 @@ def cleanup_old_backup(logger=None):
 
     修复 建议⑤（二轮）：sentinel 是「上次更新成功」的唯一凭证——原写了没人读、
     失败静默；现在读到即记日志（用户/支持者可从 harbor.log 确认更新成败）。
+    修复 建议⑥（二轮）：清理历史版本 exe（原永不清理，UPDATE_DIR 无限膨胀）——
+    保留当前版本包（harbor-<APP_VERSION>.exe）外，额外保留 mtime 最新的一个
+    harbor-*.exe：那是「已下载未应用」的更新包（用户下载后没点应用/应用失败
+    待重试），删掉要重新下一遍（最大 500MB）。
     返回被清理的文件数；仅在 frozen 模式下有意义。"""
     cleaned = 0
     try:
@@ -316,9 +327,21 @@ def cleanup_old_backup(logger=None):
                         pass
         # 修复 建议⑥（二轮）：清理历史版本 exe（原永不清理，UPDATE_DIR 无限膨胀）
         try:
-            keep = 'harbor-%s.exe' % APP_VERSION
-            for fn in os.listdir(UPDATE_DIR):
-                if fn.startswith('harbor-') and fn.endswith('.exe') and fn != keep:
+            keep = {'harbor-%s.exe' % APP_VERSION}
+            exes = [fn for fn in os.listdir(UPDATE_DIR)
+                    if fn.startswith('harbor-') and fn.endswith('.exe')]
+            newest = None
+            for fn in exes:
+                try:
+                    mt = os.path.getmtime(os.path.join(UPDATE_DIR, fn))
+                except OSError:
+                    continue
+                if newest is None or mt > newest[0]:
+                    newest = (mt, fn)
+            if newest is not None:
+                keep.add(newest[1])       # 已下载未应用的更新包：保留
+            for fn in exes:
+                if fn not in keep:
                     os.remove(os.path.join(UPDATE_DIR, fn))
                     cleaned += 1
         except Exception:

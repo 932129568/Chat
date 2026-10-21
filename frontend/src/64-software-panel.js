@@ -35,6 +35,7 @@ const SW_STATUS_TEXT = {
 let softwareReqSeq = 0;          // last-wins 请求序号
 let softwarePanelState = 'idle'; // idle|pending|success|error
 let swProbing = false;           // 探测在途（呼吸态 + 按钮禁用）
+let swTesting = false;           // 测试调用在途（防定时器覆盖/状态机串话）
 let swCallTimer = null;          // 测试调用文本时钟句柄
 let swCallElapsed = 0;           // 测试调用已运行秒数
 let swLastList = [];             // 最近一次列表载荷（重渲染用）
@@ -221,7 +222,7 @@ function softwarePanelRenderList(items) {
       '<span class="sw-light ' + lightCls + '"></span>' +
       '<span class="sw-name">' + swEsc(it.name) + '</span>' +
       '<span class="sw-kind">' + swEsc(it.kind) + '</span>' +
-      '<span class="sw-status">' + (SW_STATUS_TEXT[it.status] || it.status) +
+      '<span class="sw-status">' + (SW_STATUS_TEXT[it.status] || swEsc(String(it.status || '未知'))) +
         (it.version ? ' · ' + swEsc(it.version) : '') + '</span>' +
       '<span class="sw-src">' + (it.source === 'preset' ? '预设' : '自定义') + '</span>' +
       '<button type="button" class="modal-btn sw-test-btn" data-name="' + swEsc(it.name) + '">测试调用</button>' +
@@ -297,6 +298,8 @@ function softwarePanelOpenTest(name, item) {
   if (run) run.addEventListener('click', () => softwarePanelRunTest(name));
 }
 async function softwarePanelRunTest(name) {
+  if (swTesting) return;                         // 在途保护：防连点致定时器覆盖/状态串话
+  swTesting = true;
   const actionEl = swEl('swTestAction');
   const argsEl = swEl('swTestArgs');
   const action = actionEl ? actionEl.value : '';
@@ -306,6 +309,7 @@ async function softwarePanelRunTest(name) {
     catch (e) {
       softwarePanelRenderTestOut({ ok: false, error: { code: 'BAD_PARAMS',
         message: '参数不是合法 JSON: ' + (e && e.message) } });
+      swTesting = false;                     // 早退亦复位在途标志（防永久锁死）
       return;
     }
   }
@@ -315,6 +319,7 @@ async function softwarePanelRunTest(name) {
   swCallElapsed = 0;
   const timerEl = swEl('swTestTimer');
   if (timerEl) { timerEl.style.display = ''; timerEl.textContent = '已运行 0:00'; }
+  if (swCallTimer) { clearInterval(swCallTimer); swCallTimer = null; }   // 旧时钟先清（防泄漏）
   swCallTimer = setInterval(() => {
     swCallElapsed += 1;
     const t = swEl('swTestTimer');
@@ -338,8 +343,10 @@ async function softwarePanelRunTest(name) {
       message: (e && e.message) || String(e) } });
     softwarePanelSetState('error');
   } finally {
+    // 早退（seq 陈旧 return）亦经 finally：时钟清理 + 在途标志复位（JS 语义保证）
     if (swCallTimer) { clearInterval(swCallTimer); swCallTimer = null; }
     if (runBtn) runBtn.disabled = false;
+    swTesting = false;
   }
 }
 function softwarePanelRenderTestOut(d) {

@@ -34,6 +34,9 @@ function normalizeSessions(raw) {
     if (x._compactBackup && typeof x._compactBackup === 'object' && Array.isArray(x._compactBackup.msgs)) {
       s._compactBackup = x._compactBackup;
     }
+    // v1.8.0 M3：计划 task_id 白名单放行（100-send 批准后落库；85-session-mgmt
+    // 真删 session_purge 的 taskIds 数据源——原白名单会静默丢弃导致恒 '[]'）
+    if (x.plan && typeof x.plan === 'object' && x.plan.task_id) s.plan = { task_id: String(x.plan.task_id) };
     return s;
   });
 }

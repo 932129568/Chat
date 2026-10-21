@@ -156,11 +156,13 @@ async function mcpToggleServer(name, on) {
 async function mcpDeleteServer(name) {
   // 修复 ⑱（三轮）：busy 守卫——原无保护，双击删除按钮会弹两个确认框
   // （第一个删除后第二个对已删名再确认，误导用户）
-  // 修复（四轮）：_busy 由 mcpToggleServer 惰性初始化，未经开关直接点删除时
-  // 为 undefined 致 .has 抛 TypeError——使用前确保初始化
-  mcpToggleServer._busy = mcpToggleServer._busy || new Set();
-  if (mcpToggleServer._busy.has(name)) return;
-  mcpToggleServer._busy.add(name);
+  // 修复（四轮）：独立 _busy——原与 mcpToggleServer 共用 Set，开关在途会
+  // 把删除也静默吞掉（用户点了没反应）；删除改用私有 busy 互不干扰
+  mcpDeleteServer._busy = mcpDeleteServer._busy || new Set();
+  if (mcpDeleteServer._busy.has(name)) {
+    toast('该服务器操作正在进行中，请稍候…', 'info'); return;
+  }
+  mcpDeleteServer._busy.add(name);
   try {
   const r = await uiConfirm({
     title: '删除 MCP 服务器', body: '确认删除「' + name + '」？\n其配置（含档位覆盖）将一并移除，此操作不可恢复。',
@@ -175,7 +177,7 @@ async function mcpDeleteServer(name) {
   }
   loadMcpServers();
   } finally {
-    mcpToggleServer._busy.delete(name);
+    mcpDeleteServer._busy.delete(name);
   }
 }
 

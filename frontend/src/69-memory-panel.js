@@ -25,6 +25,8 @@
 const MM_LIST_TIMEOUT_MS = 15000;    // get_memory（本地文件读；与 S 域列表同款快失败口径）
 const MM_WRITE_TIMEOUT_MS = 15000;   // append_memory / memory_delete
 const MM_TEXT_MAX = 500;             // 单条记忆最大长度（与 textarea maxlength 对齐）
+// 功能分级开关键（设置可单独关记忆；默认开——对齐 63/64 的 glm_feat_*_v18 模式）
+const MM_FEATURE_KEY = 'glm_feat_memory_v18';
 
 let memoryReqSeq = 0;          // last-wins 请求序号（每次触发递增，旧请求失效）
 let memoryPanelState = 'idle'; // idle|pending|success|error（块上 data-state 镜像）
@@ -44,6 +46,13 @@ function mmCallApi(name, args, timeoutMs) {
 }
 function mmToast(msg, kind) {
   if (typeof toast === 'function') toast(msg, kind || 'info');
+}
+function mmFeatureEnabled() {
+  try {
+    if (typeof localStorage === 'undefined') return true;
+    const v = localStorage.getItem(MM_FEATURE_KEY);
+    return v === null || v === '1';   // 缺省 = 开（默认开）
+  } catch (e) { return true; }
 }
 function mmEsc(s) {
   return String(s == null ? '' : s)
@@ -67,6 +76,7 @@ function mmEntryTs(it) {
 
 /* ---------- 面板骨架（纯新增 DOM；挂到设置面板 set-grid，softwareBlock 同款模式） ---------- */
 function memoryPanelInit() {
+  if (!mmFeatureEnabled()) return false;          // 功能分级开关：关则不挂载
   if (mmEl('memoryBlock')) { memoryPanelWire(); return true; }   // 幂等
   if (typeof document === 'undefined') return false;
   const grid = document.querySelector('.set-grid');
@@ -124,6 +134,14 @@ async function memoryPanelRefresh() {
     if (seq !== memoryReqSeq) return;               // last-wins：旧返回丢弃
     let items = [];
     try { items = JSON.parse(raw || '[]'); } catch (e) { items = []; }
+    if (items && typeof items === 'object' && !Array.isArray(items) && items.ok === false) {
+      // 信封错误（非数组载荷）：显示 error，勿静默渲染空列表（用户以为记忆被清空）
+      mmLastItems = [];
+      memoryPanelRenderList([]);
+      memoryPanelRenderError(items.error || { code: 'INTERNAL', message: '读取失败' });
+      memoryPanelSetState('error');
+      return;
+    }
     if (!Array.isArray(items)) items = [];
     mmLastItems = items;
     memoryPanelRenderList(items);
@@ -259,18 +277,44 @@ async function memoryPanelDelete(index) {
     return;
   }
   const preview = mmEntryText(mmLastItems[index]).slice(0, 40);
+  const tail = preview.length >= 40 ? '…' : '';
+  // 原生 confirm 降级路径用 \n（原生对话框按换行渲染）；
+  // uiConfirm 走 bodyHtml 通道（<br> 换行 + mmEsc 转义记忆文本，防注入）
   const body = '确定删除第 ' + (index + 1) + ' 条记忆吗？\n「' +
-    preview + (preview.length >= 40 ? '…' : '') + '」\n删除后不可恢复。';
+    preview + tail + '」\n删除后不可恢复。';
+  const bodyHtml = '确定删除第 ' + (index + 1) + ' 条记忆吗？<br>「' +
+    mmEsc(preview).replace(/\n/g, '<br>') + tail + '」<br>删除后不可恢复。';
   let confirmed = false;
   if (typeof uiConfirm === 'function') {
     // v1.2 R3：应用内模态确认（danger 态）
-    const r = await uiConfirm({ title: '删除记忆', body: body, danger: true,
+    const r = await uiConfirm({ title: '删除记忆', bodyHtml: bodyHtml, danger: true,
       okText: '删除', cancelText: '取消' });
     confirmed = !!(r && r.ok);
   } else if (typeof confirm === 'function') {
     confirmed = confirm(body);   // 降级：无 uiConfirm 的环境（vm 沙箱可桩）
   }
   if (!confirmed) return;
+  // 陈旧校验：删前重取 get_memory，与展示中的列表逐条比对（长度 + 条目文本）——
+  // 不一致说明列表已被别处改动（另一面板/会话/手动编辑），index 可能指向
+  // 别的条目；禁删并引导刷新，绝不静默删错数据
+  let fresh = null;
+  try {
+    const raw2 = await mmCallApi('get_memory', [], MM_LIST_TIMEOUT_MS);
+    let f = [];
+    try { f = JSON.parse(raw2 || '[]'); } catch (e) { f = []; }
+    fresh = Array.isArray(f) ? f : [];
+  } catch (e) {
+    mmToast('读取记忆列表失败，请稍后重试', 'warn');
+    return;   // 重取失败：保守放弃本次删除（不动数据）
+  }
+  const stale = fresh.length !== mmLastItems.length ||
+    fresh.some((it, i) => mmEntryText(it) !== mmEntryText(mmLastItems[i]));
+  if (stale) {
+    mmLastItems = fresh;
+    memoryPanelRenderList(fresh);
+    mmToast('记忆列表已变化，请刷新后重试', 'warn');
+    return;
+  }
   mmBusy = true;
   const seq = ++memoryReqSeq;
   memoryPanelSetState('pending');

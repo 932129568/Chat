@@ -66,31 +66,40 @@ def extract_main_content(html, selector=None, max_chars=DEFAULT_MAX_CHARS):
         截断标记处不追加 ``...[truncated]`` 尾注——契约 §4.3 规定该尾注
         由序列化层（service）在落 toolcache 时补，本函数只负责截断与
         度量，保持纯函数边界。
+
+    RecursionError 防护：_strip_noise/_pick_main_block/_block_text 内部的
+    树遍历均为递归实现，病态深树（万层嵌套）会触发递归上限——此处按
+    「无正文」返回（调用方转 EMPTY_CONTENT），不把 RecursionError 抛进
+    browser_open 管线（与 search_adapters.parse_results 同口径）。
     """
-    root = build_tree(html)
-    _strip_noise(root)
-    sel = str(selector or '').strip()
-    if sel:
-        target = select_first(root, sel)
-        if target is None:
-            # 选择器未命中：只给信号，SELECTOR_NOT_FOUND 由调用方转
-            return {'content': '', 'truncated': False,
-                    'extractor': 'selector_miss', 'full_chars': 0}
-        content = _block_text(target)
-        extractor = 'selector'
-    else:
-        block = _pick_main_block(root)
-        content = _block_text(block) if block is not None else ''
-        extractor = 'readability'
-    full_chars = len(content)
-    limit = _safe_int(max_chars, DEFAULT_MAX_CHARS)
-    if limit > 0 and full_chars > limit:
-        content = content[:limit]
-        truncated = True
-    else:
-        truncated = False
-    return {'content': content, 'truncated': truncated,
-            'extractor': extractor, 'full_chars': full_chars}
+    try:
+        root = build_tree(html)
+        _strip_noise(root)
+        sel = str(selector or '').strip()
+        if sel:
+            target = select_first(root, sel)
+            if target is None:
+                # 选择器未命中：只给信号，SELECTOR_NOT_FOUND 由调用方转
+                return {'content': '', 'truncated': False,
+                        'extractor': 'selector_miss', 'full_chars': 0}
+            content = _block_text(target)
+            extractor = 'selector'
+        else:
+            block = _pick_main_block(root)
+            content = _block_text(block) if block is not None else ''
+            extractor = 'readability'
+        full_chars = len(content)
+        limit = _safe_int(max_chars, DEFAULT_MAX_CHARS)
+        if limit > 0 and full_chars > limit:
+            content = content[:limit]
+            truncated = True
+        else:
+            truncated = False
+        return {'content': content, 'truncated': truncated,
+                'extractor': extractor, 'full_chars': full_chars}
+    except RecursionError:
+        return {'content': '', 'truncated': False,
+                'extractor': 'readability', 'full_chars': 0}
 
 
 def _strip_noise(root):

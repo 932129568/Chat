@@ -13,6 +13,7 @@ v1.2 追加 guard/update/provider 共 10 个、v1.3 追加 mcp_* 共 10 个隐�
 import json
 import os
 import sys
+import threading
 import time
 
 from . import paths
@@ -151,6 +152,10 @@ class Api:
         self._hybrid = HybridRouter()
         # v1.8.0 M3 域·计划执行与检查点（plans//checkpoints/ 独立目录，config.json 零污染）
         self._plan = PlanService()
+        # 导出保存路径登记（一次性消费集合：pick_save_path 登记 → save_export_file
+        # pop 消费；线程安全——对话框回调与工具调用可能在不同线程）
+        self._export_paths = set()
+        self._export_paths_lock = threading.Lock()
         # 修复 W6（二轮）：自更新强退（os._exit 绕过 atexit）前先关 MCP 子进程，防孤儿残留
         _update_mod.set_before_exit_hook(self._mcp.shutdown)
 
@@ -187,6 +192,10 @@ class Api:
         模态下载 UI 阻塞页面消息循环——导出后界面卡死只能重开）。改用保存
         对话框 + 后端 save_export_file 写盘，零下载 UI。无窗口环境 →
         {ok: False, err}（前端 toast 回落）。
+
+        安全（修复 P1 二期）：对话框选中的路径登记进进程内一次性集合
+        （normcase+abspath 归一）——save_export_file 仅接受已登记路径，
+        杜绝任意路径写（js_api 表面可被模型/前端直接调用）。
         """
         win = getattr(self._runtime, 'win', None)
         if win is None:
@@ -196,7 +205,10 @@ class Api:
             # api.py 顶层 import webview——无 GUI 环境 import 亦可失败）
             result = win.create_file_dialog(30, directory='', save_filename=default_name)
             if result and len(result) > 0:
-                return ok({'ok': True, 'path': result[0]})
+                p = str(result[0])
+                with self._export_paths_lock:
+                    self._export_paths.add(os.path.normcase(os.path.abspath(p)))
+                return ok({'ok': True, 'path': p})
             return ok({'ok': False, 'path': ''})     # 用户取消
         except Exception as e:
             return err('保存对话框失败: %s' % e)
@@ -204,12 +216,27 @@ class Api:
     def save_export_file(self, path, content):
         """把导出内容写盘（UTF-8）→ {ok, path, bytes}。
 
-        路径校验：非空 + 父目录存在（防 dialog 异常返回）；内容上限 8MB
-        （导出是会话 markdown，防病态大串写爆）。写失败 → err 人话。
+        安全约束（修复 P1 二期）：path 必须由 pick_save_path 对话框登记
+        （进程内一次性集合，pop 消费）——否则返回 err('保存路径须由导出
+        对话框选择（安全约束）'）。防 js_api 表面被直接调用以后端进程
+        权限写任意文件。
+        其余校验保留：内容上限 8MB（导出是会话 markdown，防病态大串写爆）+
+        父目录存在（防 dialog 异常返回）。写失败 → err 人话。
+        审计：与文件内其他 audit 调用同口径（拒绝 decision=unregistered-path，
+        成功 decision=saved）。
         """
         p = str(path or '').strip()
         if not p:
             return err('保存路径为空')
+        key = os.path.normcase(os.path.abspath(p))
+        with self._export_paths_lock:
+            registered = key in self._export_paths
+            if registered:
+                self._export_paths.discard(key)   # 一次性消费
+        if not registered:
+            self._guard.audit('save_export_file', {'path': p}, 'block',
+                              'unregistered-path')
+            return err('保存路径须由导出对话框选择（安全约束）')
         text = str(content if content is not None else '')
         if len(text.encode('utf-8')) > 8 * 1024 * 1024:
             return err('导出内容超过 8MB 上限')
@@ -219,6 +246,9 @@ class Api:
         try:
             with open(p, 'w', encoding='utf-8', newline='\n') as f:
                 f.write(text)
+            self._guard.audit('save_export_file',
+                              {'path': p, 'bytes': len(text.encode('utf-8'))},
+                              'ok', 'saved')
             return ok({'ok': True, 'path': p,
                        'bytes': len(text.encode('utf-8'))})
         except Exception as e:
@@ -227,8 +257,18 @@ class Api:
     def session_purge(self, sid, task_ids_json='[]'):
         """真删一条会话的全部痕迹：sessions.json 条目 + session_ws 绑定 +
         关联 plan json + 关联 checkpoint 目录。task_ids 由前端传 s.plan.task_id。
+
+        修复 W5：purge 成功后再收口 workspace 内存态——config_service 只保底
+        删了 session_ws.json 文件条目，进程内 WorkspaceService 的会话映射/
+        ws_enabled 开关不摘会在重启前残留（绑定目录仍对生效 sid 生效）。
         """
-        return ok(self._config.session_purge(sid, task_ids_json))
+        r = self._config.session_purge(sid, task_ids_json)
+        if r.get('ok'):
+            try:
+                self._workspace.delete_session_ws(sid)
+            except Exception as e:
+                self._log.warning('purge 后 workspace 内存态收口失败: %r', e)
+        return ok(r)
 
     def clear_caches(self):
         self._files.file_fp.clear()
@@ -881,21 +921,38 @@ class Api:
         return ok(get_proxy().info())
 
     # ============ v1.8.0 B 域·浏览器搜索（_V12_EXTRA 隐身）============
+    @staticmethod
+    def _params_dict(params):
+        """params 归一（修复 W7：畸形 JSON 入参不再抛异常穿透 js_api）。
+
+        dict 直通；str 尝试 json.loads（失败 → {}，解析结果非对象 → {}）；
+        其余（None 等）→ {}。供 browser_search/software_call 预解析用。
+        """
+        if isinstance(params, dict):
+            return params
+        if isinstance(params, str) and params.strip():
+            try:
+                p = json.loads(params)
+            except Exception:
+                return {}
+            return p if isinstance(p, dict) else {}
+        return {}
+
     def browser_search(self, params=None, token=None):
         """B1：浏览器搜索——检索式构造 → 缓存层（TTL 30min）→ 双通道取数
         （次窗优先/urllib 兜底）→ 解析提取 → 校验缓存 → 审计（op=web_search）。
 
         请求字段/成功响应/错误码见联调规范 §3.1；检出验证页 fail-fast 返回
         CAPTCHA_REQUIRED（error.takeover_id 交前端 63-search-panel 接管 UI，
-        流程 2）。params 可为 dict 或 JSON 字符串（service 层归一）。
+        流程 2）。params 可为 dict 或 JSON 字符串（修复 W7：经 _params_dict
+        防御性归一，畸形 JSON → {} 走参数校验错误码，不抛异常）。
 
         v1.8.0 §3.3 护栏挂载（2026-10-21）：web_search 默认 session 档——
         后端 enforce_exec 前置校验（deny/allow_rules/task_grant 先于档位；
         session 档需一次性 confirm token 或会话信任）。token 由前端
         agentGuardCheck 确认框换取（guard_confirm_token）。
         """
-        p = params if isinstance(params, dict) else (json.loads(params) if isinstance(params, str) and params.strip() else {})
-        if not isinstance(p, dict): p = {}
+        p = self._params_dict(params)
         reason = self._guard.enforce_exec(
             'web_search', {'query': str((p or {}).get('query') or '')[:120]}, token)
         if reason:
@@ -904,7 +961,7 @@ class Api:
             return ok({'ok': False,
                        'error': {'code': 'CONFIRM_REQUIRED', 'message': reason,
                                  'op': 'web_search'}})
-        return ok(self._search.browser_search(params))
+        return ok(self._search.browser_search(p))
 
     def browser_open(self, params=None):
         """B2：打开 URL 提取正文（selector 覆盖/密度提取；超长截断落 toolcache，
@@ -946,13 +1003,14 @@ class Api:
         """S3：外部软件调用三形态（CLI 沙箱执行 / GUI 标题核验 / URI 协议）。
         参数按 action.arg_schema 硬校验（SCHEMA_INVALID + violations/example
         自校正回显）；exit_code≠0 仍走成功形状。审计 op=software_call。
-        params 可为 dict 或 JSON 字符串（service 层归一）。
+        params 可为 dict 或 JSON 字符串（修复 W7：经 _params_dict 防御性归一，
+        畸形 JSON → {} 走参数校验错误码，不抛异常穿透 js_api）。
 
         v1.8.0 §4.4 护栏挂载（2026-10-21）：software_call 默认 session 档
         （read/mutate 会话首次确认）；**dangerous action 由 preset risk 标注，
-        在调用点强制 always 档**（高危动作每次确认——§4.3 异常矩阵）。"""
-        p = params if isinstance(params, dict) else (json.loads(params) if isinstance(params, str) and params.strip() else {})
-        if not isinstance(p, dict): p = {}
+        在调用点强制 always 档**（高危动作每次确认——§4.3 异常矩阵）。
+        token 绑定 software+action 摘要（W4，与签发侧同口径）。"""
+        p = self._params_dict(params)
         _sw = str((p or {}).get('software') or '')[:60]
         _act = str((p or {}).get('action') or '')[:40]
         # §4.4：dangerous 动作强制每次确认（force_always 无视 op 档与信任态）
@@ -965,7 +1023,7 @@ class Api:
             return ok({'ok': False,
                        'error': {'code': 'CONFIRM_REQUIRED', 'message': reason,
                                  'op': 'software_call'}})
-        return ok(self._software.software_call(params))
+        return ok(self._software.software_call(p))
 
     def _software_save(self, name, entry=None):
         """S 域用户自定义条目 CRUD 之写（私有：经 rpc 通用分发通道暴露——

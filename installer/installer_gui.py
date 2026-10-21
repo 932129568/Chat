@@ -60,9 +60,9 @@ footer{background:var(--card);border-top:1px solid var(--line);padding:12px 24px
 <script>
 const $=s=>document.querySelector(s);
 let state={page:'welcome',dir:'',desktop:true,start:true,result:null};
-const api=window.pywebview?window.pywebview.api:null;
+let api=null;
 
-async function call(fn,...a){return await api[fn](...a);}
+async function call(fn,...a){const s=await api[fn](...a);return (typeof s==='string')?JSON.parse(s):s;}
 
 function footer(nextTxt,showBack){$('#next').textContent=nextTxt;$('#next').disabled=false;
  $('#back').style.display=showBack?'':'none';}
@@ -99,6 +99,7 @@ async function checkDir(){
  $('#next').disabled=!r.ok;
 }
 function pageProgress(){
+ if(!state.dir||state.dir==='undefined'){pageDir();return;}
  state.page='progress';footer('安装中…',false);$('#next').disabled=true;
  $('#main').innerHTML=`<h1>正在安装…</h1><div class="bar"><div id="p"></div></div>
  <div class="step" id="st">准备中</div>`;
@@ -110,7 +111,9 @@ async function poll(){
  const r=await call('get_progress');
  $('#p').style.width=(r.total?(r.step/r.total*100):5)+'%';
  $('#st').textContent=r.msg||'';
- if(!r.running){clearInterval(timer);state.result=r.result;pageFinish();}
+ if(!r.running){clearInterval(timer);state.result=r.result;
+  if(state.result&&state.result.ok===false)pageError(state.result.error||'未知错误');
+  else pageFinish();}
 }
 function pageFinish(){
  state.page='finish';footer('完成',false);
@@ -136,11 +139,16 @@ $('#next').onclick=async()=>{
 };
 $('#back').onclick=()=>{if(state.page==='dir')pageWelcome();};
 
-(async function init(){
+async function init(){
  const d=await call('get_defaults');
  state.dir=d.default_dir;$('#ver').textContent='v'+d.version;
  window.__running=d.running;pageWelcome();
-})();
+}
+function boot(){
+ if(window.pywebview&&window.pywebview.api){api=window.pywebview.api;init();}
+ else window.addEventListener('pywebviewready',()=>{api=window.pywebview.api;init();});
+}
+boot();
 </script></body></html>"""
 
 

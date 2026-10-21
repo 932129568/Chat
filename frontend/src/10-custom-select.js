@@ -95,8 +95,11 @@ document.addEventListener('keydown', (e) => {
     if (anyOpen) { closeAllCS(); return; }
     // 修复 ㉟：模态（确认框/输入框/审计查看器）打开时，Esc 只关模态，不再误 abort 流式生成
     const modal = document.getElementById('modalRoot');
-    if (modal) {
-      const cancel = modal.querySelector('.modal-cancel');
+    // 修复（2026-10-21）：其余浮层（快捷键蒙层/搜索面板/工作区菜单/右键菜单/设置面板）
+    // 打开时同样只消费 Esc，不再走到 abort——与模态同口径
+    const overlayOpen = !!document.querySelector('.modal-mask, .sc-mask, #searchPanel.show, #wsqMenu.show, #ctxMenu.show, #settingsPanel.show');
+    if (modal || overlayOpen) {
+      const cancel = modal ? modal.querySelector('.modal-cancel') : null;
       if (cancel) cancel.click();          // 走模态自身的取消路径（uiConfirm/uiPrompt 会正常 resolve）
       else if (typeof _closeModal === 'function') _closeModal();
       return;

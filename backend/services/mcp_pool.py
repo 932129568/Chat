@@ -125,7 +125,13 @@ class ConcurrencyLimiter:
 def stale_needs_relist(last_list_at, now=None, ttl=STALE_RELIST_TTL):
     """list_changed 后超过 ttl 未刷新 → 需要自动 relist（S3）。
 
-    last_list_at 为 None（从未列出）时视为需要。时间戳单位：秒（time.time()）。
+    last_list_at 为 None（从未列出）时视为需要。时间戳单位：秒。
+    时钟基必须与调用方一致：mcp_service 的 entry['last_list_at'] 用
+    time.monotonic() 打点（与空闲计时同口径，不受系统时间回拨影响），
+    因此调用点须显式传 now=time.monotonic()——否则默认 now=time.time()
+    与 monotonic 相差 epoch 秒数，恒判 stale（每次调用多一次 tools/list
+    往返 + status 被拍成 stale）。默认 time.time() 保持既有纯函数单测
+    口径（test_v15_reserved/test_v15_wire 均以 time.time() 为基准）。
     """
     if last_list_at is None:
         return True
@@ -376,7 +382,8 @@ class WarmRegistry:
 
     def pop(self, server):
         """修复 S2 接线：取出条目并返回 client（不关；调用方负责 close）。
-        过期条目一并 pop 并返回 None（与 get 的过期语义一致）。"""
+        过期条目一并 pop 并返回 None（与 get 的过期语义一致）——注意此路径
+        拿不到过期 client 本体，需要关闭过期 client 的场景用 pop_expired。"""
         with self._lock:
             entry = self._entries.pop(server, None)
             if entry is None:
@@ -384,6 +391,24 @@ class WarmRegistry:
             if time.monotonic() - entry['since'] > self._idle_ttl:
                 return None          # 已过期：条目已摘，调用方无需再关
             return entry['client']
+
+    def pop_expired(self, server):
+        """修复 W2（本轮）：取出条目并返回 (client_or_None, expired_bool)。
+
+        pop/get 对过期条目只摘表、不返回 client——调用方（shutdown 与
+        _get_or_spawn 的 warm 路径）因此拿不到过期 client 去 close，
+        stdio 子进程 / HTTP 连接直接泄漏（温启过期条目泄漏）。
+        本方法把过期条目的 client 本体交还调用方处置：
+          (client, True)   条目已过期（调用方应 close 后走冷启/关闭）
+          (client, False)  条目新鲜（调用方可继续使用）
+          (None, False)    无此条目
+        """
+        with self._lock:
+            entry = self._entries.pop(server, None)
+            if entry is None:
+                return None, False
+            expired = time.monotonic() - entry['since'] > self._idle_ttl
+            return entry.get('client'), expired
 
     def get(self, server):
         with self._lock:

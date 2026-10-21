@@ -131,7 +131,7 @@
 ### 20. 安装器 GUI 依赖 WebView2 Runtime
 - **描述**：安装向导用 pywebview（与产品同栈）；未装 WebView2 的 Win10 旧系统无法显示向导。已做降级：原生 MessageBox 指引安装 WebView2 + 提示静默安装（`/S`）
 - **影响状态**：🟢 已处理（降级路径 + 指引文案）
-- **真机验证**：✅ **GUI 向导真机走访已完成**（2026-10-19，`deliverables/scripts/gui_walkthrough.py`）：环境实证 EdgeWebView2 155.x + pywebview + 显示器在位（「无显示设备」旧判断已过时）——真实窗口启动（680x540）+ 三张截图存档（welcome/dir/返回，`deliverables/metrics/gui-*.png`）+ PowerShell SendKeys 真实输入事件驱动「下一步/上一步」页面流转 + 21 项静态断言（四页函数/七桥方法/窗口规格）全绿，27/27 PASS。pywebview evaluate_js 在本沙箱会话不可用（消息循环无法泵送，loaded 内 + 独立线程两次实证挂起），DOM 断言以静态断言等价覆盖，桥行为由 test_installer.py 无头覆盖。静默安装/卸载链路此前已实测（exit 0、注册表四项、清理干净）。残留仅剩：装机环境由人双击过一遍完整安装路径——UI 层已无未验证风险。
+- **真机验证**：🔴 **回退待重走**（2026-10-21 复盘）：此前走访（2026-10-19）的截图显示纯黑、GUI 运行时路径未验证——真实窗口虽启动，但桥调用 / 进度轮询 / 完成页均未经过运行时闭环（pywebview evaluate_js 在沙箱会话不可用，DOM 断言以静态断言等价覆盖，不构成运行时证据）。已修复：installer_gui 桥返回值未 JSON.parse、安装失败误显「✓ 安装完成」（poll 错误分支）、未等 pywebviewready 即取 api、Uninstall.exe 无法删除自身（退出后 detached PowerShell 延迟补删）、check_target 每次按键 makedirs 副作用、卸载目录硬编码默认（改为 --dir > Uninstall.exe 所在目录含 Harbor.exe 校验 + install.json > 注册表 InstallLocation > 默认目录定位链）。待交互式会话重走全链路：选目录 → 安装 → 立即运行 → ARP 卸载。
 
 ---
 
