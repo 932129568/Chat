@@ -1983,6 +1983,51 @@ body.fx-off #emptyState.leaving{animation:none;opacity:0}
   .sidebar,.main,.input-area{animation:none}}
 body.fx-off .sidebar,body.fx-off .main,body.fx-off .input-area{animation:none}
 /* 切换面板不重播（animation 只在初始渲染播一次——panel 切换走 16-panel-fx 交叉淡化，互不干扰） */
+
+/* ============================================================
+   历史存放目录（2026-10-21 后端 bdd8b1d 配套前端样式补全）
+   入口：sessions 面板底部「📁 历史目录」钮；对话框复用模态语言
+   ============================================================ */
+.history-dir-btn{margin-top:10px;width:100%;height:30px;border:1px solid var(--border);
+  border-radius:var(--radius-md);background:var(--surface-2);color:var(--text-2);cursor:pointer;
+  font-size:var(--fs-caption);font-family:var(--font-mono);text-align:center;
+  transition:color var(--dur-micro) var(--ease-out-soft),background-color var(--dur-micro) var(--ease-out-soft),
+    border-color var(--dur-micro) var(--ease-out-soft),box-shadow var(--dur-micro) var(--ease-out-soft)}
+.history-dir-btn:hover{color:var(--primary);border-color:var(--primary);background:var(--primary-soft)}
+.history-dir-btn:active{transform:scale(.98);transition:transform var(--dur-press) var(--ease-out-soft)}
+.history-dir-mask{position:fixed;inset:0;background:var(--main-veil);z-index:120;
+  display:flex;align-items:center;justify-content:center;padding:24px;
+  animation:v4MaskIn var(--dur-comp) var(--ease-out-soft)}
+.history-dir-panel{width:min(520px,92vw);padding:20px 22px;border-radius:var(--radius-lg);
+  background:var(--glass-bg-2);border:1px solid var(--glass-border);
+  backdrop-filter:blur(var(--glass-blur));-webkit-backdrop-filter:blur(var(--glass-blur));
+  box-shadow:var(--shadow-lg),var(--edge-hi);
+  animation:v4ModalIn var(--dur-panel-lg) var(--ease-emphasized)}
+.hd-title{font-size:var(--fs-title);font-weight:650;color:var(--text);letter-spacing:-.1px}
+.hd-desc{font-size:var(--fs-caption);color:var(--text-3);line-height:1.65;margin:6px 0 14px}
+.hd-row{display:flex;align-items:center;gap:8px;margin:10px 0}
+.hd-row.hd-btns{gap:8px;margin-top:14px}
+.hd-input{flex:1;min-width:0;height:32px;padding:0 11px;font-size:var(--fs-caption);font-family:var(--font-mono);
+  border:1px solid var(--border);border-radius:var(--radius-md);background:var(--bg);color:var(--text);outline:none;
+  transition:border-color var(--dur-micro) var(--ease-out-soft),box-shadow var(--dur-micro) var(--ease-out-soft)}
+.hd-input:focus{border-color:var(--primary);box-shadow:var(--glow-focus),var(--glow-inset)}
+.hd-btn{height:30px;padding:0 14px;border:1px solid var(--border);border-radius:var(--radius-md);
+  background:var(--card-bg);color:var(--text);font-size:var(--fs-caption);cursor:pointer;font-family:inherit;
+  transition:color var(--dur-micro) var(--ease-out-soft),background-color var(--dur-micro) var(--ease-out-soft),
+    border-color var(--dur-micro) var(--ease-out-soft)}
+.hd-btn:hover{color:var(--primary);border-color:var(--primary);background:var(--primary-soft)}
+.hd-btn:active{transform:scale(.97);transition:transform var(--dur-press) var(--ease-out-soft)}
+.hd-btn.hd-primary{background:var(--primary);border-color:var(--primary);color:#fff;position:relative;overflow:hidden}
+.hd-btn.hd-primary:hover{background:var(--primary-hover)}
+.hd-chk{display:flex;align-items:center;gap:6px;font-size:var(--fs-caption);color:var(--text-2);cursor:pointer;white-space:nowrap}
+.hd-chk input{width:14px;height:14px;accent-color:var(--primary);cursor:pointer}
+.hd-msg{font-size:var(--fs-caption);line-height:1.55;margin-top:10px;min-height:17px}
+.hd-msg.ok{color:var(--ok);animation:v4LineIn var(--dur-comp) var(--ease-anticipate)}
+.hd-msg.err{color:var(--err);animation:v4LineIn var(--dur-comp) var(--ease-anticipate)}
+body.fx-off .history-dir-mask,body.fx-off .history-dir-panel,
+body.fx-off .hd-msg.ok,body.fx-off .hd-msg.err{animation:none}
+body.theming .history-dir-panel,body.theming .hd-btn,body.theming .hd-input,body.theming .history-dir-btn{
+  transition-property:background-color,color,border-color,box-shadow}
 </style>
 </head>
 <body>
