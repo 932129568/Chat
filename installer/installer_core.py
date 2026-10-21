@@ -117,6 +117,8 @@ def check_target(path):
     写探测改在「向上最近的已存在祖先目录」上进行，语义等价（安装时由
     install() 负责 makedirs）。
     """
+    if not path or not str(path).strip():
+        return False, '请选择安装目录。', False
     path = os.path.abspath(path)
     low = path.lower().replace('/', '\\')
     need_admin = (low.startswith(os.environ.get('SYSTEMROOT', 'C:\\WINDOWS').lower())
@@ -337,11 +339,18 @@ def install(target, progress_cb=None, desktop_shortcut=True, start_menu=True,
 
 
 def read_install_manifest(install_dir):
+    """读 install.json；不存在/损坏/非对象/入参异常一律返回 None。
+
+    非 dict（如 JSON 数组）必须归一为 None：调用方 _resolve_uninstall_dir
+    直接 .get('install_dir')，原样返回 list 会 AttributeError 崩定位链
+    （已实证：install.json 为 '[1,2,3]' 时卸载入口崩溃）。
+    """
     try:
         with open(os.path.join(install_dir, 'install.json'), 'r', encoding='utf-8') as f:
-            return json.load(f)
-    except (OSError, ValueError):
+            data = json.load(f)
+    except (OSError, ValueError, TypeError):
         return None
+    return data if isinstance(data, dict) else None
 
 
 def _rmtree_retry(path, retries=3):
@@ -374,15 +383,42 @@ def _self_delete_needed(install_dir):
             and os.path.dirname(exe) == os.path.abspath(install_dir))
 
 
-def _schedule_delayed_delete(install_dir):
-    """spawn detached PowerShell：等自身 pid 退出 → 500ms → 递归删安装目录。
+def _short_path(path):
+    """取 8.3 短路径（cmd 兜底免转义用）；失败/UNC/空返回 None。"""
+    try:
+        buf = ctypes.create_unicode_buffer(260)
+        n = ctypes.windll.kernel32.GetShortPathNameW(str(path), buf, 260)
+        return buf.value if 0 < n < 260 else None
+    except Exception:
+        return None
 
-    creationflags=CREATE_NO_WINDOW|DETACHED_PROCESS（无黑窗、不随父进程
-    生命周期被回收）。返回 True=已挂起延迟删除；False=调用方回落即时删除。
+
+def _schedule_delayed_delete(install_dir):
+    """spawn detached PowerShell：等自身 pid 退出（至多 30s）→ 500ms → 删安装目录。
+
+    三个已实证坑（第六轮对抗复审）：
+    1. 必须 -LiteralPath：非字面量模式下路径含 [ ] 时 Remove-Item 按通配符
+       匹配——安装目录 C:\\app\\a[1] 会误删 C:\\app\\a1、反留真实目录
+       （数据丢失级反选，已实证）。-LiteralPath 按字面精确删除。
+    2. Wait-Process 必须带 -Timeout：卸载器进程异常不退出时无超时的
+       Wait-Process 让 ps 无限滞留（已实证）；超时后进程仍存活则直接退出
+       不删——避免边运行边删造成半删除状态（比乱删更坏）。
+    3. PowerShell 被企业禁用时（Popen 抛异常）回落 cmd 短路径 rmdir：
+       短路径无空格/特殊字符，免命令行转义；两者皆不可用返回 False，
+       由调用方回落即时 rmtree。
+
+    creationflags=CREATE_NO_WINDOW|DETACHED_PROCESS：无黑窗，且父进程
+    退出后子进程仍存活完成补删（DETACHED_PROCESS 脱离父进程控制台/
+    生命周期，已实证：父进程立即退出后子 ps 仍完成删除）。
+    返回 True=已挂起延迟删除；False=调用方回落即时删除。
     """
-    ps = ("Wait-Process -Id %d -ErrorAction SilentlyContinue; "
-          'Start-Sleep -Milliseconds 500; '
-          "Remove-Item -Recurse -Force '%s'" % (os.getpid(), _ps_escape(install_dir)))
+    pid = os.getpid()
+    ps = ("$p=Get-Process -Id %d -ErrorAction SilentlyContinue;"
+          "if($p){Wait-Process -Id %d -Timeout 30 -ErrorAction SilentlyContinue;"
+          "if(Get-Process -Id %d -ErrorAction SilentlyContinue){exit 0}};"
+          'Start-Sleep -Milliseconds 500;'
+          "Remove-Item -LiteralPath '%s' -Recurse -Force"
+          % (pid, pid, pid, _ps_escape(install_dir)))
     try:
         subprocess.Popen(['powershell', '-NoProfile', '-ExecutionPolicy', 'Bypass',
                           '-WindowStyle', 'Hidden', '-Command', ps],
@@ -390,7 +426,19 @@ def _schedule_delayed_delete(install_dir):
                                         | getattr(subprocess, 'DETACHED_PROCESS', 0)))
         return True
     except Exception:
-        return False
+        pass
+    sp = _short_path(install_dir)
+    if sp and ' ' not in sp and not any(c in sp for c in '&|<>^"'):
+        # cmd 兜底：ping 3 包 ≈2s 覆盖卸载器退出时间，再 rmdir 短路径
+        try:
+            subprocess.Popen([os.environ.get('COMSPEC', 'cmd'), '/d', '/s', '/c',
+                              'ping -n 3 127.0.0.1 >nul & rmdir /s /q %s' % sp],
+                             creationflags=(getattr(subprocess, 'CREATE_NO_WINDOW', 0)
+                                            | getattr(subprocess, 'DETACHED_PROCESS', 0)))
+            return True
+        except Exception:
+            pass
+    return False
 
 
 def uninstall(install_dir, purge_data=False, progress_cb=None):
@@ -417,17 +465,19 @@ def uninstall(install_dir, purge_data=False, progress_cb=None):
         warnings.append('注册表卸载项清理失败（可手动删除）')
 
     cb(3, '正在删除程序文件…')
-    if os.path.isdir(install_dir):
-        if _self_delete_needed(install_dir):
-            # 卸载器自身在安装目录内：运行时删不掉自己，挂起退出后补删，
-            # 跳过即时 rmtree（必然残留且误导 warnings）。
-            if not _schedule_delayed_delete(install_dir):
-                if not _rmtree_retry(install_dir):
-                    warnings.append('部分文件未能删除（可能被占用）：%s' % install_dir)
-            else:
-                warnings.append('卸载程序自身位于安装目录内，文件将在退出后完成删除。')
-        elif not _rmtree_retry(install_dir):
-            warnings.append('部分文件未能删除（可能被占用）：%s' % install_dir)
+    if not os.path.isdir(install_dir):
+        warnings.append('安装目录不存在（可能已被手动删除，或 --dir 指定有误）：%s'
+                        % install_dir)
+    elif _self_delete_needed(install_dir):
+        # 卸载器自身在安装目录内：运行时删不掉自己，挂起退出后补删，
+        # 跳过即时 rmtree（必然残留且误导 warnings）。
+        if not _schedule_delayed_delete(install_dir):
+            if not _rmtree_retry(install_dir):
+                warnings.append('部分文件未能删除（可能被占用）：%s' % install_dir)
+        else:
+            warnings.append('卸载程序自身位于安装目录内，文件将在退出后完成删除。')
+    elif not _rmtree_retry(install_dir):
+        warnings.append('部分文件未能删除（可能被占用）：%s' % install_dir)
 
     cb(4, '正在处理用户数据…')
     if purge_data:

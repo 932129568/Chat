@@ -77,4 +77,12 @@ function setupContextMenu() {
   });
   document.addEventListener('click', hideMenu);
   window.addEventListener('scroll', hideMenu, true);
+  // 修复（对抗复审）：Esc 关闭右键菜单。10-custom-select 的浮层守卫只保证
+  // 「浮层打开时 Esc 不误 abort 流式」，但 ctxMenu 无自有 Esc 处理器时 Esc 被
+  // 消费后菜单不关（_closeModal 无 modalRoot 时 no-op）——「Esc 关闭浮层」
+  // 契约对 ctxMenu 只兑现一半。此处补「关」的另一半（与 63-search-panel /
+  // 38-ws-quick 的 Esc 处理同惯例）。
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && menu.classList.contains('show')) hideMenu();
+  });
 }

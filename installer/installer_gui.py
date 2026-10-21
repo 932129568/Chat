@@ -61,6 +61,12 @@ footer{background:var(--card);border-top:1px solid var(--line);padding:12px 24px
 const $=s=>document.querySelector(s);
 let state={page:'welcome',dir:'',desktop:true,start:true,result:null};
 let api=null;
+let timer=null;
+
+// HTML 转义：state.dir（用户输入/浏览返回值）与错误消息都进 innerHTML，
+// 未转义会破坏页面结构甚至注入元素（已实证：value="${state.dir}" 注入 <img>）。
+function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,
+ c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
 
 async function call(fn,...a){const s=await api[fn](...a);return (typeof s==='string')?JSON.parse(s):s;}
 
@@ -82,7 +88,7 @@ function pageWelcome(){
 function pageDir(){
  state.page='dir';footer('安装',true);
  $('#main').innerHTML=`<h1>选择安装位置</h1>
- <div class="dirrow"><input id="d" value="${state.dir}"><button class="ghost" id="browse">浏览…</button></div>
+ <div class="dirrow"><input id="d" value="${esc(state.dir)}"><button class="ghost" id="browse">浏览…</button></div>
  <div class="space" id="space"></div>
  <label class="chk"><input type="checkbox" id="sc1" ${state.start?'checked':''}>创建开始菜单快捷方式</label>
  <label class="chk"><input type="checkbox" id="sc2" ${state.desktop?'checked':''}>创建桌面快捷方式</label>
@@ -93,17 +99,27 @@ function pageDir(){
 }
 async function checkDir(){
  const p=$('#d').value;state.dir=p;
- const r=await call('check_dir',p);
- $('#space').textContent='需要约 '+(r.need_mb||30)+' MB，可用 '+(r.free_mb>=0?r.free_mb:'未知')+' MB';
- $('#warn').style.display=r.warn?'block':'none';$('#warn').textContent=r.warn||'';
- $('#next').disabled=!r.ok;
+ try{
+  const r=(await call('check_dir',p))||{};
+  $('#space').textContent='需要约 '+(r.need_mb||30)+' MB，可用 '+(r.free_mb>=0?r.free_mb:'未知')+' MB';
+  $('#warn').style.display=r.warn?'block':'none';$('#warn').textContent=r.warn||'';
+  $('#next').disabled=!r.ok;
+ }catch(e){
+  // 桥调用失败（后端异常/序列化失败）：禁用安装按钮，不放行未校验目录
+  $('#space').textContent='';$('#warn').style.display='none';
+  $('#next').disabled=true;
+ }
 }
 function pageProgress(){
  if(!state.dir||state.dir==='undefined'){pageDir();return;}
  state.page='progress';footer('安装中…',false);$('#next').disabled=true;
+ if(timer){clearInterval(timer);timer=null;}
  $('#main').innerHTML=`<h1>正在安装…</h1><div class="bar"><div id="p"></div></div>
  <div class="step" id="st">准备中</div>`;
  state.start=$('#sc1').checked;state.desktop=$('#sc2').checked;
+ // 刷新页面后桥侧 _progress 可能仍是「安装已在进行」：start_install 会被
+ // 拒，但轮询会附着到在途安装并展示其真实结果（finish 页以
+ // result.install_dir 为准，不再用 state.dir 张冠李戴）。
  call('start_install',state.dir,state.desktop,state.start);
  timer=setInterval(poll,200);
 }
@@ -118,35 +134,63 @@ async function poll(){
 function pageFinish(){
  state.page='finish';footer('完成',false);
  const r=state.result||{};
+ // 以 result.install_dir 为准：安装中刷新页面重走向导时 state.dir 是
+ // 新选择，而真实安装目录是桥侧在途安装的 target（已实证张冠李戴）。
+ const dir=(r&&typeof r.install_dir==='string'&&r.install_dir)||state.dir;
  let warns='';
  if(r.warnings&&r.warnings.length)
-  warns='<div class="warn" style="display:block">'+r.warnings.slice(0,3).map(w=>'• '+w).join('<br>')+'</div>';
+  warns='<div class="warn" style="display:block">'+r.warnings.slice(0,3).map(w=>'• '+esc(w)).join('<br>')+'</div>';
  $('#main').innerHTML=`<div class="ok">✓ 安装完成</div>
- <div class="desc" style="margin-top:8px">Harbor 已安装到：<br>${state.dir}</div>${warns}
+ <div class="desc" style="margin-top:8px">Harbor 已安装到：<br>${esc(dir)}</div>${warns}
  <label class="chk"><input type="checkbox" id="run" checked>立即运行 Harbor</label>`;
- $('#next').onclick=async()=>{if($('#run').checked)await call('run_app',state.dir);await call('close_app');};
+ $('#next').onclick=async()=>{if($('#run').checked)await call('run_app',dir);await call('close_app');};
 }
 function pageError(msg){
  state.page='error';footer('重试',true);
  $('#main').innerHTML=`<h1 style="color:#cf222e">✗ 安装失败</h1>
- <div class="desc" style="margin-top:8px">${msg}</div>
+ <div class="desc" style="margin-top:8px">${esc(msg)}</div>
  <div class="desc" style="margin-top:8px">请关闭运行中的 Harbor 后重试；若选择了系统目录，可改回默认每用户目录。</div>`;
 }
-$('#next').onclick=async()=>{
+function onNext(){
  if(state.page==='welcome')pageDir();
  else if(state.page==='dir')pageProgress();
  else if(state.page==='error')pageDir();
+}
+$('#next').onclick=onNext;
+$('#back').onclick=()=>{
+ if(state.page==='dir')pageWelcome();
+ else if(state.page==='error')pageWelcome();
 };
-$('#back').onclick=()=>{if(state.page==='dir')pageWelcome();};
 
 async function init(){
  const d=await call('get_defaults');
  state.dir=d.default_dir;$('#ver').textContent='v'+d.version;
  window.__running=d.running;pageWelcome();
 }
+let booted=false;
 function boot(){
- if(window.pywebview&&window.pywebview.api){api=window.pywebview.api;init();}
- else window.addEventListener('pywebviewready',()=>{api=window.pywebview.api;init();});
+ if(booted)return;
+ if(window.pywebview&&window.pywebview.api){
+  booted=true;api=window.pywebview.api;$('#next').onclick=onNext;init();
+ }else{
+  window.addEventListener('pywebviewready',()=>{
+   booted=true;api=window.pywebview.api;$('#next').onclick=onNext;init();});
+  // 兜底：pywebviewready 永不触发（后端挂起/脚本被阻断）时向导整页冻结
+  // 无任何提示（已实证 11s 后 #main 仍空白）。10s 未就绪则给出可操作
+  // 提示 + 重试；迟到的 ready 到达时 init() 正常覆盖兜底文案，
+  // 并恢复标准按钮派发器（兜底曾把它换成重试处理器）。
+  setTimeout(()=>{
+   if(booted)return;
+   $('#main').innerHTML=`<h1 style="color:#cf222e">✗ 界面初始化超时</h1>
+    <div class="desc" style="margin-top:8px">安装向导界面未能在 10 秒内就绪（WebView2 运行时异常或页面脚本被安全软件阻止）。</div>
+    <div class="card"><div class="t">您可以</div>
+    • 点击下方「重试」再等待一次<br>
+    • 关闭后双击安装程序重试<br>
+    • 或使用静默安装（无需界面）：<b>Harbor-Setup.exe /S</b></div>`;
+   footer('重试',false);
+   $('#next').onclick=()=>{booted=false;$('#next').onclick=onNext;boot();};
+  },10000);
+ }
 }
 boot();
 </script></body></html>"""

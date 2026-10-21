@@ -367,7 +367,13 @@ function connectSyncState() {
 
 /* ================= 模型下拉（下拉 ⇄ 手动输入 双态）================= */
 
-/** 按钮 loading 态（spinner + 文案，dataset 暂存原文案）。 */
+/** 按钮 loading 态（spinner + 文案，dataset 暂存原文案）。
+ * 修复（round4 遗留·对抗复审）：识别按钮（#cmIdentifyBtn）的文案随预设而变
+ * （connectIdentifyLabel：获取模型/探测本机/探测目录/识别模型）——加载期间用户
+ * 切预设时 connectApplyPresetNow 已把 innerHTML 改成新预设文案，但 dataset.html
+ * 快照仍是旧预设的；原 off 分支盲目还原 dataset.html → 按钮显示陈旧预设文案
+ * （如 ollama 预设下显示「↻ 获取模型」）。改为按当前预设重刷（其余按钮文案
+ * 静态，dataset.html 还原仍正确）。 */
 function connectSetButtonLoading(btn, on, text) {
   if (!btn) return;
   if (on) {
@@ -375,7 +381,11 @@ function connectSetButtonLoading(btn, on, text) {
     btn.disabled = true;
     btn.innerHTML = '<span class="tool-spinner"></span><span>' + (text || '处理中') + '</span>';
   } else {
-    btn.innerHTML = btn.dataset.html || btn.innerHTML;
+    if (btn.id === 'cmIdentifyBtn' && typeof connectIdentifyLabel === 'function') {
+      btn.innerHTML = connectIdentifyLabel(connectCurrentPreset());
+    } else {
+      btn.innerHTML = btn.dataset.html || btn.innerHTML;
+    }
     delete btn.dataset.html;
     btn.disabled = false;
   }

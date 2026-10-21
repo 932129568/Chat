@@ -204,27 +204,100 @@ def test_checkpoint_prune_reported(svc, ws):
     assert any('轮换清理' in w for w in last['warnings'])
 
 
-# ---------------- 检查点保留策略（方案 §6.5：保留最近 3 份） ----------------
+# ---------------- 对抗性复审回归（第六轮） ----------------
 
-def test_checkpoint_keeps_latest_three(svc, ws):
-    from backend.services.plan_service import _ckpts_dir
-    import time as _t
-    for i in range(5):
-        r = svc.create('计划%d' % i, ['s'])
-        c = svc.checkpoint_create(r['task_id'], ['a.txt'], ws)
-        assert c['ok'], c
-        _t.sleep(0.02)   # created_at 毫秒级确保排序稳定
-    d = _ckpts_dir()
-    left = [n for n in os.listdir(d) if os.path.isfile(os.path.join(d, n, 'manifest.json'))]
-    assert len(left) == 3, '应保留 3 份，实际 %d' % len(left)
+def test_rollback_without_ws_dir_uses_manifest_ws(svc, ws, tmp_path, monkeypatch):
+    """回滚调用不传 ws_dir（前端 67-plan-card 即如此）→ 必须用 manifest 里
+    创建时记录的 ws_dir，不得回落 os.getcwd()（源码运行时 cwd=项目仓库，
+    回落会把 git reset --hard / 快照恢复打到应用自身目录）。"""
+    r = svc.create('R', ['s'])
+    tid = r['task_id']
+    c = svc.checkpoint_create(tid, ['a.txt'], ws)
+    assert c['ok'], c
+    with open(os.path.join(ws, 'a.txt'), 'w', encoding='utf-8') as f:
+        f.write('A-modified')
+    elsewhere = tmp_path / 'elsewhere'
+    elsewhere.mkdir()
+    monkeypatch.chdir(str(elsewhere))     # cwd ≠ ws；回归时文件会落这里
+    rb = svc.checkpoint_rollback(tid)     # 不传 ws_dir
+    assert rb['ok'] and rb['mode'] == 'snapshot', rb
+    assert set(rb['restored']) == {'a.txt'}, rb
+    with open(os.path.join(ws, 'a.txt'), encoding='utf-8') as f:
+        assert f.read() == 'A-original'      # 恢复到原工作区
+    assert not os.path.exists(os.path.join(str(elsewhere), 'a.txt')), \
+        '不得在 cwd 下落恢复文件（manifest ws_dir 优先）'
 
 
-def test_checkpoint_prune_reported(svc, ws):
-    import time as _t
-    last = None
-    for i in range(4):
-        r = svc.create('P%d' % i, ['s'])
-        last = svc.checkpoint_create(r['task_id'], ['a.txt'], ws)
-        _t.sleep(0.02)
-    assert last['ok'] and last.get('pruned'), '第 4 份创建应报告轮换清理'
-    assert any('轮换清理' in w for w in last['warnings'])
+def test_rollback_git_failure_shape(svc, ws, monkeypatch):
+    """git reset 失败 → {ok: False, mode: 'git', restored[], failed[非空]}，
+    不得误落 snapshot 分支、不得抛异常（A4 形状，api 层据此透传）。"""
+    if subprocess.run(['git', '--version'], capture_output=True).returncode != 0:
+        pytest.skip('git 不可用')
+    _git_init(ws)
+    r = svc.create('G', ['s'])
+    tid = r['task_id']
+    c = svc.checkpoint_create(tid, ['a.txt'], ws)
+    assert c['ok'] and c['mode'] == 'git', c
+
+    class _Fail(object):
+        returncode = 128
+        stdout = b''
+        stderr = b'fatal: unknown revision'
+
+    _orig = subprocess.run
+
+    def _fake(args, **kw):
+        if isinstance(args, list) and args[:2] == ['git', 'reset']:
+            return _Fail()
+        return _orig(args, **kw)
+
+    monkeypatch.setattr('subprocess.run', _fake)
+    try:
+        rb = svc.checkpoint_rollback(tid, ws)
+    finally:
+        monkeypatch.undo()
+    assert rb.get('ok') is False and rb.get('mode') == 'git', rb
+    assert rb.get('failed') and 'git reset 失败' in rb['failed'][0], rb
+    assert rb.get('restored') == [], rb
+
+
+def test_api_rollback_git_failure_not_flattened(svc, ws, monkeypatch):
+    """api.checkpoint_rollback 对 git 失败形状必须透传 restored/failed——
+    原实现 err() 拍平成 {'error': '回滚失败'}，前端只读 failed[] 会把空数组
+    误判为「回滚完成」假成功 toast。"""
+    from conftest import NewApi
+    if subprocess.run(['git', '--version'], capture_output=True).returncode != 0:
+        pytest.skip('git 不可用')
+    _git_init(ws)
+    r = svc.create('AG', ['s'])
+    tid = r['task_id']
+    c = svc.checkpoint_create(tid, ['a.txt'], ws)
+    assert c['ok'] and c['mode'] == 'git', c
+
+    class _Fail(object):
+        returncode = 1
+        stdout = b''
+        stderr = b'fatal: Needed a single revision'
+
+    _orig = subprocess.run
+
+    def _fake(args, **kw):
+        if isinstance(args, list) and args[:2] == ['git', 'reset']:
+            return _Fail()
+        return _orig(args, **kw)
+
+    monkeypatch.setattr('subprocess.run', _fake)
+    monkeypatch.setattr(os, 'startfile', lambda p: None)
+    try:
+        api = NewApi()
+    finally:
+        monkeypatch.undo()
+    monkeypatch.setattr('subprocess.run', _fake)
+    try:
+        raw = api.checkpoint_rollback(tid)     # 不传 ws_dir（前端口径）
+    finally:
+        monkeypatch.undo()
+    d = json.loads(raw)
+    assert d.get('mode') == 'git', d
+    assert d.get('failed') and 'git reset 失败' in d['failed'][0], d
+    assert d.get('failed'), d   # 富形状不得被拍平成纯 error

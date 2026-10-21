@@ -33,6 +33,7 @@ const SW_STATUS_TEXT = {
 };
 
 let softwareReqSeq = 0;          // last-wins 请求序号
+let swTestSeq = 0;               // 测试调用独立 last-wins（与列表/探测/保存流隔离）
 let softwarePanelState = 'idle'; // idle|pending|success|error
 let swProbing = false;           // 探测在途（呼吸态 + 按钮禁用）
 let swTesting = false;           // 测试调用在途（防定时器覆盖/状态机串话）
@@ -259,6 +260,14 @@ function softwarePanelRenderList(items) {
   });
 }
 function softwarePanelRenderError(e) {
+  // 在途保护：测试调用进行中 #swDetail 正展示测试 UI（动作选择/输出 pre），
+  // 列表/探测的失败若整块覆写 swDetail，测试完成后的输出将无处渲染
+  // （swTestOut 被销毁 → renderTestOut 早退）——用户看不到已执行的调用结果，
+  // 可能重复触发（重复执行）。改走 toast，不碰测试区。
+  if (swTesting) {
+    swToast('操作失败：' + ((e && e.message) || '未知错误'), 'err');
+    return;
+  }
   const box = swEl('swDetail');
   if (!box) return;
   box.innerHTML =
@@ -314,7 +323,11 @@ async function softwarePanelRunTest(name) {
       return;
     }
   }
-  const seq = ++softwareReqSeq;
+  // 测试调用用独立序号：列表刷新/探测/保存与测试流并发时（探测约秒级返回，
+  // 测试调用可跑数百秒），旧实现共用 softwareReqSeq → 探测完成即使在途测试
+  // 的返回被判陈旧而静默丢弃——调用已真实执行（有副作用）却无任何输出渲染，
+  // 用户重复点击即重复执行。独立序号后测试流只被更新的测试流淘汰。
+  const seq = ++swTestSeq;
   const runBtn = swEl('swTestRun');
   if (runBtn) runBtn.disabled = true;
   swCallElapsed = 0;
@@ -334,18 +347,19 @@ async function softwarePanelRunTest(name) {
     const raw = await swCallApi('software_call',
       [{ software: name, action: action, args: args, source: 'manual_test' }],
       SW_CALL_TIMEOUT_MS);
-    if (seq !== softwareReqSeq) return;               // 连点 last-wins：旧返回丢弃
+    if (seq !== swTestSeq) return;               // 连点 last-wins：旧返回丢弃
     const d = JSON.parse(raw || '{}');
     softwarePanelRenderTestOut(d);
     softwarePanelSetState(d && d.ok ? 'success' : 'error');
   } catch (e) {
-    if (seq !== softwareReqSeq) return;
+    if (seq !== swTestSeq) return;
     softwarePanelRenderTestOut({ ok: false, error: { code: 'BRIDGE_TIMEOUT',
       message: (e && e.message) || String(e) } });
     softwarePanelSetState('error');
   } finally {
     // 早退（seq 陈旧 return）亦经 finally：时钟清理 + 在途标志复位（JS 语义保证）
     if (swCallTimer) { clearInterval(swCallTimer); swCallTimer = null; }
+    swCallElapsed = 0;                           // 时钟归零：防陈旧秒数泄漏到下次显示
     if (runBtn) runBtn.disabled = false;
     swTesting = false;
   }

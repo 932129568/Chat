@@ -1147,6 +1147,11 @@ class Api:
     def checkpoint_rollback(self, task_id, ws_dir=''):
         """M3-D1：回滚到任务开始前（调用方须已完成清单二次确认——前端 inline 确认）。"""
         r = self._plan.checkpoint_rollback(task_id, ws_dir or None)
+        # 修复（对抗性复审）：A4 的 git 失败形状（ok=False + mode/restored/failed）
+        # 必须原样透传——err() 会拍平成 {'error': '回滚失败'}，而前端 67-plan-card
+        # 只读 restored/failed 数组，空数组会被误判为「回滚完成」假成功 toast。
+        if not r.get('ok') and 'failed' in r:
+            return ok(r)
         return r if r.get('ok') else err(r.get('error', '回滚失败'))
 
     def checkpoint_list(self, task_id):

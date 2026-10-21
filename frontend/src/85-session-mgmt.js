@@ -32,6 +32,7 @@ function newSession() {
   attachments = [];
   guardTrusted.clear();               // v1.2 R2：会话级信任随会话结束失效
   mcpTrusted.clear();                 // 修复 W26：MCP 会话信任同步清空（文案「本会话内不再提示」原本被当成进程级永久信任）
+  agentTrusted.clear();               // 修复（对抗复审）：Agent 工具族（browser_/software_）会话信任同步清空——后端 set_current_sid(null) 亦清空会话信任态（guard_service.clear_session_trust），前端不清则「登记失败不进 Set」修复仍会留下跨会话残留信任
   renderPreview();
   document.getElementById('chatContainer').innerHTML =
     `<div class="empty-state" id="emptyState">
@@ -60,6 +61,7 @@ function switchSession(id, silent) {
   attachments = [];
   guardTrusted.clear();               // v1.2 R2：会话级信任随会话切换失效
   mcpTrusted.clear();                 // 修复 W26：与文案「本会话内不再提示」对齐，切会话即失效
+  agentTrusted.clear();               // 修复（对抗复审）：Agent 工具族会话信任同步清空（后端 set_current_sid 检测 sid 变化即清空会话信任态，两侧对齐）
   renderPreview();
   // v4：切会话容器级过渡——先 .swapping 淡出（140ms in-soft），重建历史后再淡入（200ms out-soft）；
   // boot 首次（silent）与 fx-off/reduced-motion 降级直接重建，避免开屏空容器闪一下
@@ -226,15 +228,37 @@ function exportSessionMd(id, e) {
   })();
 }
 
+/* 删除会话（真删：sessions + ws 绑定 + plan + checkpoint）。
+ * 修复（对抗复审）：
+ * ① stopPropagation typeof 守卫——程序调用 deleteSession(id)（无事件对象）时
+ *    原裸 e.stopPropagation() 直接 NPE；
+ * ② 原「新版真删覆盖」monkey-patch 模式（文件尾部 deleteSession = async
+ *    function…）把带守卫的新版叠在被覆盖的旧声明上，旧声明（裸 NPE + 无 purge）
+ *    成为死代码但保留在盘——任何直接引用旧绑定的路径（_origDeleteSession 别名/
+ *    未来重构）都会复活无守卫版本。现合并为单一函数声明，消灭双定义。 */
 async function deleteSession(id, e) {
-  e.stopPropagation();
+  if (e && typeof e.stopPropagation === 'function') e.stopPropagation();
   if (isStreaming && id === currentSessionId) { toast('正在生成回复，请先停止', 'warn'); return; }
-  const r = await uiConfirm({ title: '删除对话', body: '确定删除这条对话？该操作不可恢复。', danger: true, okText: '删除' });
+  const r = await uiConfirm({ title: '删除对话', body: '确定彻底删除这条对话？历史条目、工作区绑定、计划与检查点快照都将真删除，不可恢复。', danger: true, okText: '彻底删除' });
   if (!r.ok) return;
-  sessions = sessions.filter(s => s.id !== id);
+  const s = sessions.find(x => x.id === id) || {};
+  const taskIds = (s.plan && s.plan.task_id) ? JSON.stringify([s.plan.task_id]) : '[]';
+  sessions = sessions.filter(x => x.id !== id);
   rememberDeletedSession(id);   // 修复 W24（二轮）：删除墓碑（防后端写失败后合并复活）
   saveSessions();
   callApi('delete_session_ws', [id]).catch(() => {});
+  callApi('session_purge', [id, taskIds], 30000).then(raw => {
+    try {
+      const r2 = JSON.parse(raw || '{}');
+      const rm = (r2 && r2.removed) || {};
+      const bits = [];
+      if (rm.sessions) bits.push('历史条目');
+      if (rm.ws) bits.push('工作区绑定');
+      if (rm.plans) bits.push('计划');
+      if (rm.checkpoints) bits.push('检查点');
+      if (bits.length) toast('已真删：' + bits.join('、'), 'ok');
+    } catch (e2) { /*  purge 结果解析失败不打扰（列表已更新） */ }
+  }).catch(() => {});
   if (currentSessionId === id) newSession();
   else renderSessionList();
 }
@@ -345,6 +369,12 @@ function _shortDir(d) {
 }
 /* hdSave 防连点闸门（保存期间忽略重复点击并禁用面板按钮） */
 let _hdBusy = false;
+/* 修复（建议14 残余）：面板「成功提示停留后自动关闭」延时不硬编码毫秒——
+ * 以 MOTION.comp()（组件入场令牌，默认 200ms）为基元取倍数：保存成功停留
+ * 4×（默认 800ms）、恢复默认 3×（默认 600ms），语义=「让用户读完一行结果」；
+ * fx-off 下 comp=1ms → 倍增值同样趋 0，立即关闭（关特效不拖节奏）。
+ * typeof 守卫：vm 单模块沙箱未加载 00-motion 时回落原字面量。 */
+const _hdLingerMs = (mult) => (typeof MOTION !== 'undefined' && MOTION.comp) ? MOTION.comp() * mult : 200 * mult;
 function showHistoryDirPanel() {
   if (document.getElementById('historyDirMask')) return;
   const mask = document.createElement('div');
@@ -395,7 +425,7 @@ function showHistoryDirPanel() {
       if (raw.error) { say(raw.error, false); return; }
       say(raw.migrated ? '已保存并迁移旧历史' : '已保存', true);
       refreshHistoryFoot();
-      setTimeout(() => mask.remove(), 800);
+      setTimeout(() => mask.remove(), _hdLingerMs(4));
     } catch (e) { say('保存失败: ' + (e.message || e), false); }
     finally { _hdBusy = false; _hdBtns.forEach(b => { b.disabled = false; }); }
   });
@@ -404,39 +434,13 @@ function showHistoryDirPanel() {
       await callApi('history_dir_set', ['', false], 20000);
       say('已恢复默认目录', true);
       refreshHistoryFoot();
-      setTimeout(() => mask.remove(), 600);
+      setTimeout(() => mask.remove(), _hdLingerMs(3));
     } catch (e) { say('恢复失败', false); }
   });
   document.getElementById('hdClose').addEventListener('click', () => mask.remove());
   mask.addEventListener('click', (e) => { if (e.target === mask) mask.remove(); });
 }
-/* 真删：deleteSession 增加 session_purge 后端调用（sessions+ws+plan+checkpoint）。
- * 前端 filter + saveSessions 后调 purge 保底——后端写失败也不留残留。 */
-const _origDeleteSession = deleteSession;
-deleteSession = async function (id, e) {
-  // 修复：新版真删覆盖丢失原守卫——补回 stopPropagation 与流式拦截
-  if (e && typeof e.stopPropagation === 'function') e.stopPropagation();
-  if (isStreaming && id === currentSessionId) { toast('正在生成回复，请先停止', 'warn'); return; }
-  const r = await uiConfirm({ title: '删除对话', body: '确定彻底删除这条对话？历史条目、工作区绑定、计划与检查点快照都将真删除，不可恢复。', danger: true, okText: '彻底删除' });
-  if (!r.ok) return;
-  const s = sessions.find(x => x.id === id) || {};
-  const taskIds = (s.plan && s.plan.task_id) ? JSON.stringify([s.plan.task_id]) : '[]';
-  sessions = sessions.filter(x => x.id !== id);
-  rememberDeletedSession(id);
-  saveSessions();
-  callApi('delete_session_ws', [id]).catch(() => {});
-  callApi('session_purge', [id, taskIds], 30000).then(raw => {
-    try {
-      const r2 = JSON.parse(raw || '{}');
-      const rm = (r2 && r2.removed) || {};
-      const bits = [];
-      if (rm.sessions) bits.push('历史条目');
-      if (rm.ws) bits.push('工作区绑定');
-      if (rm.plans) bits.push('计划');
-      if (rm.checkpoints) bits.push('检查点');
-      if (bits.length) toast('已真删：' + bits.join('、'), 'ok');
-    } catch (e2) { /*  purge 结果解析失败不打扰（列表已更新） */ }
-  }).catch(() => {});
-  if (currentSessionId === id) newSession();
-  else renderSessionList();
-};
+/* 真删：session_purge 后端调用已并入上方 deleteSession 主体（sessions+ws+plan+
+ * checkpoint）。原文件尾部的「const _origDeleteSession = deleteSession;
+ * deleteSession = async function…」monkey-patch 覆盖模式已删除（对抗复审）：
+ * 双定义让无守卫的旧声明成为潜伏死代码，单一函数声明 + typeof 守卫是终态。 */

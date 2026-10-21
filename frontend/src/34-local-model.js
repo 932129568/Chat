@@ -240,7 +240,11 @@ async function localLoadModels(baseUrl) {
   } catch (e) {
     toast('获取模型清单失败：' + e.message, 'err');
   } finally {
-    localRestoreIdentifyBtn(btn, '拉取模型清单');
+    // 修复（round4 遗留·对抗复审）：原 finally 无条件复位按钮——陈旧请求
+    // （seq 已被更新的加载超过）返回时，会把在途新请求的「拉取中…」禁用态
+    // 按钮复位成空闲态（新请求还在跑，按钮却可再点 → 并发第三轮加载）。
+    // 加 seq 判定：只有「我仍是当前加载」才复位；按钮所有权归最新请求。
+    if (seq === _localLoadSeq) localRestoreIdentifyBtn(btn, '拉取模型清单');
   }
 }
 

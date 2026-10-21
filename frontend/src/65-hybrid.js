@@ -161,21 +161,24 @@ function hybridWire() {
       if (id === 'hyBudgetUnderstand') {
         const v = parseInt(el.value, 10);
         if (!Number.isInteger(v) || v < 1 || v > 30) {
-          hyToast('本地硬预算需为 1-30 的整数（秒）', 'warn'); hybridRefresh(); return;
+          hyToast('本地硬预算需为 1-30 的整数（秒）', 'warn');
+          hyRevertField(el, 'local_budget_understand_s'); return;
         }
         patch.local_budget_understand_s = v;
       }
       if (id === 'hyBudgetValidate') {
         const v = parseInt(el.value, 10);
         if (!Number.isInteger(v) || v < 1 || v > 30) {
-          hyToast('本地硬预算需为 1-30 的整数（秒）', 'warn'); hybridRefresh(); return;
+          hyToast('本地硬预算需为 1-30 的整数（秒）', 'warn');
+          hyRevertField(el, 'local_budget_validate_s'); return;
         }
         patch.local_budget_validate_s = v;
       }
       if (id === 'hyConfGate') {
         const v = parseFloat(el.value);
         if (!(v >= 0.5 && v <= 0.95)) {
-          hyToast('置信门需为 0.5-0.95 之间的小数', 'warn'); hybridRefresh(); return;
+          hyToast('置信门需为 0.5-0.95 之间的小数', 'warn');
+          hyRevertField(el, 'confidence_gate'); return;
         }
         patch.confidence_gate = v;
       }
@@ -190,6 +193,13 @@ function hybridWire() {
 }
 
 /* ---------- 三态 + last-wins：配置读取 ---------- */
+/* 字段级校验失败的回弹：仅复位犯规字段（配置已加载时）——原实现整表
+   hybridRefresh()，异步返回时会把用户正在其它字段输入的内容一并清掉
+   （刷新重渲染所有输入框）；无已加载配置才回落全量刷新。 */
+function hyRevertField(el, key) {
+  if (el && hybridCfg && hybridCfg[key] != null) { el.value = hybridCfg[key]; return; }
+  hybridRefresh();
+}
 async function hybridRefresh() {
   const seq = ++hybridReqSeq;
   try {

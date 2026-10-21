@@ -347,10 +347,17 @@ async function agentGuardCheck(op, detail) {
     return { blocked: JSON.stringify({ info: msg, skipped: true }), decision: 'deny', token: null };
   }
   if (r.checkbox && !dangerous) {
-    agentTrusted.add(trustKey);
-    // 修复：会话信任登记到后端（与 26-guard.js:147 同口径）——原仅存前端 Set，
-    // 后端 enforce_exec 的会话信任态收不到 → 提档后「本会话不再提示」仍被后端拦
-    try { callApi('guard_session_trust', [op]).catch(() => {}); } catch (e) {}
+    // 修复（对抗复审）：原 fire-and-forget 登记（callApi(...).catch(()=>{})）——
+    // 桥异常/旧后端无此方法时后端没登记成功，前端 Set 却已加：后续调用被前端
+    // 短路（agentTrusted.has → 不弹窗、token=null）→ 后端 enforce_exec 武装态
+    // 拒（「需用户在界面确认…未携带有效 token」）→ AI 见到错误原样重试 → 再被
+    // 拒，形成无 UI 确认路径的死循环（用户唯一解法是重启应用）。
+    // 改为 await 登记，成功才进前端 Set；失败保持「每次确认」——降级为多弹一次
+    // 窗，绝不在前端假装信任。
+    try {
+      await callApi('guard_session_trust', [op], 20000);
+      agentTrusted.add(trustKey);
+    } catch (e) { /* 登记失败：不进前端信任——下次仍走确认弹窗，由用户重新勾选重试 */ }
   }
   // 换一次性 confirm token（op 级；detail 摘要与后端 enforce 同口径）
   let token = null;

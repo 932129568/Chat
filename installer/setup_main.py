@@ -28,13 +28,27 @@ PURGE = '--purge' in sys.argv[1:]
 
 
 def _dir_arg(default=None):
-    for i, a in enumerate(sys.argv[1:]):
-        if a.startswith('--dir=') or a.startswith('/D='):
+    """解析 --dir/-/D= 指定目录。
+
+    已实证坑（第六轮对抗复审）：
+    - 大小写不敏感：NSIS 惯例 /D=path，用户会打成 /d=（原实现只认
+      '/D=' 大写，小写静默回落默认目录——装错地方）。
+    - 空格形式拒绝把 flag 当值：`--dir --silent` 原会把 '--silent'
+      当成目录名（安装到名为 --silent 的目录）；以 '-'/'/' 开头的
+      下一个参数一律视为缺值回落 default。
+    - 相对路径不在本函数归一（下游 install()/uninstall() 均 abspath，
+      语义一致）；`--dir=` 空值回落 default。
+    """
+    argv = sys.argv[1:]
+    for i, a in enumerate(argv):
+        low = a.lower()
+        if low.startswith('--dir=') or low.startswith('/d='):
             v = a.split('=', 1)[1].strip().strip('"')
             return v or default
-        if a in ('--dir', '/D') and i + 2 < len(sys.argv):
-            v = sys.argv[i + 2].strip().strip('"')
-            return v or default
+        if low in ('--dir', '/d') and i + 1 < len(argv):
+            v = argv[i + 1].strip().strip('"')
+            if v and not v.startswith(('-', '/')):
+                return v
     return default
 
 
@@ -43,8 +57,11 @@ def _resolve_uninstall_dir():
 
     1. `--dir` / `/D=` 显式参数（空值已由 _dir_arg 回落，不会命中）；
     2. frozen 时 Uninstall.exe 所在目录（需含 Harbor.exe 校验防误判）——
-       其中 install.json 的 install_dir 字段优先于注册表读取（安装后
-       目录被移动过时以清单为准，读不到再退回 exe 所在目录本身）；
+       以 exe 所在目录为准确认：安装目录被移动过时 manifest 的 install_dir
+       是安装时的旧位置（原实现 manifest 优先，已实证卸载打偏：删旧位置、
+       真实目录残留、延迟自删挂错目录），且自删必须指向运行中 exe 的
+       目录才删得掉自身；manifest 仅在 exe 目录缺 Harbor.exe 时兜底，
+       且 install_dir 必须校验为非空字符串且目录仍存在；
     3. 注册表 HKCU Uninstall\\Harbor 的 InstallLocation；
     4. 默认每用户目录。
 
@@ -56,10 +73,12 @@ def _resolve_uninstall_dir():
     if getattr(sys, 'frozen', False):
         exe_dir = os.path.dirname(os.path.abspath(sys.executable))
         if os.path.exists(os.path.join(exe_dir, 'Harbor.exe')):
-            manifest = read_install_manifest(exe_dir)
-            if manifest and manifest.get('install_dir'):
-                return manifest['install_dir']
             return exe_dir
+        manifest = read_install_manifest(exe_dir)
+        if manifest:
+            d = manifest.get('install_dir')
+            if isinstance(d, str) and d.strip() and os.path.isdir(d):
+                return d
     reg = registry_install_location()
     if reg:
         return reg

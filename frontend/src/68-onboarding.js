@@ -146,7 +146,11 @@ async function obTestKey() {
   const input = obRoot.querySelector('#obKey');
   const stat = obRoot.querySelector('#obKeyStat');
   const key = input ? String(input.value || '').trim() : '';
-  if (!key) { if (stat) { stat.textContent = '请先填入 Key'; stat.className = 'ob-keystat err'; } return; }
+  // 修复（对抗复审）：免 Key 判据与 connectTestNow 的 key_required 对齐——本地系
+  // 预设（ollama/lmstudio/…）不要求 Key；原恒判空 key 让本地用户看到误导性的
+  // 「请先填入 Key」（应走 obLocal 链接或直接放行测试）。
+  const _obLocal = (typeof connectIsLocalPreset === 'function') ? !!connectIsLocalPreset() : false;
+  if (!key && !_obLocal) { if (stat) { stat.textContent = '请先填入 Key'; stat.className = 'ob-keystat err'; } return; }
   if (_obTestBusy) return;   // 防连点：测试进行中忽略重复点击
   if (stat) { stat.textContent = '正在测试连接…'; stat.className = 'ob-keystat'; }
   // 写入既有 Key 字段（复用设置连接块的保存链）
@@ -155,13 +159,20 @@ async function obTestKey() {
   if (typeof queueSaveConfig === 'function') queueSaveConfig();
   _obTestBusy = true;
   try {
-    // 修复：原调全局不存在的 testProviderConnection——typeof 恒 false，恒走
-    // else 分支假报「已保存（测试连接入口不可用）」。改调真实通道
-    // test_provider_endpoint（Key 已入 #apiKey 并 queueSaveConfig，后端按配置
-    // 取钥；云端口径同 36-connect connectTestNow：[base, key, model, 15, false]）。
+    // 修复（对抗复审）：原调 test_provider_endpoint 时第二参恒传 ''（key）、
+    // local 恒 false——① 云端预设下后端 provider test_endpoint 对空 key 直接
+    // 返回「缺少 API Key」，测试恒失败（round5「真实测试通道」修复引入了键值
+    // 断线；原注释「后端按配置取钥」不成立：queueSaveConfig 有 400ms 防抖，
+    // 测试调用时 config 尚未落盘，且后端签名本就以入参为准）；
+    // ② 本地系预设（ollama 等免 Key）传 local=false 会走云端分支（空 key 401 /
+    // 15s 超时），而 connectTestNow 的口径是 local ? 30 : 15 秒 + local ? 90s :
+    // 20s 桥超时。此处与 36-connect connectTestNow 逐字段对齐。
     const base = (typeof connectBaseUrl === 'function') ? connectBaseUrl() : '';
     const model = (typeof connectModelValue === 'function') ? connectModelValue() : '';
-    const raw = await callApi('test_provider_endpoint', [base, '', model, 15, false], 20000);
+    const key = (typeof connectApiKeyInput === 'function') ? connectApiKeyInput() : '';
+    const local = (typeof connectIsLocalPreset === 'function') ? !!connectIsLocalPreset() : false;
+    const raw = await callApi('test_provider_endpoint',
+      [base, local ? '' : key, model, local ? 30 : 15, local], local ? 90000 : 20000);
     const d = JSON.parse(raw || '{}');
     if (d && d.ok) {
       if (stat) { stat.textContent = '✓ 连接成功'; stat.className = 'ob-keystat ok'; }

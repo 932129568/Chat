@@ -11,6 +11,7 @@ import sys
 
 from backend import paths
 from backend.api import API_VERSION, Api
+from backend.fio import cleanup_stale_tmps
 from backend.logging_setup import setup_logging
 from backend.services.local_proxy import shutdown_proxy
 from backend.services.update_service import APP_VERSION, cleanup_old_backup
@@ -88,6 +89,20 @@ def main():
     paths.setup_webview_env()
     log = setup_logging()
     cleanup_old_backup(log)   # 建议㉖：清理上次自更新残留的 .bak/sentinel
+    # 修复（本轮）：fio.cleanup_stale_tmps 原无调用方（死代码）——启动时清理
+    # 历史遗留的原子写临时文件（崩溃未来得及 os.replace 的 .glm_tmp_*，原会
+    # 永久驻留 CONFIG_DIR/TOOLCACHE_DIR 等）。目录取 paths 下实际存在的常量；
+    # plans/checkpoints 是 plan_service 落在 CONFIG_DIR 下的子目录（paths 无
+    # 独立常量，按同口径推导）。清理失败不影响启动。
+    try:
+        _tmp_dirs = [paths.CONFIG_DIR, paths.TOOLCACHE_DIR,
+                     os.path.join(paths.CONFIG_DIR, 'plans'),
+                     os.path.join(paths.CONFIG_DIR, 'checkpoints')]
+        _cleaned = cleanup_stale_tmps(_tmp_dirs)
+        if _cleaned:
+            log.info('启动清理原子写残留临时文件 %d 个', _cleaned)
+    except Exception as e:
+        log.debug('原子写残留清理失败（不影响启动）: %r', e)
 
     try:   # 修复 S9：启动路径异常兜底（叠加日志后不再零痕迹）
         import webview  # 延迟导入：保证 `import main` 在无 webview 环境可用（可测试性）

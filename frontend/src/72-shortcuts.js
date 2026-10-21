@@ -59,7 +59,10 @@ function scOpen() {
   mask.addEventListener('click', e => { if (e.target === mask) scClose(); });
   card.querySelector('.sc-ok').onclick = scClose;
   document.addEventListener('keydown', scEsc);
-  setTimeout(() => { const b = card.querySelector('.sc-ok'); if (b) b.focus(); }, 60);
+  // 修复（建议14 残余）：60ms 硬编码 focus 延时改 MOTION 令牌（staggerSm=60ms，
+  // 值与原一致；fx-off 下 0ms）。typeof 守卫保 vm 沙箱可测。
+  const _scFocusMs = (typeof MOTION !== 'undefined' && MOTION.staggerSm) ? MOTION.staggerSm() : 60;
+  setTimeout(() => { const b = card.querySelector('.sc-ok'); if (b) b.focus(); }, _scFocusMs);
 }
 function scEsc(e) {
   // 不 stopPropagation：Esc 应继续冒泡给其他浮层（设置/搜索面板/图片查看）各自收尾

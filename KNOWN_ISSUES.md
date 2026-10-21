@@ -135,6 +135,65 @@
 
 ---
 
+## 八、第六轮·前端核心修复对抗证伪 + 遗留项清剿（2026-10-21 新增）
+
+### 21. MCP 资源读取防连点（mcpResBusyUri）为单槽语义——有兜底，文档化接受
+- **描述**：`29-mcp.js` 的 `mcpResBusyUri` 单字符串槽位在「两个不同资源并发读取」时，先完成者会把槽清空，理论上允许对同一 uri 的第三次并发读取。评估结论：**有兜底**——每个资源行的「读取」按钮在在途期间 `disabled=true`（UI 主防线），重复 uri 行并发读取需同时满足「同一服务器 resources 列表含重复 uri」+「三行同 uri 交错点击」，且后果仅为重复读取（无数据损坏）
+- **处理状态**：🟢 文档化接受（不改为 Set——按钮级禁用已覆盖真实路径；改动面大于收益）。测试：`tests/test_round6_adversarial.py` 固化其余各项回归
+
+### 22. 恶意 plan.task_id 依赖后端 skip 语义闭环（前端不 strip）
+- **描述**：WebDAV/本地恢复的 sessions 数据可含恶意 `plan.task_id`（超长/含路径字符）。`normalizeSessions` 白名单只放行不校验（`String(x.plan.task_id)`），唯一消费路径是 `deleteSession → session_purge`；后端 `_safe_tid`（`^[A-Za-z0-9_-]{1,64}$`）对非法 tid **skip + warning 不抛**，purge 整体仍 ok、其余痕迹照清
+- **处理状态**：🟢 设计决策（前端不重复校验）：后端 skip 语义已闭环（`tests/test_round6_adversarial.py::TestPurgeMaliciousTaskIdClosedLoop` 固化），前端额外 strip 会造成「前端放了后端拒」与「前端拒了后端本可清」的双口径分叉。保存往返（saveSessions 30000 字符截断）后 task_id 存活性已由白名单测试固化
+
+### 23. 少数 focus 延时未令牌化（范围外遗留）
+- **描述**：`32-session-search.js`（30ms）、`63-search-panel.js`（60ms）、`68-onboarding.js`（80ms）的 focus 延时仍为字面量；`110-boot.js bridgeDependentInit` 的 get_api_info 重试间隔 800ms 为重试语义（非动效）
+- **处理状态**：🟡 范围外遗留（第六轮令牌化清单只含 85-session-mgmt 800/600、18-toast 30、72-shortcuts 60、60-agent-loop 350）；上述点位均为同型小改，后续轮次一并收口
+
+---
+
+## 九、MCP 资源读取无档位判定的设计决策（2026-10-21 新增）
+
+### 24. read_resource 为面板显式触发，不经 Agent 工具链，故无 guard 档位判定
+- **描述**：`mcp_service.read_resource`（backend/services/mcp_service.py:649，经 api.py `mcp_read_resource` 暴露为 js_api 方法）由用户在 MCP 面板对具体资源点「读取」按钮显式触发（frontend/src/29-mcp.js:448），与 `mcp_call_tool` 走 Agent 工具链（resolve_tier 定档 + 档位确认，mcp_service.py:435/459/485/514）不同：本方法无 tier 判定、无确认弹窗。安全性依赖：① 触发源是用户显式操作而非模型自主调用，用户对自己选定的服务器与资源负责；② 全程审计（op=mcp_resource，逐次记录 uri 与 text/blob 计数，T12 安全口径）；③ 资源内容等同工具结果进入对话上下文后，模型后续自主工具调用仍受 guard 三档约束，注入内容无法自行提权执行
+- **影响范围**：MCP 资源读取的确认强度（低于 Agent 侧 call_tool）
+- **处理状态**：🟢 设计决策（文档化接受）：如未来把 resources/read 开放为 Agent 可调用的 LLM 工具，需先补 resolve_tier + 对应档位确认再接入工具面，禁止以现状直接暴露给模型
+
+---
+
+## 十、第七轮·第五轮前端面板修复对抗性证伪 + 遗留项清剿（2026-10-21 新增）
+
+背景：第五轮（077e8e1）前端面板修复此前未做对抗证伪（批次代理被中断）。本轮对
+63/64/65/67/69 五面板 + 29/37/38/90/95/27/16 七模块逐项构造反例（vm harness
+门控放行确定性时序），结论与修复如下。测试：`tests/test_round7_adversarial.py`（20 用例）。
+
+### 25. 63-search-panel：CAPTCHA 重试分支按钮死局（已修复）
+- **反例**：`browser_takeover continue` 复检仍为验证页时，后端 `entry['state']='prompting'` 回到等待态（search_service.py:881，注释明示「用户可再次 continue」），但 round5 前端 `retrying=true` 保持继续/放弃双按钮禁用 → toast「请重试」与禁用按钮自相矛盾，用户既不能继续也不能放弃，面板因 captcha 态关不掉 → 死局（唯一出路是另发新搜索）
+- **修复**：重试分支改为解禁 + `searchPanelShowTakeover(d.error)` 刷新「继续（重试 n/3）」文案；在途防连点由入口禁用保证（后端 continue 幂等 + max_retries=3 兜底）
+- **附带**：`searchPanelHideTakeover` 成为唯一收口——接管区收起即解禁双按钮（防 takeoverAction 在途被新搜索取代后 finally 因 seq 陈旧跳过复位 → 按钮永久禁用的孤儿态）+ captcha 态防御性复位（保「无接管会话就无 captcha 态」不变式，Esc/点外关闭不被拦）
+
+### 26. 63-search-panel：接管竞态两处 + TTL 到期提示遗留项（已修复）
+- **竞态 1**：pending 期轮询镜像可能把旧会话 takeover_id 挂进 `searchTakeoverId`，搜索成功时成功分支无清洗 → 成功态滞留 captcha 框。修复：成功分支清洗接管区
+- **竞态 2**：终态（success/error）或面板空开（idle）后，滞留的旧会话 captcha 快照会经 setPhase 复活接管 UI（僵尸接管 + 误拦关闭）。修复：setPhase 挂接门控 `searchPanelState === 'pending'`
+- **遗留项（任务书 A4）**：接管 TTL（后端 600s）到期前 60s 一次性 toast 提示——面板轮询已带 `takeover.elapsed_s`，零额外成本实现（每会话一次，新会话重置）；href 白名单矩阵（大写 scheme 放行 / 协议相对与 javascript:/file: 拦截 / fragment 无害）经 vm 验证成立
+
+### 27. 64-software-panel：测试调用被其他在途流吞输出 + swDetail 覆写（已修复）
+- **反例 1**：测试调用与列表/探测/保存共用 `softwareReqSeq`——探测约秒级返回而测试调用可跑数百秒，探测完成即使在途测试的返回被判陈旧静默丢弃：调用已真实执行（有副作用）却无任何输出渲染，用户重复点击即重复执行。修复：测试流独立 `swTestSeq`（同 63 面板 spStatsSeq 先例）
+- **反例 2**：`softwarePanelRenderError` 整块覆写 `#swDetail`，测试在途时探测/刷新失败会摧毁测试 UI → `swTestOut` 失踪、输出永久丢失。修复：`swTesting` 在途时改走 toast 不碰测试区
+- 另：`swCallElapsed` 复位移入 finally（陈旧路径一并归零）；陈旧路径 finally 四清（timer/按钮/swTesting/elapsed）经 vm 验证
+
+### 28. 65-hybrid：NaN 校验整表回弹清空用户输入（已修复）
+- **反例**：字段级校验失败原调用 `hybridRefresh()` 整表重渲染——异步返回时会把用户正在其它字段输入的内容一并清掉（刷新重渲染所有输入框）
+- **修复**：`hyRevertField(el, key)` 仅复位犯规字段（配置已加载时）；无已加载配置才回落全量刷新。hyRdSeq 陈旧路径按钮态、connectIsLocalPreset 不存在降级经 vm 验证成立
+
+### 29. 证伪成立无需改动项（证据见 tests/test_round7_adversarial.py）
+- 63：finally seq 早退/正常路径终态一致；「旧 finally 晚于新分支」结构性不可达（所有入口先 ++seq 再动 DOM，旧 finally 的 seq 守卫必失败）
+- 67：planShow 在途 reject 以 AbortError 传播、planModeRun catch（100-send.js:216-218）干净收尾且 isStreaming 已提前复位（无水球冻结）、无 unhandled rejection；rbTwice RPC 失败即移除浮层（按钮随之消失不永禁）、三连点单次 RPC；clarify 全按默认取 q.default 不与 .on 混合
+- 69：删除前重取逐条文本比对可检出等长位移（中段淘汰/前部截尾）；MM_FEATURE_KEY 关闭不挂载不刷新；信封错误分支显示 error 不渲染空列表
+- 29-mcp 独立 busy 交错不互吞；37-webdav 失败加载也建快照后「填新值→导出前自动保存」链路成立（保存失败即中止导出）；38-ws-quick 三连击退场竞态 + 委托 try/finally 刷新必执行；90-attachments n→0→n+1 快速序列 done 复核成立（_attachCount 拼写唯一）；95-compress 3s 兜底 + onload clearTimeout + settled 守卫；27-update 轮询续试总超时 1000 拍有效；16-panel-fx newEl null 守卫不影响正常路径
+- G 组遗留确认：mcpResBusyUri 现状与 §八.21 文档一致；34-local-model stale 复位 seq 判定正确；36-connect cmIdentifyBtn 按当前预设重刷文案分支正确
+
+---
+
 ## 发布检查清单（上传前确认）
 
 - [x] 全量测试 480 passed

@@ -4,15 +4,44 @@ window.onload = function () {
   const go = () => { if (!called) { called = true; loadAll(); } };
   if (window.pywebview && window.pywebview.api) go();
   else {
-    window.addEventListener('pywebviewready', go);
-    setTimeout(() => { if (!called) { called = true; loadAll(); } }, 5000);
+    window.addEventListener('pywebviewready', () => {
+      if (called) { bridgeLateReady(); }   // 修复（建议18）：5s 回退已跑过 loadAll（无桥）→ 补偿补齐桥依赖部分
+      else go();
+    });
+    setTimeout(() => {
+      if (!called) {
+        called = true;
+        // 修复（建议18）：回退分支不再静默缺桥——置中性态「等待后端就绪」
+        // （非错误红字；原逻辑此处无任何提示，随后 get_api_info 整段被跳过，
+        // 后端实际已就绪也无从得知，护栏配置/本地代理/方法自检全部缺失）。
+        // pywebviewready 晚到时由 bridgeLateReady 覆写为真实自检结果。
+        backendWarning = '◇ 等待后端就绪…（桌面端连接中）';
+        loadAll();
+      }
+    }, 5000);
   }
 };
+/* pywebviewready 晚到（回退分支已跑过 loadAll）：补偿执行桥依赖初始化并刷新状态行。
+ * 幂等：bridgeDependentInit 内各步骤均带 try/catch，重复调用安全；
+ * backendWarning 先置 null——若桥实际仍不可用，由 bridgeDependentInit 的
+ * get_api_info 重试失败后再置真实错误态（不会残留中性态假装就绪）。 */
+function bridgeLateReady() {
+  backendWarning = null;
+  try {
+    Promise.resolve(bridgeDependentInit()).then(() => {
+      if (typeof updateTokenStat === 'function') updateTokenStat();
+    }).catch(() => {});
+  } catch (e) { /* bridgeDependentInit 同步抛也不拖垮启动 */ }
+}
 async function loadAll() {
+  // 修复（建议17）：initFx 提到首个 await 之前——特效总开关必须在任何桥调用
+  // 前生效（initFx 无 await 依赖：读 localStorage + 切 body class，纯同步）。
+  // 原位置在 get_memory await 之后：桥慢/挂起（旧 exe/浏览器调试）时 fx-off
+  // 迟迟不应用，开屏极光/入场动画先闪一跳关特效用户的眼。
+  initFx();   // v3：特效总开关（.fx-off + localStorage['glm_fx'] 持久化）
   try { window.__memCache = await callApi('get_memory', []); } catch (e) { window.__memCache = '[]'; }
   setupContextMenu();
   document.querySelectorAll('select').forEach(initCustomSelect);
-  initFx();   // v3：特效总开关（.fx-off + localStorage['glm_fx'] 持久化）
   applyTheme((function () { try { return localStorage.getItem('glm_theme') || 'light'; } catch (e) { return 'light'; } })());
   const tempEl = document.getElementById('temperature');
   const topPEl = document.getElementById('topP');
@@ -153,14 +182,12 @@ async function loadAll() {
   /* v4「连接与模型」单块：预设 + 单一 URL/Key/模型流回填（含旧配置一次性 seed 迁移，幂等） */
   try { connectLoadFromConfig(cfg); } catch (e) { console.warn('连接与模型回填失败', e); }
   try { loadLocalUI(cfg); } catch (e) {}   // v1.5 本地专属项（ctx 覆盖 / 工具调用；local_* 键回填）
-  // 实现 v1.6 HF-P0：本地 CORS 代理基址——后端补齐 ACAO 头，EdgeWebView 才读得到
-  // 不输出 CORS 头的本地服务器（FreeToken/裸 llama.cpp/vLLM）响应；取不到静默
-  // （resolveApiEndpoint 回落直连，行为不劣化）。须在 loadLocalUI 后（localState 就绪）
-  try {
-    const pr = JSON.parse(await callApi('get_local_proxy', []) || '{}');
-    if (pr && pr.ok && pr.base_url) window.__localProxyBase = pr.base_url;
-  } catch (e) {}
-  try { await loadGuardConfig(); } catch (e) {}
+  /* 修复（建议18）：桥依赖初始化提取为独立函数——loadAll 正常路径与
+   * pywebviewready 晚到补偿（bridgeLateReady）共用。原三段（本地代理/护栏
+   * 配置/get_api_info 自检）散在 loadAll 内，5s 回退分支（无桥）跑过后，
+   * 桥晚到也无法补齐：护栏配置停在默认态、本地代理基址缺失、方法自检
+   * 从未执行（backendWarning 恒 null，旧 exe 缺方法也不报警）。 */
+  await bridgeDependentInit();
   // 实现 v1.6 T6：沙箱设置面板 + 状态灯（加载配置/状态；失败不阻塞启动）
   try { await loadSandboxPanel(); } catch (e) {}
   // 实现 v1.6 T11/T13：左侧主导航引导 + 空态引导 + 头部状态区 + 通知中心 + DND 回填
@@ -173,6 +200,30 @@ async function loadAll() {
   document.getElementById('searchEngineWrap').style.display = cfg.enable_search ? 'flex' : 'none';
   updateLabels();
   CS.syncAll();
+  updateTokenStat();
+  refreshWsCard();
+  renderSessionList();
+  renderAnalytics();   // v3：分析面板首次聚合（数据来自运行时 sessions，空态友好显示）
+  checkForUpdate(false);   // v1.2 R1：启动后台静默检查更新（有新版本时右上角 pill 轻提示）
+  if (sessions.length > 0) {
+    const latest = [...sessions].sort((a, b) => b.updatedAt - a.updatedAt)[0];
+    switchSession(latest.id, true);   // v4：boot 首载静默重建（不走 swapping 淡出，避免开屏闪空容器）
+  }
+}
+
+/* 桥依赖初始化（get_api_info 方法自检 + 本地 CORS 代理 + 护栏配置回填）。
+ * 调用点：loadAll 正常路径（loadLocalUI 之后——localState 就绪，get_local_proxy
+ * 的前置条件保持）与 pywebviewready 晚到补偿（bridgeLateReady）。
+ * 无桥时各步骤静默跳过（与回退分支行为一致）；晚到补偿时桥已就绪，三步真实执行。 */
+async function bridgeDependentInit() {
+  // 实现 v1.6 HF-P0：本地 CORS 代理基址——后端补齐 ACAO 头，EdgeWebView 才读得到
+  // 不输出 CORS 头的本地服务器（FreeToken/裸 llama.cpp/vLLM）响应；取不到静默
+  // （resolveApiEndpoint 回落直连，行为不劣化）。
+  try {
+    const pr = JSON.parse(await callApi('get_local_proxy', []) || '{}');
+    if (pr && pr.ok && pr.base_url) window.__localProxyBase = pr.base_url;
+  } catch (e) {}
+  try { await loadGuardConfig(); } catch (e) {}
   try {
     if (window.pywebview && window.pywebview.api) {
       let info = null;
@@ -194,13 +245,4 @@ async function loadAll() {
       }
     }
   } catch (e) {}
-  updateTokenStat();
-  refreshWsCard();
-  renderSessionList();
-  renderAnalytics();   // v3：分析面板首次聚合（数据来自运行时 sessions，空态友好显示）
-  checkForUpdate(false);   // v1.2 R1：启动后台静默检查更新（有新版本时右上角 pill 轻提示）
-  if (sessions.length > 0) {
-    const latest = [...sessions].sort((a, b) => b.updatedAt - a.updatedAt)[0];
-    switchSession(latest.id, true);   // v4：boot 首载静默重建（不走 swapping 淡出，避免开屏闪空容器）
-  }
 }

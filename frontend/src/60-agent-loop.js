@@ -94,6 +94,30 @@ async function harborMaybeAwaitTakeover(result, toolDiv, label) {
     error: { code: 'CAPTCHA_ABORTED', message: '人工验证未完成' } });
 }
 
+/* v1.8.0 M3：计划收尾摘要 + 回滚入口。
+ * 仅「正常跑完」（AI 回复不带工具调用 = 任务自然终结）才收尾；熔断（循环/stall/
+ * 预算硬停）、用户暂停、length 截断续跑（setTimeout 已安排续跑）全部不收尾——
+ * 那些路径已由 showPausePanel / 续跑窗口接管决策，此时标记「全部完成」会把
+ * 未完成的计划谎报为完成（planFinish 同步 plan_update 'done' 落库，回滚入口
+ * 也随之失效）。
+ * 修复（对抗复审）：原以 try 块级 finished 为条件——熔断/预算/截断路径均置
+ * finished=true 后 break，收尾块全部误触发（反例：registerToolSig 命中 →
+ * finished=true → 计划被标「✓ N 步全部完成」）。finished 语义是「循环以确定
+ * 性原因终止（非 60 轮上限）」，与「正常跑完」不是一回事，故分离 naturalDone。
+ * 抽为模块级函数：vm 沙箱可单测（原内联在 runAgentLoop 的 try 内不可抽取）。 */
+function planFinishIfNatural(userStopped, naturalDone) {
+  if (userStopped || !naturalDone) return;
+  if (typeof planCurrent === 'undefined' || !planCurrent || planCurrent.status !== 'running') return;
+  try {
+    (planCurrent.steps || []).forEach((x, i) => {
+      if (x.status === 'pending' || x.status === 'doing') planStepStatus(i, 'done');
+    });
+    if (typeof planFinish === 'function') {
+      planFinish('✓ ' + (planCurrent.steps || []).length + ' 步全部完成 · 校验通过 · 0 个未决事项');
+    }
+  } catch (e) {}
+}
+
 async function runAgentLoop(s, apiKey) {
   isStreaming = true;   // 修复 S20：同步置位移到最前（原在两个 await 之后，快速双发可起双循环）
   // 修复（2026-10-18）：暂停标志。原 abortController.abort() 只中止 fetch 流，
@@ -213,6 +237,7 @@ async function runAgentLoop(s, apiKey) {
     else if (!isGlmEndpoint()) addSysTip(currentEndpointName() + ' / ' + currentModel);
 
     let finished = false;
+    let naturalDone = false;   // 仅「AI 回复无工具调用」正常终结置位（熔断/暂停/截断续跑/60轮上限均保持 false）——计划收尾的专用判据
     const readFileSet = new Set(s._readKeys || []);   // 会话级持久化已读记录
     const listDirsSet = new Set();
     const cmdDeduper = (() => {
@@ -670,6 +695,10 @@ async function runAgentLoop(s, apiKey) {
             finished = true;
             // 修复 S18：原直接调 continueLastGeneration 是死调用——isStreaming 尚未复位，首行守卫即 return。
             // 改 setTimeout 延续跑：finally 复位 isStreaming 之后才触发，截断输出真正自动继续。
+            // 修复（建议14 残余）：350ms 硬编码改 MOTION 令牌——续跑窗口 = 组件入场时长
+            // ×2（finally 同步复位 isStreaming 后的一帧缓冲；fx-off 下 comp=1ms → 窗口
+            // 2ms 立即续跑，与「关特效不拖节奏」一致）。typeof 守卫保 vm 沙箱可测。
+            const _resumeWin = (typeof MOTION !== 'undefined' && MOTION.comp) ? MOTION.comp() * 2 : 400;
             setTimeout(() => {
               if (currentSessionId !== s.id) return;   // 修复 S7（二轮）：350ms 窗口内切了会话 → 不续跑（防跨会话串扰）
               if (isStreaming) {                        // 修复 W20（二轮）：窗口内用户发了新消息 → 不静默丢弃，补手动按钮
@@ -682,7 +711,7 @@ async function runAgentLoop(s, apiKey) {
               }
               s.autoResume = 0;   // 修复 建议㉗（二轮）：续跑成功后清零（原只在不续跑的 else 分支清零，自动续跑路径终身累积，第 5 次后本会话再无自动续跑）
               continueLastGeneration(s, apiKey);
-            }, 350);
+            }, _resumeWin);
             break;
           } else {
             s.autoResume = 0;
@@ -695,6 +724,7 @@ async function runAgentLoop(s, apiKey) {
         }
         if (!fullContent) mdBody.innerHTML = '';   // 修复 ㉙：空回复不再残留「正在输入」动画
         finished = true;
+        naturalDone = true;   // 正常跑完：无工具调用 = 任务自然终结（计划收尾的唯一放行路径）
         break;
       }
       mdBody.innerHTML = fullContent ? renderMd(fullContent) : '';
@@ -958,18 +988,10 @@ async function runAgentLoop(s, apiKey) {
     }
     /* v1.8.0 M3：计划正常跑完 → 收尾摘要 + 回滚入口
      * 修复：原在 catch 内引用 try 块级 let finished——越域 ReferenceError，
-     * 且错误路径也会误跑收尾。移到 try 内 for 循环结束之后（renderSessionList() 之后）。 */
-    if (!userStopped && finished && typeof planCurrent !== 'undefined' && planCurrent &&
-        planCurrent.status === 'running') {
-      try {
-        (planCurrent.steps || []).forEach((x, i) => {
-          if (x.status === 'pending' || x.status === 'doing') planStepStatus(i, 'done');
-        });
-        if (typeof planFinish === 'function') {
-          planFinish('✓ ' + (planCurrent.steps || []).length + ' 步全部完成 · 校验通过 · 0 个未决事项');
-        }
-      } catch (e) {}
-    }
+     * 且错误路径也会误跑收尾。移到 try 内 for 循环结束之后（renderSessionList() 之后）。
+     * 再修（对抗复审）：判据从 finished 改为 naturalDone——finished 在熔断/预算/
+     * 截断续跑路径同样为 true（详见 planFinishIfNatural 注释）。 */
+    planFinishIfNatural(userStopped, naturalDone);
     if (userStopped && aiContent) {
       // 修复（2026-10-18）：工具执行阶段暂停（无 AbortError）的收尾提示
       const note = document.createElement('div');

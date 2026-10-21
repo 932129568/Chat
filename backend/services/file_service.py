@@ -236,7 +236,12 @@ class FileService:
             next_off = offset + shown                                     # 关键:按实际读到的行算,不再跳行
             if next_off < total:
                 info['hint'] = f'还有 {total - next_off} 行未读，可传 offset={next_off} 继续读'
-            if offset == 0 or next_off >= total:
+            # 修复（六轮 r5 建议12）：仅「整文件 served」才登记已读。原判定
+            # `offset == 0 or next_off >= total` 在 offset==0 触达 240000 字符
+            # BUDGET 被截断（shown < len(seg)）时也 mark_read，导致下次不带
+            # force 的 read_file 返回失实的「此前已完整读过」。next_off >= total
+            # 时本段必已完整输出（shown >= len(seg) 自动成立），双条件为防御性显式化。
+            if next_off >= total and shown >= len(seg):
                 self.file_fp.mark_read(path)
             return ok(info)
         except Exception as e:

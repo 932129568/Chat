@@ -314,7 +314,6 @@ class PlanService(object):
             tid = _safe_tid(task_id)
         except ValueError:
             return {'ok': False, 'error': _TID_ERR}
-        ws = os.path.realpath(ws_dir or os.getcwd())
         snap_dir = _ckpt_path(tid)
         mf_path = os.path.join(snap_dir, 'manifest.json')
         restored, failed = [], []
@@ -324,6 +323,11 @@ class PlanService(object):
                     manifest = json.load(f)
             except (OSError, ValueError) as e:
                 return {'ok': False, 'error': '检查点清单读取失败: %s' % e}
+            # 修复（对抗性复审）：调用方未显式传 ws_dir 时回落 manifest 里创建时
+            # 记录的工作区——前端 67-plan-card 的回滚调用只传 taskId（不传 ws），
+            # 原实现回落 os.getcwd() 会把 git reset --hard / 快照恢复打到应用自身
+            # 目录（源码运行时即项目仓库，一次回滚就 reset 掉应用仓库工作区）。
+            ws = os.path.realpath(str(ws_dir or manifest.get('ws_dir') or os.getcwd()))
             head = manifest.get('git_head')
             if head:
                 try:

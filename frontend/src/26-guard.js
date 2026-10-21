@@ -142,9 +142,14 @@ async function guardCheckTool(name, args) {
     if (t && t.token) token = t.token;
   } catch (e) { /* 旧 exe 无此方法：token 留空，按 legacy 行为直调（新后端会强制拦截并返回人话错误） */ }
   if (r.checked) {
-    guardTrusted.add(op);
-    // 修复 S4①：会话信任登记到后端（切会话由 set_current_sid 自动清空，与文案「本会话内」对齐）
-    try { callApi('guard_session_trust', [op]).catch(() => {}); } catch (e) {}
+    // 修复（对抗复审，与 25-tool-exec agentTrusted 同口径）：原 fire-and-forget
+    // 登记——失败时前端已信任、后端未登记，后续调用被前端短路（不弹窗、无
+    // token）→ 后端 enforce_exec 武装态拒（CONFIRM_REQUIRED）→ AI 重试再被拒
+    // 的死循环。改 await 登记，成功才进前端 Set。
+    try {
+      await callApi('guard_session_trust', [op], 20000);
+      guardTrusted.add(op);
+    } catch (e) { /* 登记失败：不进前端信任——下次仍走确认弹窗 */ }
   }
   // 修复 UX-2（v1.4）：永久信任落库（guard.json trustedOps，op 级）——读-改-写经
   // guard_save_config（既有 js_api，无新方法）；首次启用弹风险文案（PRD 验收）

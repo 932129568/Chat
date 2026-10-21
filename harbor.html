@@ -9455,6 +9455,10 @@ const SP_STATUS_TIMEOUT_MS = 15000;    // 纯内存状态读，快失败（§2.1
 const SP_SEARCH_TIMEOUT_MS = 90000;    // browser_search（extract=full 时前端可传 150000）
 const SP_TAKEOVER_TIMEOUT_MS = 90000;  // browser_takeover（§2.1 表）
 const SP_STATS_TIMEOUT_MS = 15000;     // search_cache_stats
+// 接管 TTL 与到期预警（与 backend search_service.TAKEOVER_TTL_SECONDS=600 逐字一致；
+// 面板轮询已带 takeover.elapsed_s，到期前 60s toast 一次零额外成本）
+const SP_TAKEOVER_TTL_S = 600;
+const SP_TAKEOVER_WARN_LEAD_S = 60;
 // 后端 phase → 阶段文案（§2.3 四件套映射表；motion-spec §2.1 为动效真相源）
 const SP_PHASE_TEXT = {
   understanding: '正在理解检索意图…',
@@ -9479,6 +9483,7 @@ let searchPollTimer = null;    // 1s 轮询定时器句柄
 let searchTakeoverId = null;   // 当前接管会话（captcha 态非空）
 let searchLastPayload = null;  // 最近一次成功载荷（原文预览/重渲染用）
 let spStatsSeq = 0;            // 脚注统计 last-wins（同 searchReqSeq 先例）
+let spTakeoverWarned = false;  // 当前接管会话是否已做过 TTL 到期预警（每会话一次）
 
 /* ---------- typeof 守卫取值（§2.5：vm 沙箱无 DOM 不炸） ---------- */
 function searchPanelEl() {
@@ -9659,6 +9664,13 @@ async function searchPanelRunSearch(params) {
     if (seq !== searchReqSeq) return;               // ④last-wins：旧请求静默失效
     const d = JSON.parse(raw || '{}');
     if (d && d.ok) {
+      // 成功路径同样清洗接管区：pending 期间轮询镜像可能已把（旧会话的）
+      // takeover_id 挂进 searchTakeoverId，搜索成功时须收起接管 UI 并释放
+      // 会话引用（防成功态下滞留 captcha 框 / 后续误关拦截）
+      if (searchTakeoverId) {
+        searchTakeoverId = null;
+        searchPanelHideTakeover();
+      }
       searchLastPayload = d;
       searchPanelRenderResults(d);
       searchPanelSetState('success');
@@ -9703,9 +9715,8 @@ async function searchPanelTakeoverAction(action) {
   const seq = ++searchReqSeq;
   const cont = spEl('spTakeoverContinue');
   const ab = spEl('spTakeoverAbort');
-  if (cont) cont.disabled = true;                   // 防连点（后端亦幂等）
+  if (cont) cont.disabled = true;                   // 在途防连点（后端亦幂等）
   if (ab) ab.disabled = true;
-  let retrying = false;   // CAPTCHA_REQUIRED 重试中：接管会话仍在提示，保持禁用
   try {
     const raw = await spCallApi('browser_takeover', [searchTakeoverId, action],
       SP_TAKEOVER_TIMEOUT_MS);
@@ -9722,7 +9733,12 @@ async function searchPanelTakeoverAction(action) {
       // typeof 守卫——vm 单模块沙箱无 60-agent-loop 时不炸）
       if (typeof harborTakeoverNotify === 'function') harborTakeoverNotify(d);
     } else if (d && d.error && d.error.code === 'CAPTCHA_REQUIRED') {
-      retrying = true;                              // 非终态：会话续跑，不解禁按钮
+      // 非终态：后端复检已完成并回到 prompting 态（search_service：仍验证页 →
+      // state='prompting'，注释明示「用户可再次 continue」）——必须解禁按钮让
+      // 用户完成验证后再次点击「继续」（重试计数由后端 max_retries 兜底）。
+      // 反例（round5 原实现）：此处保持禁用 → toast「请重试」与禁用按钮自相
+      // 矛盾，用户既不能继续也不能放弃，面板因 captcha 态关不掉 → 死局。
+      searchPanelShowTakeover(d.error);             // 刷新「继续（重试 n/3）」按钮文案
       const n = (d.error.retry || 1);
       spToast('验证未通过，请重试（' + n + '/' + (d.error.max_retries || 3) + '）', 'warn');
     } else if (d && d.error && d.error.code === 'CAPTCHA_ABORTED') {
@@ -9753,7 +9769,10 @@ async function searchPanelTakeoverAction(action) {
         message: '接管会话已失效或失败，本次搜索已放弃' } });
     }
   } finally {
-    if (seq === searchReqSeq && !retrying) {
+    // seq 守卫即「旧请求 finally 不得解禁新分支」的结构性保证：所有入口
+    // （runSearch/takeoverAction）都先 ++searchReqSeq 再动 DOM，旧 finally
+    // 回来时 seq 已漂移 → 跳过；只有当前请求的 finally 能恢复按钮。
+    if (seq === searchReqSeq) {
       if (cont) cont.disabled = false;
       if (ab) ab.disabled = false;
     }
@@ -9829,15 +9848,27 @@ function searchPanelSetPhase(phase, d) {
   }
   if (d && d.phase === 'captcha' && d.takeover && d.takeover.takeover_id) {
     if (d.takeover.takeover_id !== searchTakeoverId) {
-      searchTakeoverId = d.takeover.takeover_id;
-      searchPanelShowTakeover({ takeover_id: searchTakeoverId, retry: d.takeover.retries,
-        max_retries: d.takeover.max_retries });
+      // 仅 pending 期（搜索在途）接管轮询检出的 captcha：终态（success/error）
+      // 后滞留的旧会话 captcha 快照不得复活接管 UI（防僵尸接管框 + 误拦关闭），
+      // 面板空开（idle）时同样不挂
+      if (searchPanelState === 'pending') {
+        searchTakeoverId = d.takeover.takeover_id;
+        searchPanelShowTakeover({ takeover_id: searchTakeoverId, retry: d.takeover.retries,
+          max_retries: d.takeover.max_retries });
+      }
     }
-    const timer = spEl('spTakeoverTimer');
-    if (timer && typeof d.takeover.elapsed_s === 'number') {
-      const s = d.takeover.elapsed_s;
-      const mm = Math.floor(s / 60), ss = ('0' + (s % 60)).slice(-2);
-      timer.textContent = '已等待 ' + mm + ':' + ss;
+    if (d.takeover.takeover_id === searchTakeoverId) {
+      const timer = spEl('spTakeoverTimer');
+      if (timer && typeof d.takeover.elapsed_s === 'number') {
+        const s = d.takeover.elapsed_s;
+        const mm = Math.floor(s / 60), ss = ('0' + (s % 60)).slice(-2);
+        timer.textContent = '已等待 ' + mm + ':' + ss;
+        // 接管 TTL 到期前 60s 一次性提示（后端 600s 无操作自动放弃；每会话一次）
+        if (!spTakeoverWarned && s >= SP_TAKEOVER_TTL_S - SP_TAKEOVER_WARN_LEAD_S) {
+          spTakeoverWarned = true;
+          spToast('验证即将过期（约 1 分钟后自动放弃），请尽快完成', 'warn');
+        }
+      }
     }
   }
 }
@@ -9935,6 +9966,7 @@ function searchPanelRenderError(e) {
 }
 function searchPanelShowTakeover(err) {
   searchPanelSetState('captcha');                    // 入状态机：轮询检出的接管亦不可关闭
+  spTakeoverWarned = false;                          // 新接管会话：重置 TTL 预警（每会话一次）
   const box = spEl('spTakeover');
   if (box) box.style.display = '';
   const pill = spEl('spPill');
@@ -9948,10 +9980,22 @@ function searchPanelShowTakeover(err) {
 }
 function searchPanelHideTakeover() {
   searchTakeoverId = null;
+  spTakeoverWarned = false;
+  // 接管区收起时同步解禁继续/放弃：takeoverAction 在途被新搜索取代时其
+  // finally 因 seq 陈旧跳过复位，按钮会永久停在禁用态（下次接管无法点击）——
+  // 此处作为唯一收口 choke point 兜底解禁
+  const cont = spEl('spTakeoverContinue');
+  if (cont) cont.disabled = false;
+  const ab = spEl('spTakeoverAbort');
+  if (ab) ab.disabled = false;
   const box = spEl('spTakeover');
   if (box) box.style.display = 'none';
   const timer = spEl('spTakeoverTimer');
   if (timer) timer.textContent = '已等待 0:00';
+  // 防御性状态复位：captcha 态滞留（searchTakeoverId 已清）会让 Esc/点外关闭
+  // 被 state==='captcha' 拦截 → 面板关不掉。调用方随后会置自己的终态，
+  // 此处仅保证「无接管会话就无 captcha 态」的不变式
+  if (searchPanelState === 'captcha') searchPanelSetState('idle');
 }
 async function searchPanelRefreshStats() {
   const foot = spEl('spFoot');
@@ -10009,6 +10053,7 @@ const SW_STATUS_TEXT = {
 };
 
 let softwareReqSeq = 0;          // last-wins 请求序号
+let swTestSeq = 0;               // 测试调用独立 last-wins（与列表/探测/保存流隔离）
 let softwarePanelState = 'idle'; // idle|pending|success|error
 let swProbing = false;           // 探测在途（呼吸态 + 按钮禁用）
 let swTesting = false;           // 测试调用在途（防定时器覆盖/状态机串话）
@@ -10235,6 +10280,14 @@ function softwarePanelRenderList(items) {
   });
 }
 function softwarePanelRenderError(e) {
+  // 在途保护：测试调用进行中 #swDetail 正展示测试 UI（动作选择/输出 pre），
+  // 列表/探测的失败若整块覆写 swDetail，测试完成后的输出将无处渲染
+  // （swTestOut 被销毁 → renderTestOut 早退）——用户看不到已执行的调用结果，
+  // 可能重复触发（重复执行）。改走 toast，不碰测试区。
+  if (swTesting) {
+    swToast('操作失败：' + ((e && e.message) || '未知错误'), 'err');
+    return;
+  }
   const box = swEl('swDetail');
   if (!box) return;
   box.innerHTML =
@@ -10290,7 +10343,11 @@ async function softwarePanelRunTest(name) {
       return;
     }
   }
-  const seq = ++softwareReqSeq;
+  // 测试调用用独立序号：列表刷新/探测/保存与测试流并发时（探测约秒级返回，
+  // 测试调用可跑数百秒），旧实现共用 softwareReqSeq → 探测完成即使在途测试
+  // 的返回被判陈旧而静默丢弃——调用已真实执行（有副作用）却无任何输出渲染，
+  // 用户重复点击即重复执行。独立序号后测试流只被更新的测试流淘汰。
+  const seq = ++swTestSeq;
   const runBtn = swEl('swTestRun');
   if (runBtn) runBtn.disabled = true;
   swCallElapsed = 0;
@@ -10310,18 +10367,19 @@ async function softwarePanelRunTest(name) {
     const raw = await swCallApi('software_call',
       [{ software: name, action: action, args: args, source: 'manual_test' }],
       SW_CALL_TIMEOUT_MS);
-    if (seq !== softwareReqSeq) return;               // 连点 last-wins：旧返回丢弃
+    if (seq !== swTestSeq) return;               // 连点 last-wins：旧返回丢弃
     const d = JSON.parse(raw || '{}');
     softwarePanelRenderTestOut(d);
     softwarePanelSetState(d && d.ok ? 'success' : 'error');
   } catch (e) {
-    if (seq !== softwareReqSeq) return;
+    if (seq !== swTestSeq) return;
     softwarePanelRenderTestOut({ ok: false, error: { code: 'BRIDGE_TIMEOUT',
       message: (e && e.message) || String(e) } });
     softwarePanelSetState('error');
   } finally {
     // 早退（seq 陈旧 return）亦经 finally：时钟清理 + 在途标志复位（JS 语义保证）
     if (swCallTimer) { clearInterval(swCallTimer); swCallTimer = null; }
+    swCallElapsed = 0;                           // 时钟归零：防陈旧秒数泄漏到下次显示
     if (runBtn) runBtn.disabled = false;
     swTesting = false;
   }
@@ -10575,21 +10633,24 @@ function hybridWire() {
       if (id === 'hyBudgetUnderstand') {
         const v = parseInt(el.value, 10);
         if (!Number.isInteger(v) || v < 1 || v > 30) {
-          hyToast('本地硬预算需为 1-30 的整数（秒）', 'warn'); hybridRefresh(); return;
+          hyToast('本地硬预算需为 1-30 的整数（秒）', 'warn');
+          hyRevertField(el, 'local_budget_understand_s'); return;
         }
         patch.local_budget_understand_s = v;
       }
       if (id === 'hyBudgetValidate') {
         const v = parseInt(el.value, 10);
         if (!Number.isInteger(v) || v < 1 || v > 30) {
-          hyToast('本地硬预算需为 1-30 的整数（秒）', 'warn'); hybridRefresh(); return;
+          hyToast('本地硬预算需为 1-30 的整数（秒）', 'warn');
+          hyRevertField(el, 'local_budget_validate_s'); return;
         }
         patch.local_budget_validate_s = v;
       }
       if (id === 'hyConfGate') {
         const v = parseFloat(el.value);
         if (!(v >= 0.5 && v <= 0.95)) {
-          hyToast('置信门需为 0.5-0.95 之间的小数', 'warn'); hybridRefresh(); return;
+          hyToast('置信门需为 0.5-0.95 之间的小数', 'warn');
+          hyRevertField(el, 'confidence_gate'); return;
         }
         patch.confidence_gate = v;
       }
@@ -10604,6 +10665,13 @@ function hybridWire() {
 }
 
 /* ---------- 三态 + last-wins：配置读取 ---------- */
+/* 字段级校验失败的回弹：仅复位犯规字段（配置已加载时）——原实现整表
+   hybridRefresh()，异步返回时会把用户正在其它字段输入的内容一并清掉
+   （刷新重渲染所有输入框）；无已加载配置才回落全量刷新。 */
+function hyRevertField(el, key) {
+  if (el && hybridCfg && hybridCfg[key] != null) { el.value = hybridCfg[key]; return; }
+  hybridRefresh();
+}
 async function hybridRefresh() {
   const seq = ++hybridReqSeq;
   try {

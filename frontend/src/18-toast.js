@@ -78,10 +78,17 @@ function toast(msg, type, opts) {
   // 第二轮起 __closing 幂等守卫直接 return，第 6 个 toast 冻结整个 UI（错误风暴
   // 5~6 条并发完全可能）。改为单次判断 + 强制同步移除（溢出场景无需退场动画）。
   if (box.children.length >= 5) {
-    const old = box.firstChild;
-    if (old) {
-      if (old.close) { try { old.__closing = true; } catch (e) {} }
-      try { box.removeChild(old); } catch (e) {}
+    // 修复（建议15）：淘汰目标从「无脑删队首」改为「队首向后找第一个非 pinned」——
+    // pinned toast（下载/更新等长流程进度，ttl=Infinity）被误删时流程仍在跑但
+    // 进度提示凭空消失。全 pinned 时不删（允许临时超过 5 条：长流程提示不丢
+    // 优于队列封顶；pinned 生命周期由调用方 t.close 收尾）。
+    let victim = null;
+    for (let i = 0; i < box.children.length; i++) {
+      if (!box.children[i].__pinned) { victim = box.children[i]; break; }
+    }
+    if (victim) {
+      if (victim.close) { try { victim.__closing = true; } catch (e) {} }
+      try { box.removeChild(victim); } catch (e) {}
     }
   }
   const t = document.createElement('div');
@@ -132,6 +139,7 @@ function toast(msg, type, opts) {
   const ttl = opts.pinned ? Infinity : (opts.stay ? 60000 : (type === 'err' ? 9000 : type === 'warn' ? 6500 : 4500));   // 修复 ㊵：pinned 永不自动消失（下载/更新等长流程进度）
   if (isFinite(ttl)) setTimeout(close, ttl);
   t.close = close;   // 修复 ㊵：暴露关闭句柄供调用方在流程结束时收尾
+  t.__pinned = !!opts.pinned;   // 修复（建议15）：pinned 标记——溢出淘汰时跳过（长流程进度提示不误删）
   return t;
 }
 
@@ -229,7 +237,10 @@ function uiConfirm(opts) {
     m.querySelector('.modal-ok').onclick = () => done(true);
     m.querySelector('.modal-cancel').onclick = () => done(false);
     m.querySelector('.modal-mask').onclick = () => done(false);
-    setTimeout(() => m.querySelector('.modal-ok').focus(), 30);
+    // 修复（建议14 残余）：30ms 硬编码 focus 延时改 MOTION 令牌（press=90ms，
+    // 最小的交互反馈令牌；fx-off 下 1ms）。typeof 守卫保 vm 沙箱可测。
+    const _focusDelay = (typeof MOTION !== 'undefined' && MOTION.press) ? MOTION.press() : 30;
+    setTimeout(() => m.querySelector('.modal-ok').focus(), _focusDelay);
   });
   // 修复 S22：确认串行入队——前一个确认收尾后才弹下一个
   const p = _uiConfirmQueue.then(run, run);
@@ -272,7 +283,9 @@ function uiPrompt(opts) {
     m.querySelector('.modal-cancel').onclick = () => done(null);
     m.querySelector('.modal-mask').onclick = () => done(null);
     input.onkeydown = (e) => { if (e.key === 'Enter') done(input.value); };
-    setTimeout(() => { input.focus(); input.select && input.select(); }, 30);
+    // 修复（建议14 残余）：同上，30ms focus 延时改 MOTION.press() 令牌
+    const _focusDelay2 = (typeof MOTION !== 'undefined' && MOTION.press) ? MOTION.press() : 30;
+    setTimeout(() => { input.focus(); input.select && input.select(); }, _focusDelay2);
   });
   const p = _uiConfirmQueue.then(run, run);
   _uiConfirmQueue = p.then(() => {}, () => {});
