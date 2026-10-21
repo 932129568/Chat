@@ -912,7 +912,7 @@ function connectInit() {
     on(id, 'change', () => { connectSyncState(); if (typeof queueSaveConfig === 'function') queueSaveConfig(); });
   });
   connectUpdateAdvanced();
-  connectPresetGridInit();   /* v1.8.0：预设可视化卡网格 */
+  /* v1.8.0：预设卡网格已撤（输入区模型 chip 为主选择器；卡网格与其功能重复） */
 }
 
 

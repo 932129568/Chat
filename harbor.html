@@ -783,7 +783,7 @@ body:not(.fx-off) .tool-call-item:not(.done):not(.fail)::after{content:"";positi
 .ctx-menu-item{padding:7px 12px;font-size:13px;border-radius:var(--radius-sm);cursor:pointer;color:var(--text);}
 .ctx-menu-item:hover{background:var(--hover);}
 /* ===== 输入区 ===== */
-.input-area{padding:10px 20px 12px;flex-shrink:0;}
+.input-area{padding:10px 20px 12px;flex-shrink:0;position:relative;z-index:2}
 .input-inner{max-width:var(--content-w);margin:0 auto;}
 .attach-preview{display:none;flex-wrap:wrap;gap:8px;margin-bottom:8px;}
 .attach-preview.show{display:flex;animation:v4AttachIn var(--dur-comp) var(--ease-out-soft);}
@@ -2013,11 +2013,11 @@ body.theming .cn-pop,body.theming .cn-row,body.theming .cn-handle{
 /* 旧 4 附件钮：DOM 保留（onclick 契约），CSS 隐藏——由「+」菜单接管 */
 .input-row > .tool-btn:not(#plusBtn){display:none}
 /* 附件菜单（左上弹出） */
-.at-pop{position:absolute;bottom:calc(100% + 8px);left:0;min-width:148px;display:none;
+.at-pop{position:absolute;bottom:calc(100% + 8px);left:0;min-width:148px;display:none;z-index:200;
   flex-direction:column;padding:5px;gap:1px;
   background:var(--glass-bg-2);border:1px solid var(--glass-border);
   backdrop-filter:blur(var(--glass-blur));-webkit-backdrop-filter:blur(var(--glass-blur));
-  border-radius:var(--radius-md);box-shadow:var(--shadow-lg),var(--edge-hi);z-index:60}
+  border-radius:var(--radius-md);box-shadow:var(--shadow-lg),var(--edge-hi);z-index:200}
 .at-pop.on{display:flex;animation:v4AtPop var(--dur-panel-lg) var(--ease-emphasized)}
 @keyframes v4AtPop{from{opacity:0;transform:translateY(8px) scale(.97)}to{opacity:1;transform:none}}
 body.fx-off .at-pop.on{animation:none}
@@ -2047,7 +2047,7 @@ body.fx-off .at-pop.on{animation:none}
   display:none;flex-direction:column;overflow:hidden;
   background:var(--glass-bg-2);border:1px solid var(--glass-border);
   backdrop-filter:blur(var(--glass-blur));-webkit-backdrop-filter:blur(var(--glass-blur));
-  border-radius:var(--radius-md);box-shadow:var(--shadow-lg),var(--edge-hi);z-index:60}
+  border-radius:var(--radius-md);box-shadow:var(--shadow-lg),var(--edge-hi);z-index:200}
 .mc-pop.on{display:flex;animation:v4McPop var(--dur-panel-lg) var(--ease-emphasized)}
 @keyframes v4McPop{from{opacity:0;transform:translateY(10px) scale(.97)}to{opacity:1;transform:none}}
 body.fx-off .mc-pop.on{animation:none}
@@ -2072,7 +2072,7 @@ body.theming .at-pop,body.theming .mc-pop,body.theming .model-chip,body.theming 
   transition-property:background-color,color,border-color,transform}
 
 /* ---- v1.8.0 预设可视化卡网格（连接与模型以预设为主） ---- */
-.cm-preset-slot select{display:none}   /* select 契约保留（id 钉住），视觉由卡网格接管 */
+/* v1.8.0：预设卡网格已撤（与输入区模型 chip 功能重复，保留 chip 方案）；select 恢复可见 */
 .cm-preset-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(128px,1fr));gap:6px;margin-top:2px}
 .cm-preset-card{display:flex;align-items:center;gap:8px;padding:8px 10px;cursor:pointer;
   border:1px solid var(--border);border-radius:var(--radius-md);background:var(--card-bg);
@@ -2106,6 +2106,22 @@ body.theming .cm-preset-card{transition-property:background-color,color,border-c
 body.fx-off .cm-save-btn::after{display:none}
 
 .cm-hint{font-size:var(--fs-caption);color:var(--text-3)}
+
+/* ---- v1.8.0 模型浮层：自定义模型区 + 手动输入 + 删除 ---- */
+.mc-sec{font-size:var(--fs-micro);font-weight:650;color:var(--text-3);letter-spacing:.04em;
+  padding:8px 12px 4px;border-top:1px solid var(--border);margin-top:4px}
+.mc-custom-list .mc-item{padding-right:6px}
+.mc-del{flex-shrink:0;width:20px;height:20px;border:none;background:transparent;color:var(--text-3);
+  cursor:pointer;border-radius:var(--radius-xs);font-size:10px;padding:0;line-height:1;
+  transition:color var(--dur-micro) var(--ease-out-soft),background-color var(--dur-micro) var(--ease-out-soft)}
+.mc-del:hover{color:var(--err);background:var(--err-bg)}
+.mc-manual-row{border-top:1px solid var(--border);padding:5px}
+.mc-add .mc-name{color:var(--primary)}
+.mc-add-form{padding:5px 6px 2px}
+.mc-add-form input{width:100%;height:28px;padding:0 9px;font-size:var(--fs-caption);font-family:var(--font-mono);
+  border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--bg);color:var(--text);outline:none;
+  transition:border-color var(--dur-micro) var(--ease-out-soft),box-shadow var(--dur-micro) var(--ease-out-soft)}
+.mc-add-form input:focus{border-color:var(--primary);box-shadow:var(--glow-focus),var(--glow-inset)}
 </style>
 </head>
 <body>
@@ -3205,10 +3221,17 @@ function toast(msg, type, opts) {
   // 第二轮起 __closing 幂等守卫直接 return，第 6 个 toast 冻结整个 UI（错误风暴
   // 5~6 条并发完全可能）。改为单次判断 + 强制同步移除（溢出场景无需退场动画）。
   if (box.children.length >= 5) {
-    const old = box.firstChild;
-    if (old) {
-      if (old.close) { try { old.__closing = true; } catch (e) {} }
-      try { box.removeChild(old); } catch (e) {}
+    // 修复（建议15）：淘汰目标从「无脑删队首」改为「队首向后找第一个非 pinned」——
+    // pinned toast（下载/更新等长流程进度，ttl=Infinity）被误删时流程仍在跑但
+    // 进度提示凭空消失。全 pinned 时不删（允许临时超过 5 条：长流程提示不丢
+    // 优于队列封顶；pinned 生命周期由调用方 t.close 收尾）。
+    let victim = null;
+    for (let i = 0; i < box.children.length; i++) {
+      if (!box.children[i].__pinned) { victim = box.children[i]; break; }
+    }
+    if (victim) {
+      if (victim.close) { try { victim.__closing = true; } catch (e) {} }
+      try { box.removeChild(victim); } catch (e) {}
     }
   }
   const t = document.createElement('div');
@@ -3259,6 +3282,7 @@ function toast(msg, type, opts) {
   const ttl = opts.pinned ? Infinity : (opts.stay ? 60000 : (type === 'err' ? 9000 : type === 'warn' ? 6500 : 4500));   // 修复 ㊵：pinned 永不自动消失（下载/更新等长流程进度）
   if (isFinite(ttl)) setTimeout(close, ttl);
   t.close = close;   // 修复 ㊵：暴露关闭句柄供调用方在流程结束时收尾
+  t.__pinned = !!opts.pinned;   // 修复（建议15）：pinned 标记——溢出淘汰时跳过（长流程进度提示不误删）
   return t;
 }
 
@@ -3356,7 +3380,10 @@ function uiConfirm(opts) {
     m.querySelector('.modal-ok').onclick = () => done(true);
     m.querySelector('.modal-cancel').onclick = () => done(false);
     m.querySelector('.modal-mask').onclick = () => done(false);
-    setTimeout(() => m.querySelector('.modal-ok').focus(), 30);
+    // 修复（建议14 残余）：30ms 硬编码 focus 延时改 MOTION 令牌（press=90ms，
+    // 最小的交互反馈令牌；fx-off 下 1ms）。typeof 守卫保 vm 沙箱可测。
+    const _focusDelay = (typeof MOTION !== 'undefined' && MOTION.press) ? MOTION.press() : 30;
+    setTimeout(() => m.querySelector('.modal-ok').focus(), _focusDelay);
   });
   // 修复 S22：确认串行入队——前一个确认收尾后才弹下一个
   const p = _uiConfirmQueue.then(run, run);
@@ -3399,7 +3426,9 @@ function uiPrompt(opts) {
     m.querySelector('.modal-cancel').onclick = () => done(null);
     m.querySelector('.modal-mask').onclick = () => done(null);
     input.onkeydown = (e) => { if (e.key === 'Enter') done(input.value); };
-    setTimeout(() => { input.focus(); input.select && input.select(); }, 30);
+    // 修复（建议14 残余）：同上，30ms focus 延时改 MOTION.press() 令牌
+    const _focusDelay2 = (typeof MOTION !== 'undefined' && MOTION.press) ? MOTION.press() : 30;
+    setTimeout(() => { input.focus(); input.select && input.select(); }, _focusDelay2);
   });
   const p = _uiConfirmQueue.then(run, run);
   _uiConfirmQueue = p.then(() => {}, () => {});
@@ -3801,10 +3830,17 @@ async function agentGuardCheck(op, detail) {
     return { blocked: JSON.stringify({ info: msg, skipped: true }), decision: 'deny', token: null };
   }
   if (r.checkbox && !dangerous) {
-    agentTrusted.add(trustKey);
-    // 修复：会话信任登记到后端（与 26-guard.js:147 同口径）——原仅存前端 Set，
-    // 后端 enforce_exec 的会话信任态收不到 → 提档后「本会话不再提示」仍被后端拦
-    try { callApi('guard_session_trust', [op]).catch(() => {}); } catch (e) {}
+    // 修复（对抗复审）：原 fire-and-forget 登记（callApi(...).catch(()=>{})）——
+    // 桥异常/旧后端无此方法时后端没登记成功，前端 Set 却已加：后续调用被前端
+    // 短路（agentTrusted.has → 不弹窗、token=null）→ 后端 enforce_exec 武装态
+    // 拒（「需用户在界面确认…未携带有效 token」）→ AI 见到错误原样重试 → 再被
+    // 拒，形成无 UI 确认路径的死循环（用户唯一解法是重启应用）。
+    // 改为 await 登记，成功才进前端 Set；失败保持「每次确认」——降级为多弹一次
+    // 窗，绝不在前端假装信任。
+    try {
+      await callApi('guard_session_trust', [op], 20000);
+      agentTrusted.add(trustKey);
+    } catch (e) { /* 登记失败：不进前端信任——下次仍走确认弹窗，由用户重新勾选重试 */ }
   }
   // 换一次性 confirm token（op 级；detail 摘要与后端 enforce 同口径）
   let token = null;
@@ -3960,9 +3996,14 @@ async function guardCheckTool(name, args) {
     if (t && t.token) token = t.token;
   } catch (e) { /* 旧 exe 无此方法：token 留空，按 legacy 行为直调（新后端会强制拦截并返回人话错误） */ }
   if (r.checked) {
-    guardTrusted.add(op);
-    // 修复 S4①：会话信任登记到后端（切会话由 set_current_sid 自动清空，与文案「本会话内」对齐）
-    try { callApi('guard_session_trust', [op]).catch(() => {}); } catch (e) {}
+    // 修复（对抗复审，与 25-tool-exec agentTrusted 同口径）：原 fire-and-forget
+    // 登记——失败时前端已信任、后端未登记，后续调用被前端短路（不弹窗、无
+    // token）→ 后端 enforce_exec 武装态拒（CONFIRM_REQUIRED）→ AI 重试再被拒
+    // 的死循环。改 await 登记，成功才进前端 Set。
+    try {
+      await callApi('guard_session_trust', [op], 20000);
+      guardTrusted.add(op);
+    } catch (e) { /* 登记失败：不进前端信任——下次仍走确认弹窗 */ }
   }
   // 修复 UX-2（v1.4）：永久信任落库（guard.json trustedOps，op 级）——读-改-写经
   // guard_save_config（既有 js_api，无新方法）；首次启用弹风险文案（PRD 验收）
@@ -6715,7 +6756,7 @@ function connectInit() {
     on(id, 'change', () => { connectSyncState(); if (typeof queueSaveConfig === 'function') queueSaveConfig(); });
   });
   connectUpdateAdvanced();
-  connectPresetGridInit();   /* v1.8.0：预设可视化卡网格 */
+  /* v1.8.0：预设卡网格已撤（输入区模型 chip 为主选择器；卡网格与其功能重复） */
 }
 
 
@@ -8266,6 +8307,30 @@ async function harborMaybeAwaitTakeover(result, toolDiv, label) {
     error: { code: 'CAPTCHA_ABORTED', message: '人工验证未完成' } });
 }
 
+/* v1.8.0 M3：计划收尾摘要 + 回滚入口。
+ * 仅「正常跑完」（AI 回复不带工具调用 = 任务自然终结）才收尾；熔断（循环/stall/
+ * 预算硬停）、用户暂停、length 截断续跑（setTimeout 已安排续跑）全部不收尾——
+ * 那些路径已由 showPausePanel / 续跑窗口接管决策，此时标记「全部完成」会把
+ * 未完成的计划谎报为完成（planFinish 同步 plan_update 'done' 落库，回滚入口
+ * 也随之失效）。
+ * 修复（对抗复审）：原以 try 块级 finished 为条件——熔断/预算/截断路径均置
+ * finished=true 后 break，收尾块全部误触发（反例：registerToolSig 命中 →
+ * finished=true → 计划被标「✓ N 步全部完成」）。finished 语义是「循环以确定
+ * 性原因终止（非 60 轮上限）」，与「正常跑完」不是一回事，故分离 naturalDone。
+ * 抽为模块级函数：vm 沙箱可单测（原内联在 runAgentLoop 的 try 内不可抽取）。 */
+function planFinishIfNatural(userStopped, naturalDone) {
+  if (userStopped || !naturalDone) return;
+  if (typeof planCurrent === 'undefined' || !planCurrent || planCurrent.status !== 'running') return;
+  try {
+    (planCurrent.steps || []).forEach((x, i) => {
+      if (x.status === 'pending' || x.status === 'doing') planStepStatus(i, 'done');
+    });
+    if (typeof planFinish === 'function') {
+      planFinish('✓ ' + (planCurrent.steps || []).length + ' 步全部完成 · 校验通过 · 0 个未决事项');
+    }
+  } catch (e) {}
+}
+
 async function runAgentLoop(s, apiKey) {
   isStreaming = true;   // 修复 S20：同步置位移到最前（原在两个 await 之后，快速双发可起双循环）
   // 修复（2026-10-18）：暂停标志。原 abortController.abort() 只中止 fetch 流，
@@ -8385,6 +8450,7 @@ async function runAgentLoop(s, apiKey) {
     else if (!isGlmEndpoint()) addSysTip(currentEndpointName() + ' / ' + currentModel);
 
     let finished = false;
+    let naturalDone = false;   // 仅「AI 回复无工具调用」正常终结置位（熔断/暂停/截断续跑/60轮上限均保持 false）——计划收尾的专用判据
     const readFileSet = new Set(s._readKeys || []);   // 会话级持久化已读记录
     const listDirsSet = new Set();
     const cmdDeduper = (() => {
@@ -8842,6 +8908,10 @@ async function runAgentLoop(s, apiKey) {
             finished = true;
             // 修复 S18：原直接调 continueLastGeneration 是死调用——isStreaming 尚未复位，首行守卫即 return。
             // 改 setTimeout 延续跑：finally 复位 isStreaming 之后才触发，截断输出真正自动继续。
+            // 修复（建议14 残余）：350ms 硬编码改 MOTION 令牌——续跑窗口 = 组件入场时长
+            // ×2（finally 同步复位 isStreaming 后的一帧缓冲；fx-off 下 comp=1ms → 窗口
+            // 2ms 立即续跑，与「关特效不拖节奏」一致）。typeof 守卫保 vm 沙箱可测。
+            const _resumeWin = (typeof MOTION !== 'undefined' && MOTION.comp) ? MOTION.comp() * 2 : 400;
             setTimeout(() => {
               if (currentSessionId !== s.id) return;   // 修复 S7（二轮）：350ms 窗口内切了会话 → 不续跑（防跨会话串扰）
               if (isStreaming) {                        // 修复 W20（二轮）：窗口内用户发了新消息 → 不静默丢弃，补手动按钮
@@ -8854,7 +8924,7 @@ async function runAgentLoop(s, apiKey) {
               }
               s.autoResume = 0;   // 修复 建议㉗（二轮）：续跑成功后清零（原只在不续跑的 else 分支清零，自动续跑路径终身累积，第 5 次后本会话再无自动续跑）
               continueLastGeneration(s, apiKey);
-            }, 350);
+            }, _resumeWin);
             break;
           } else {
             s.autoResume = 0;
@@ -8867,6 +8937,7 @@ async function runAgentLoop(s, apiKey) {
         }
         if (!fullContent) mdBody.innerHTML = '';   // 修复 ㉙：空回复不再残留「正在输入」动画
         finished = true;
+        naturalDone = true;   // 正常跑完：无工具调用 = 任务自然终结（计划收尾的唯一放行路径）
         break;
       }
       mdBody.innerHTML = fullContent ? renderMd(fullContent) : '';
@@ -9130,18 +9201,10 @@ async function runAgentLoop(s, apiKey) {
     }
     /* v1.8.0 M3：计划正常跑完 → 收尾摘要 + 回滚入口
      * 修复：原在 catch 内引用 try 块级 let finished——越域 ReferenceError，
-     * 且错误路径也会误跑收尾。移到 try 内 for 循环结束之后（renderSessionList() 之后）。 */
-    if (!userStopped && finished && typeof planCurrent !== 'undefined' && planCurrent &&
-        planCurrent.status === 'running') {
-      try {
-        (planCurrent.steps || []).forEach((x, i) => {
-          if (x.status === 'pending' || x.status === 'doing') planStepStatus(i, 'done');
-        });
-        if (typeof planFinish === 'function') {
-          planFinish('✓ ' + (planCurrent.steps || []).length + ' 步全部完成 · 校验通过 · 0 个未决事项');
-        }
-      } catch (e) {}
-    }
+     * 且错误路径也会误跑收尾。移到 try 内 for 循环结束之后（renderSessionList() 之后）。
+     * 再修（对抗复审）：判据从 finished 改为 naturalDone——finished 在熔断/预算/
+     * 截断续跑路径同样为 true（详见 planFinishIfNatural 注释）。 */
+    planFinishIfNatural(userStopped, naturalDone);
     if (userStopped && aiContent) {
       // 修复（2026-10-18）：工具执行阶段暂停（无 AbortError）的收尾提示
       const note = document.createElement('div');
@@ -11006,7 +11069,10 @@ function guardGrantInit() {
   guardGrantWire();
   guardGrantRefreshStatus();
   guardGrantRulesRefresh();
-  guardGrantStartTimers();
+  // 修复（建议12）：原此处无条件 guardGrantStartTimers()——ggActive=false（无授权）
+  // 时 1s 倒计时定时器 + 30s 校准定时器永久空转（guardGrantTick 虽早退，但每 30s
+  // 仍发一次 guard_task_status RPC，进程生命周期内永不停止）。改由
+  // guardGrantRefreshStatus 按 active 态启停（grant 创建/校准为 active 时再启）。
   return true;
 }
 function guardGrantWire() {
@@ -11033,7 +11099,9 @@ function guardGrantWire() {
   if (add) add.addEventListener('click', () => guardGrantRuleAdd());
 }
 
-/* ---------- 倒计时（本地 1s 递减 + 30s status 校准） ---------- */
+/* ---------- 倒计时（本地 1s 递减 + 30s status 校准） ----------
+ * 修复（建议12）：定时器生命周期绑定 ggActive——无授权时停（校准/倒计时都无意义），
+ * guard 创建成功或校准发现 active 时启。guardGrantStartTimers/StopTimers 均幂等。 */
 function guardGrantStartTimers() {
   if (ggCountdownTimer || typeof setInterval === 'undefined') return;
   ggCountdownTimer = setInterval(guardGrantTick, GG_COUNTDOWN_MS);
@@ -11077,6 +11145,10 @@ async function guardGrantRefreshStatus(calibrate) {
       if (prevActive && !ggActive) {
         ggToast('任务授权已到期/收回，后续操作将逐项确认', 'warn');
       }
+      // 修复（建议12）：按 active 态启停定时器——无授权（idle/到期/收回）时停掉
+      // 1s 倒计时 + 30s 校准，不再永久空转；active 时确保在跑（校准可能来自
+      // 外部授予路径）。
+      if (ggActive) guardGrantStartTimers(); else guardGrantStopTimers();
       guardGrantRenderIndicator();
       ggState = 'success';
     } else {
@@ -11152,6 +11224,7 @@ async function guardGrantCreate() {
       ggGrantId = d.grant_id || null;
       ggRemaining = parseInt(d.remaining_s || 0, 10) || 0;
       ggExpiringSoon = !!d.expiring_soon;
+      guardGrantStartTimers();   // 修复（建议12）：grant 创建成功 → 启动倒计时/校准（此前依赖 init 的一次性启动，revoke 后再 grant 无定时器）
       guardGrantRenderIndicator();
     } else {
       ggToast('授权失败: ' + ((d && d.error) || '未知错误'), 'err');
@@ -11172,6 +11245,7 @@ async function guardGrantRevoke() {
       ggActive = false;
       ggGrantId = null;
       ggRemaining = 0;
+      guardGrantStopTimers();   // 修复（建议12）：收回即停定时器（无授权态不再空转/轮询）
       guardGrantRenderIndicator();
     } else {
       ggToast('收回失败: ' + ((d && d.error) || '未知错误'), 'err');
@@ -11811,7 +11885,11 @@ async function obTestKey() {
   const input = obRoot.querySelector('#obKey');
   const stat = obRoot.querySelector('#obKeyStat');
   const key = input ? String(input.value || '').trim() : '';
-  if (!key) { if (stat) { stat.textContent = '请先填入 Key'; stat.className = 'ob-keystat err'; } return; }
+  // 修复（对抗复审）：免 Key 判据与 connectTestNow 的 key_required 对齐——本地系
+  // 预设（ollama/lmstudio/…）不要求 Key；原恒判空 key 让本地用户看到误导性的
+  // 「请先填入 Key」（应走 obLocal 链接或直接放行测试）。
+  const _obLocal = (typeof connectIsLocalPreset === 'function') ? !!connectIsLocalPreset() : false;
+  if (!key && !_obLocal) { if (stat) { stat.textContent = '请先填入 Key'; stat.className = 'ob-keystat err'; } return; }
   if (_obTestBusy) return;   // 防连点：测试进行中忽略重复点击
   if (stat) { stat.textContent = '正在测试连接…'; stat.className = 'ob-keystat'; }
   // 写入既有 Key 字段（复用设置连接块的保存链）
@@ -11820,13 +11898,20 @@ async function obTestKey() {
   if (typeof queueSaveConfig === 'function') queueSaveConfig();
   _obTestBusy = true;
   try {
-    // 修复：原调全局不存在的 testProviderConnection——typeof 恒 false，恒走
-    // else 分支假报「已保存（测试连接入口不可用）」。改调真实通道
-    // test_provider_endpoint（Key 已入 #apiKey 并 queueSaveConfig，后端按配置
-    // 取钥；云端口径同 36-connect connectTestNow：[base, key, model, 15, false]）。
+    // 修复（对抗复审）：原调 test_provider_endpoint 时第二参恒传 ''（key）、
+    // local 恒 false——① 云端预设下后端 provider test_endpoint 对空 key 直接
+    // 返回「缺少 API Key」，测试恒失败（round5「真实测试通道」修复引入了键值
+    // 断线；原注释「后端按配置取钥」不成立：queueSaveConfig 有 400ms 防抖，
+    // 测试调用时 config 尚未落盘，且后端签名本就以入参为准）；
+    // ② 本地系预设（ollama 等免 Key）传 local=false 会走云端分支（空 key 401 /
+    // 15s 超时），而 connectTestNow 的口径是 local ? 30 : 15 秒 + local ? 90s :
+    // 20s 桥超时。此处与 36-connect connectTestNow 逐字段对齐。
     const base = (typeof connectBaseUrl === 'function') ? connectBaseUrl() : '';
     const model = (typeof connectModelValue === 'function') ? connectModelValue() : '';
-    const raw = await callApi('test_provider_endpoint', [base, '', model, 15, false], 20000);
+    const key = (typeof connectApiKeyInput === 'function') ? connectApiKeyInput() : '';
+    const local = (typeof connectIsLocalPreset === 'function') ? !!connectIsLocalPreset() : false;
+    const raw = await callApi('test_provider_endpoint',
+      [base, local ? '' : key, model, local ? 30 : 15, local], local ? 90000 : 20000);
     const d = JSON.parse(raw || '{}');
     if (d && d.ok) {
       if (stat) { stat.textContent = '✓ 连接成功'; stat.className = 'ob-keystat ok'; }
@@ -12833,6 +12918,23 @@ function ipEl(id) {
   return (typeof document !== 'undefined') ? document.getElementById(id) : null;
 }
 
+/* ---- 自定义模型库（localStorage：harbor_custom_models；config.json 零污染） ---- */
+const CN_MODELS_KEY = 'harbor_custom_models';
+function ipCustomModels() {
+  try { return JSON.parse(localStorage.getItem(CN_MODELS_KEY) || '[]').filter(x => typeof x === 'string'); }
+  catch (e) { return []; }
+}
+function ipCustomSave(list) {
+  try { localStorage.setItem(CN_MODELS_KEY, JSON.stringify(list)); } catch (e) {}
+}
+function ipCustomAdd(name) {
+  const list = ipCustomModels();
+  if (list.indexOf(name) === -1) { list.unshift(name); ipCustomSave(list); }
+}
+function ipCustomRemove(name) {
+  ipCustomSave(ipCustomModels().filter(x => x !== name));
+}
+
 /* ---------- 「+」附件菜单 ---------- */
 function ipPlusToggle() {
   const pop = ipEl('atPop');
@@ -12885,36 +12987,91 @@ function ipModelRender() {
   if (!pop) return;
   const sel = ipEl('modelSelect');
   const cur = sel ? sel.value : '';
+  const esc = (t) => (typeof escapeHtml === 'function' ? escapeHtml(String(t)) : String(t));
+  // 预设/识别模型（来自设置区模型流）
   let rows = '';
   if (sel) {
     for (const opt of sel.options) {
+      if (opt.value && ipCustomModels().indexOf(opt.value) !== -1) continue;   // 自定义项不重复列
       rows += '<button type="button" class="mc-item' + (opt.value === cur ? ' on' : '') +
         '" data-val="' + String(opt.value).replace(/"/g, '&quot;') + '">' +
-        '<span class="mc-name">' + (typeof escapeHtml === 'function' ? escapeHtml(opt.textContent) : opt.textContent) + '</span>' +
+        '<span class="mc-name">' + esc(opt.textContent) + '</span>' +
         (opt.value === cur ? '<span class="mc-check">✓</span>' : '') + '</button>';
     }
   }
-  if (!rows) rows = '<div class="mc-empty">暂无模型，请先在设置中识别</div>';
-  pop.innerHTML = '<div class="mc-pop-head">选择模型</div><div class="mc-list">' + rows + '</div>' +
+  if (!rows) rows = '<div class="mc-empty">暂无预设模型，请先在设置中识别</div>';
+  // 自定义模型区（可删）
+  const customs = ipCustomModels();
+  const customRows = customs.map(m =>
+    '<div class="mc-item' + (m === cur ? ' on' : '') + '" data-val="' + esc(m) + '">' +
+      '<span class="mc-name">' + esc(m) + '</span>' +
+      (m === cur ? '<span class="mc-check">✓</span>' : '') +
+      '<button type="button" class="mc-del" data-del="' + esc(m) + '" title="删除该自定义模型">✕</button>' +
+    '</div>').join('');
+  // 手动输入行（点击展开输入框）
+  const manual = '<div class="mc-manual-row" id="mcManualRow">' +
+    '<button type="button" class="mc-item mc-add" id="mcAddBtn"><span class="mc-name">＋ 手动输入模型名…</span></button>' +
+    '<div class="mc-add-form" id="mcAddForm" style="display:none;">' +
+      '<input type="text" id="mcAddInput" placeholder="模型名，回车确认（如 deepseek-v4.1）" spellcheck="false">' +
+    '</div></div>';
+  pop.innerHTML = '<div class="mc-pop-head">选择模型</div>' +
+    '<div class="mc-list">' + rows + '</div>' +
+    (customs.length ? '<div class="mc-sec">自定义模型</div><div class="mc-list mc-custom-list">' + customRows + '</div>' : '') +
+    manual +
     '<button type="button" class="mc-config">配置自定义模型 →</button>';
-  pop.querySelectorAll('.mc-item').forEach(btn => {
-    btn.addEventListener('click', () => {
+
+  // 选择（预设区 + 自定义区共用）
+  pop.querySelectorAll('.mc-item[data-val]').forEach(btn => {
+    if (btn.classList.contains('mc-add')) return;
+    btn.addEventListener('click', (e) => {
+      if (e.target.closest && e.target.closest('.mc-del')) return;
       const val = btn.getAttribute('data-val');
       if (sel) {
         sel.value = val;
-        // 触发设置的 onchange 语义（若有绑定函数）——保持与设置区行为一致
-        if (typeof onModelChange === 'function') { try { onModelChange(val); } catch (e) {} }
+        if (typeof onModelChange === 'function') { try { onModelChange(val); } catch (err) {} }
       }
       ipModelRefresh();
       pop.classList.remove('on');
     });
   });
+  // 删除自定义模型
+  pop.querySelectorAll('.mc-del').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      ipCustomRemove(btn.getAttribute('data-del'));
+      ipModelRender();   // 重渲染（删除后若当前模型被删不切状态——仅从库移除）
+    });
+  });
+  // 手动输入：展开 → 回车加入并选用
+  const addBtn = ipEl('mcAddBtn'), addForm = ipEl('mcAddForm'), addInput = ipEl('mcAddInput');
+  if (addBtn && addForm && addInput) {
+    addBtn.addEventListener('click', () => {
+      addForm.style.display = '';
+      addInput.focus();
+    });
+    const commit = () => {
+      const v = addInput.value.trim();
+      if (!v) { addForm.style.display = 'none'; return; }
+      ipCustomAdd(v);
+      if (sel) {
+        sel.value = v;
+        if (typeof onModelChange === 'function') { try { onModelChange(v); } catch (err) {} }
+      }
+      ipModelRefresh();
+      ipModelRender();
+      addInput.value = '';
+      addForm.style.display = 'none';
+    };
+    addInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); commit(); } });
+    addInput.addEventListener('blur', () => { if (!addInput.value.trim()) addForm.style.display = 'none'; });
+  }
   const cfg = pop.querySelector('.mc-config');
   if (cfg) cfg.addEventListener('click', () => {
     pop.classList.remove('on');
     ipGotoModelSettings();
   });
 }
+
 /** 跳设置「连接与模型」块：切面板 → 滚动入视 → 一次性闪光定位。 */
 function ipGotoModelSettings() {
   if (typeof switchPanel === 'function') switchPanel('settings');
@@ -13809,6 +13966,7 @@ function newSession() {
   attachments = [];
   guardTrusted.clear();               // v1.2 R2：会话级信任随会话结束失效
   mcpTrusted.clear();                 // 修复 W26：MCP 会话信任同步清空（文案「本会话内不再提示」原本被当成进程级永久信任）
+  agentTrusted.clear();               // 修复（对抗复审）：Agent 工具族（browser_/software_）会话信任同步清空——后端 set_current_sid(null) 亦清空会话信任态（guard_service.clear_session_trust），前端不清则「登记失败不进 Set」修复仍会留下跨会话残留信任
   renderPreview();
   document.getElementById('chatContainer').innerHTML =
     `<div class="empty-state" id="emptyState">
@@ -13837,6 +13995,7 @@ function switchSession(id, silent) {
   attachments = [];
   guardTrusted.clear();               // v1.2 R2：会话级信任随会话切换失效
   mcpTrusted.clear();                 // 修复 W26：与文案「本会话内不再提示」对齐，切会话即失效
+  agentTrusted.clear();               // 修复（对抗复审）：Agent 工具族会话信任同步清空（后端 set_current_sid 检测 sid 变化即清空会话信任态，两侧对齐）
   renderPreview();
   // v4：切会话容器级过渡——先 .swapping 淡出（140ms in-soft），重建历史后再淡入（200ms out-soft）；
   // boot 首次（silent）与 fx-off/reduced-motion 降级直接重建，避免开屏空容器闪一下
@@ -14003,15 +14162,37 @@ function exportSessionMd(id, e) {
   })();
 }
 
+/* 删除会话（真删：sessions + ws 绑定 + plan + checkpoint）。
+ * 修复（对抗复审）：
+ * ① stopPropagation typeof 守卫——程序调用 deleteSession(id)（无事件对象）时
+ *    原裸 e.stopPropagation() 直接 NPE；
+ * ② 原「新版真删覆盖」monkey-patch 模式（文件尾部 deleteSession = async
+ *    function…）把带守卫的新版叠在被覆盖的旧声明上，旧声明（裸 NPE + 无 purge）
+ *    成为死代码但保留在盘——任何直接引用旧绑定的路径（_origDeleteSession 别名/
+ *    未来重构）都会复活无守卫版本。现合并为单一函数声明，消灭双定义。 */
 async function deleteSession(id, e) {
-  e.stopPropagation();
+  if (e && typeof e.stopPropagation === 'function') e.stopPropagation();
   if (isStreaming && id === currentSessionId) { toast('正在生成回复，请先停止', 'warn'); return; }
-  const r = await uiConfirm({ title: '删除对话', body: '确定删除这条对话？该操作不可恢复。', danger: true, okText: '删除' });
+  const r = await uiConfirm({ title: '删除对话', body: '确定彻底删除这条对话？历史条目、工作区绑定、计划与检查点快照都将真删除，不可恢复。', danger: true, okText: '彻底删除' });
   if (!r.ok) return;
-  sessions = sessions.filter(s => s.id !== id);
+  const s = sessions.find(x => x.id === id) || {};
+  const taskIds = (s.plan && s.plan.task_id) ? JSON.stringify([s.plan.task_id]) : '[]';
+  sessions = sessions.filter(x => x.id !== id);
   rememberDeletedSession(id);   // 修复 W24（二轮）：删除墓碑（防后端写失败后合并复活）
   saveSessions();
   callApi('delete_session_ws', [id]).catch(() => {});
+  callApi('session_purge', [id, taskIds], 30000).then(raw => {
+    try {
+      const r2 = JSON.parse(raw || '{}');
+      const rm = (r2 && r2.removed) || {};
+      const bits = [];
+      if (rm.sessions) bits.push('历史条目');
+      if (rm.ws) bits.push('工作区绑定');
+      if (rm.plans) bits.push('计划');
+      if (rm.checkpoints) bits.push('检查点');
+      if (bits.length) toast('已真删：' + bits.join('、'), 'ok');
+    } catch (e2) { /*  purge 结果解析失败不打扰（列表已更新） */ }
+  }).catch(() => {});
   if (currentSessionId === id) newSession();
   else renderSessionList();
 }
@@ -14122,6 +14303,12 @@ function _shortDir(d) {
 }
 /* hdSave 防连点闸门（保存期间忽略重复点击并禁用面板按钮） */
 let _hdBusy = false;
+/* 修复（建议14 残余）：面板「成功提示停留后自动关闭」延时不硬编码毫秒——
+ * 以 MOTION.comp()（组件入场令牌，默认 200ms）为基元取倍数：保存成功停留
+ * 4×（默认 800ms）、恢复默认 3×（默认 600ms），语义=「让用户读完一行结果」；
+ * fx-off 下 comp=1ms → 倍增值同样趋 0，立即关闭（关特效不拖节奏）。
+ * typeof 守卫：vm 单模块沙箱未加载 00-motion 时回落原字面量。 */
+const _hdLingerMs = (mult) => (typeof MOTION !== 'undefined' && MOTION.comp) ? MOTION.comp() * mult : 200 * mult;
 function showHistoryDirPanel() {
   if (document.getElementById('historyDirMask')) return;
   const mask = document.createElement('div');
@@ -14172,7 +14359,7 @@ function showHistoryDirPanel() {
       if (raw.error) { say(raw.error, false); return; }
       say(raw.migrated ? '已保存并迁移旧历史' : '已保存', true);
       refreshHistoryFoot();
-      setTimeout(() => mask.remove(), 800);
+      setTimeout(() => mask.remove(), _hdLingerMs(4));
     } catch (e) { say('保存失败: ' + (e.message || e), false); }
     finally { _hdBusy = false; _hdBtns.forEach(b => { b.disabled = false; }); }
   });
@@ -14181,42 +14368,16 @@ function showHistoryDirPanel() {
       await callApi('history_dir_set', ['', false], 20000);
       say('已恢复默认目录', true);
       refreshHistoryFoot();
-      setTimeout(() => mask.remove(), 600);
+      setTimeout(() => mask.remove(), _hdLingerMs(3));
     } catch (e) { say('恢复失败', false); }
   });
   document.getElementById('hdClose').addEventListener('click', () => mask.remove());
   mask.addEventListener('click', (e) => { if (e.target === mask) mask.remove(); });
 }
-/* 真删：deleteSession 增加 session_purge 后端调用（sessions+ws+plan+checkpoint）。
- * 前端 filter + saveSessions 后调 purge 保底——后端写失败也不留残留。 */
-const _origDeleteSession = deleteSession;
-deleteSession = async function (id, e) {
-  // 修复：新版真删覆盖丢失原守卫——补回 stopPropagation 与流式拦截
-  if (e && typeof e.stopPropagation === 'function') e.stopPropagation();
-  if (isStreaming && id === currentSessionId) { toast('正在生成回复，请先停止', 'warn'); return; }
-  const r = await uiConfirm({ title: '删除对话', body: '确定彻底删除这条对话？历史条目、工作区绑定、计划与检查点快照都将真删除，不可恢复。', danger: true, okText: '彻底删除' });
-  if (!r.ok) return;
-  const s = sessions.find(x => x.id === id) || {};
-  const taskIds = (s.plan && s.plan.task_id) ? JSON.stringify([s.plan.task_id]) : '[]';
-  sessions = sessions.filter(x => x.id !== id);
-  rememberDeletedSession(id);
-  saveSessions();
-  callApi('delete_session_ws', [id]).catch(() => {});
-  callApi('session_purge', [id, taskIds], 30000).then(raw => {
-    try {
-      const r2 = JSON.parse(raw || '{}');
-      const rm = (r2 && r2.removed) || {};
-      const bits = [];
-      if (rm.sessions) bits.push('历史条目');
-      if (rm.ws) bits.push('工作区绑定');
-      if (rm.plans) bits.push('计划');
-      if (rm.checkpoints) bits.push('检查点');
-      if (bits.length) toast('已真删：' + bits.join('、'), 'ok');
-    } catch (e2) { /*  purge 结果解析失败不打扰（列表已更新） */ }
-  }).catch(() => {});
-  if (currentSessionId === id) newSession();
-  else renderSessionList();
-};
+/* 真删：session_purge 后端调用已并入上方 deleteSession 主体（sessions+ws+plan+
+ * checkpoint）。原文件尾部的「const _origDeleteSession = deleteSession;
+ * deleteSession = async function…」monkey-patch 覆盖模式已删除（对抗复审）：
+ * 双定义让无守卫的旧声明成为潜伏死代码，单一函数声明 + typeof 守卫是终态。 */
 
 /* ===== 90-attachments.js ===== */
 /* ================= 附件 ================= */
@@ -15114,6 +15275,14 @@ function setupContextMenu() {
   });
   document.addEventListener('click', hideMenu);
   window.addEventListener('scroll', hideMenu, true);
+  // 修复（对抗复审）：Esc 关闭右键菜单。10-custom-select 的浮层守卫只保证
+  // 「浮层打开时 Esc 不误 abort 流式」，但 ctxMenu 无自有 Esc 处理器时 Esc 被
+  // 消费后菜单不关（_closeModal 无 modalRoot 时 no-op）——「Esc 关闭浮层」
+  // 契约对 ctxMenu 只兑现一半。此处补「关」的另一半（与 63-search-panel /
+  // 38-ws-quick 的 Esc 处理同惯例）。
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && menu.classList.contains('show')) hideMenu();
+  });
 }
 
 /* ===== 110-boot.js ===== */
