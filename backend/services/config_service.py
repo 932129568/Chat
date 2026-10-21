@@ -148,3 +148,49 @@ class ConfigService:
             return '{"ok":true}'
         except Exception as e:
             return err(e)
+
+    def delete_memory(self, index):
+        """实现 v1.8.0 W11：删除 memory.json 数组第 index 条（0 起；原子写）。
+
+        边界校验不静默夹逼：bool/None/float 等非整数形态与越界下标一律
+        {'error': {'code': 'BAD_PARAMS', ...}}（数字字符串按 int 解析）；
+        memory.json 损坏（非数组）→ BAD_PARAMS 结构异常人话。
+        成功返回 {'ok': True, 'index': idx, 'remaining': N}。"""
+        try:
+            idx = self._coerce_index(index)
+        except (TypeError, ValueError) as e:
+            return {'error': {'code': 'BAD_PARAMS', 'message': str(e),
+                              'hint': '传入要删除的记忆序号（从 0 开始）'}}
+        try:
+            with self._lock:
+                items = json.loads(self.get_memory())
+                if not isinstance(items, list):
+                    return {'error': {'code': 'BAD_PARAMS',
+                                      'message': '记忆文件结构异常（不是数组），暂不能删除',
+                                      'hint': '可手工编辑 ~/.glm-chat/memory.json 修复'}}
+                if idx < 0 or idx >= len(items):
+                    return {'error': {'code': 'BAD_PARAMS',
+                                      'message': '序号越界：当前共 %d 条记忆' % len(items),
+                                      'hint': '刷新列表后重试；序号从 0 开始'}}
+                items.pop(idx)
+                atomic_write_json(paths.MEMORY_PATH, items)
+                return {'ok': True, 'index': idx, 'remaining': len(items)}
+        except Exception as e:
+            self._log.warning('记忆删除失败: %r', e)
+            return {'error': {'code': 'INTERNAL', 'message': str(e)}}
+
+    @staticmethod
+    def _coerce_index(index):
+        """下标归一：bool 是 int 子类须显式排除；float 一律拒绝（不静默截断）；
+        字符串按 int 解析（解析失败给人话，不漏 Python 内部异常串）。"""
+        if index is None or isinstance(index, bool):
+            raise ValueError('序号需要是整数')
+        if isinstance(index, int):
+            return index
+        if isinstance(index, str):
+            s = index.strip()
+            try:
+                return int(s)
+            except ValueError:
+                raise ValueError('序号需要是整数（收到 %r）' % s[:32])
+        raise ValueError('序号需要是整数')

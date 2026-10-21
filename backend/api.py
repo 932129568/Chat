@@ -91,6 +91,9 @@ _V12_EXTRA = frozenset({
     'plan_create', 'plan_get', 'plan_update', 'plan_list',
     'checkpoint_create', 'checkpoint_rollback', 'checkpoint_list',
     'clarify_collect',
+    # v1.8.0 W11 域·记忆 UI（1 个；删 memory.json 第 index 条，边界校验
+    # 不静默夹逼；get_api_info 零漂移同款隐身）
+    'memory_delete',
 })
 
 
@@ -363,6 +366,23 @@ class Api:
 
     def append_memory(self, entry_json):
         return self._config.append_memory(entry_json)
+
+    def memory_delete(self, index):
+        """实现 v1.8.0 W11：删除 memory.json 数组第 index 条（记忆面板「删除」按钮）。
+
+        边界校验不静默夹逼：index 非整数（bool/None/float/非数字串）或越界
+        → {ok:false, error:{code:BAD_PARAMS, message, hint}}；删除成功返回
+        {ok:true, remaining:N}。审计 op=memory_delete（成功 decision=deleted，
+        拒绝 decision=block + code）——与 guard 家族同一审计口径。"""
+        r = self._config.delete_memory(index)
+        if r.get('error'):
+            self._guard.audit('memory_delete', {'index': str(index)}, 'block',
+                              r['error'].get('code', 'BAD_PARAMS'))
+            return ok({'ok': False, 'error': r['error']})
+        self._guard.audit('memory_delete',
+                          {'index': r.get('index'), 'remaining': r.get('remaining')},
+                          'ok', 'deleted')
+        return ok({'ok': True, 'remaining': r.get('remaining', 0)})
 
     def set_current_sid(self, sid):
         prev = self._runtime.get_current_sid()

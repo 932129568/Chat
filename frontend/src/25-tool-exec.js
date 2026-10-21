@@ -155,7 +155,16 @@ async function executeTool(name, args) {
   const ms = performance.now() - t0;
   try {
     const d = JSON.parse(result);
-    if (d && typeof d === 'object' && !d.__ms) { d.__ms = Math.round(ms); return JSON.stringify(d); }
+    if (d && typeof d === 'object' && !d.__ms) {
+      d.__ms = Math.round(ms);
+      // V1 前端孪生（v1.8.0 §6）：出口附 _validation verdict（只提示不拦截；
+      // 60-agent-loop 渲染「⚠ 校验存疑」徽标）。挂起态（suspended）不附——
+      // 接管流由 browserToolWrapCaptcha/harborTakeoverNotify 专责。
+      if (d.suspended !== true && typeof toolValidateResult === 'function') {
+        d._validation = toolValidateResult(name, d);
+      }
+      return JSON.stringify(d);
+    }
   } catch (e) { /* 非 JSON 返回：保持原样，图表侧按无耗时处理 */ }
   return result;
 }
@@ -172,4 +181,82 @@ function browserToolWrapCaptcha(raw) {
     }
   } catch (e) { /* 非 JSON：原样返回 */ }
   return raw;
+}
+
+/* ================= V1 结果校验框架·前端孪生（v1.8.0 迭代方案 §6 P1）=================
+ * 与后端 backend/services/tool_validator.py 同口径的轻量 verdict：工具结果出口
+ * （executeTool）统一附 _validation 字段，60-agent-loop 在工具条目渲染「⚠ 校验
+ * 存疑」徽标 + suggestion 文案。**只提示不拦截**——重试决策在 Agent/用户。
+ * 覆盖四类高频工具：search / open / command / generic（file/software 由后端
+ * validator 承载，前端孪生保底 generic 结构校验）。
+ */
+var V1_STOPWORDS = { 'the':1,'a':1,'an':1,'and':1,'or':1,'of':1,'to':1,'in':1,'on':1,'for':1,'with':1 };
+function _v1Tokens(text) {
+  const t = String(text || '').toLowerCase();
+  const words = (t.match(/[a-z0-9_\.\-\+]{2,}/g) || []).filter(w => !V1_STOPWORDS[w]);
+  const bigrams = [];
+  const cjk = t.match(/[\u4e00-\u9fff]{2,}/g) || [];
+  cjk.forEach(seg => { for (let i = 0; i < seg.length - 1; i++) bigrams.push(seg.slice(i, i + 2)); });
+  return words.concat(bigrams);
+}
+function _v1Relevance(query, texts) {
+  const q = _v1Tokens(query);
+  if (!q.length) return 0.5;
+  const corpus = new Set();
+  (texts || []).forEach(t => _v1Tokens(t).forEach(x => corpus.add(x)));
+  if (!corpus.size) return 0;
+  const hit = q.filter(x => corpus.has(x)).length;
+  return hit / q.length;
+}
+function _v1Verdict(ok, kind, confidence, reason, retryable, suggestion) {
+  return { ok: !!ok, kind: kind, confidence: Math.round(confidence * 1000) / 1000,
+           reason: reason, retryable: !!retryable, suggestion: suggestion || '' };
+}
+function toolValidateResult(name, result) {
+  try {
+    const tool = String(name || '').toLowerCase();
+    const d = (typeof result === 'string') ? JSON.parse(result || '{}') : (result || {});
+    if (tool === 'browser_search' || tool === 'web_search') {
+      const rs = d.results || [];
+      if (!rs.length) return _v1Verdict(false, 'empty', 0, '搜索结果为空', true, '换引擎或放宽检索条件重试');
+      const valid = rs.filter(x => x && x.title && x.url);
+      if (!valid.length) return _v1Verdict(false, 'malformed', 0.1, '结果缺少标题或链接', true, '更换引擎重试');
+      const rel = _v1Relevance(d.query || '', valid.map(x => String(x.title || '') + ' ' + String(x.snippet || '')));
+      if (rel >= 0.34) return _v1Verdict(true, 'ok', Math.min(1, 0.5 + rel), '结果有效且相关');
+      if (rel >= 0.12) return _v1Verdict(true, 'thin', rel, '相关度偏低（' + Math.round(rel * 100) + '%）', false, '可精简检索词重试');
+      return _v1Verdict(false, 'irrelevant', rel, '相关度不足（' + Math.round(rel * 100) + '%）', true, '精简检索词或换引擎重试');
+    }
+    if (tool === 'browser_open') {
+      const c = String(d.content || '');
+      if (d.ok === false) return _v1Verdict(false, 'failed', 0, '打开失败：' + (d.error || '未知'), false, '');
+      if (!c.trim()) return _v1Verdict(false, 'empty', 0, '未提取到正文', true, '换来源重试');
+      if (c.length < 120) return _v1Verdict(false, 'thin', c.length / 120, '正文过短（导航壳？）', true, '尝试其他结果链接');
+      return _v1Verdict(true, 'ok', Math.min(1, c.length / 4000), '正文有效（' + c.length + ' 字符）', false, '');
+    }
+    if (d.ok === false || d.error) {
+      return _v1Verdict(false, 'failed', 0, '工具报告错误：' + String(d.error || '未知').slice(0, 80), false, '');
+    }
+    if (!Object.keys(d).length) return _v1Verdict(true, 'thin', 0.4, '结果为空对象', false, '');
+    return _v1Verdict(true, 'ok', 0.7, '结果结构有效', false, '');
+  } catch (e) {
+    return _v1Verdict(true, 'thin', 0.3, '校验解析异常，按放行处理', false, '');
+  }
+}
+
+/* V1 渲染：verdict 存疑时在工具条目附「⚠ 校验存疑」徽标（只提示不拦截）。
+ * toolDiv 为 60-agent-loop 的 .tool-call-item；ok/thin-ok 不打扰（静默）。 */
+function harborRenderValidation(result, toolDiv) {
+  try {
+    const d = (typeof result === 'string') ? JSON.parse(result || '{}') : (result || {});
+    const v = d._validation;
+    if (!v || v.ok || !toolDiv) return;
+    const cls = v.kind === 'thin' ? 'warn' : 'fail';
+    toolDiv.classList.remove('done', 'fail', 'warn');
+    toolDiv.classList.add(cls);
+    const badge = document.createElement('span');
+    badge.className = 'tool-validation-badge';
+    badge.title = v.reason + (v.suggestion ? '；建议：' + v.suggestion : '');
+    badge.textContent = '⚠ ' + v.reason + (v.suggestion ? '（' + v.suggestion + '）' : '');
+    toolDiv.appendChild(badge);
+  } catch (e) { /* 渲染失败不影响主流程 */ }
 }

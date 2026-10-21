@@ -113,6 +113,13 @@ def humanize_http_error(status, body=''):
     if status == 403:
         return '无权访问该端点（Key 权限不足或 IP 限制）'
     if status == 404:
+        # 修复（2026-10-21 用户实测反馈）：同一 404 两种病因——Base URL 错 vs
+        # 模型已下线（GLM 等端点对下线模型返回 404 model not found，请求体带
+        # model）。按 body 特征分流，避免误导用户去查本来正确的 Base URL。
+        b = str(body or '').lower()
+        if 'model' in b and ('not' in b or 'exist' in b or '下线' in b or 'deprecat' in b):
+            return ('模型不存在或已下线：请更换模型（可点「获取模型」刷新清单，'
+                    '或手动输入其他模型名）')
         return '端点地址不存在（请检查 Base URL 是否需要 /v1 后缀）'
     if status == 429:
         return '请求过于频繁或余额不足'

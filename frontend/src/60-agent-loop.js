@@ -727,6 +727,7 @@ async function runAgentLoop(s, apiKey) {
           } else {
             readFileSet.add(fileKey);
             result = await executeTool(tc.name, args);
+            if (typeof harborRenderValidation === 'function') harborRenderValidation(result, toolDiv);
           }
         } else if (tc.name === 'read_file' && args.path) {
           // force=true 放行重读
@@ -738,6 +739,7 @@ async function runAgentLoop(s, apiKey) {
           } else {
             listDirsSet.add(dirKey);
             result = await executeTool(tc.name, args);
+            if (typeof harborRenderValidation === 'function') harborRenderValidation(result, toolDiv);
           }
         } else if (['run_command','run_powershell','run_admin_command','open_app'].includes(tc.name)) {
           // 修复 W9（三轮）：open_app 纳入前端去重（反复弹窗面的前端闸；后端 api.open_app 同步接入）
@@ -754,6 +756,7 @@ async function runAgentLoop(s, apiKey) {
             result = JSON.stringify({ info: dupTip, skipped: true });
           } else {
             result = await executeTool(tc.name, args);
+            if (typeof harborRenderValidation === 'function') harborRenderValidation(result, toolDiv);
             // 修复 W1（三轮）：执行失败/被护栏拒绝（error/skipped）回滚登记，合法重试不被误拦
             try { const d0 = JSON.parse(result); if (d0 && (d0.error || d0.skipped)) cmdDeduper.unmark(cmdKey); } catch (e) {}
             try { const d = JSON.parse(result); if (d.output) { d.output = compressCliOutput(d.output); result = JSON.stringify(d); } } catch (e) {}

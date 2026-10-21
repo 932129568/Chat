@@ -7,6 +7,11 @@
 const ERROR_HUMANIZE = [
   [/1113|余额不足.*coding|coding plan/i,
     'GLM Coding Plan 仅限官方指定工具使用，API 直连会报 1113。\n可行操作：① 在 bigmodel.cn 充值按量付费并使用平台 API Key；② 或切换到自定义 OpenAI 兼容端点（设置 → 模型服务商）。'],
+  // 修复（2026-10-21 用户实测）：模型已下线与端点地址错都是 404——先按模型特征
+  // 分流（GLM 等对下线模型返回 404 model not found，请求体带 model），避免误导
+  // 用户去查本来正确的 Base URL。顺序即优先级：具体模式必须在通用 404 前。
+  [/model[^\n]{0,24}(not\s+(found|exist)|不存在|已下线|下线|deprecat)|不存在[^\n]{0,4}模型/i,
+    '模型不存在或已下线：请更换模型（点「获取模型」刷新清单，或手动输入其他模型名）。'],
   [/\b401\b|invalid.*key|unauthorized/i, 'API Key 无效或未授权：请检查设置中的 Key 是否正确、是否属于所选服务商。'],
   [/\b403\b/i, '无权访问该端点（Key 权限不足或 IP 受限）。'],
   [/\b404\b/i, '端点地址不存在：请检查 Base URL（OpenAI 兼容端点通常需要 /v1 后缀）。'],

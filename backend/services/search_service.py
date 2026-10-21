@@ -533,15 +533,20 @@ class SearchService:
             self._set_phase(task_id, 'deep_extract', '正在读取正文…')
             deep = self._deep_extract(results)
 
-        # ---- V1 校验（结果非空 + 字段完整；不通过且可换引擎才 reformulate）----
+        # ---- V1 校验（tool_validator：非空 + 字段完整 + query 相关度；
+        #      不通过且 retryable 才 reformulate 换引擎）----
         self._set_phase(task_id, 'validating', '正在校验结果…')
+        from .tool_validator import get_validator
+        verdict = get_validator().validate_search(results, q_echo)
         valid = [r for r in results if r.get('title') and r.get('url')]
-        if not valid and retries_left > 0:
+        if not verdict.get('ok') and retries_left > 0 \
+                and get_validator().should_retry(verdict, _ENGINE_RETRY_MAX - retries_left):
             nxt = self._next_engine(engine)
             if nxt is not None:
                 self._set_phase(task_id, 'reformulate',
-                                '校验未过，正在切换 %s 重试（%d/2）'
-                                % (nxt, _ENGINE_RETRY_MAX - retries_left + 1))
+                                '校验未过（%s），正在切换 %s 重试（%d/2）'
+                                % (verdict.get('reason', ''), nxt,
+                                   _ENGINE_RETRY_MAX - retries_left + 1))
                 retry_url = build_query_url(nxt, {
                     'query': str(params.get('query') or ''),
                     'site': params.get('site'), 'filetype': params.get('filetype'),
