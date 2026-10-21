@@ -498,6 +498,12 @@ async function runAgentLoop(s, apiKey) {
             const _pr = usage.prompt_tokens || 0;
             window.__hitRate = _pr ? Math.round(_cached / _pr * 100) : 0;
             if (typeof navRenderHeaderStatus === 'function') navRenderHeaderStatus();   // 修复（四轮）：命中率 chip 随轮次刷新
+            // v1.8.0 W10：estTokens usage 回校校准（服务端真实 prompt_tokens vs
+            // 本地估算 → EMA 校准系数；只影响展示预估，不动压缩阈值）
+            if (_pr > 0 && typeof estTokensCalibrate === 'function'
+                && typeof historyTokens === 'function') {
+              try { estTokensCalibrate(_pr, historyTokens(s.messages)); } catch (e) {}
+            }
             if (_pr > 4000 && window.__hitRate < 30) {
               // v1.1.1：从 console 升级为界面可见（缓存命中约 3 折计费，命中率低等于多花钱）
               const _le = document.getElementById('liveTokenStat');

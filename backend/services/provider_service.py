@@ -100,10 +100,37 @@ class ProviderService:
                 hint = humanize_http_error(e.code, snippet)
                 # 429/1113 等账号侧错误：人话与服务端原文并列（用户可分辨是限流还是余额）
                 detail = ('%s；服务端返回：%s' % (hint, snippet[:160])) if (hint and snippet) else (hint or snippet)
-                return json.dumps({'ok': False, 'error': 'HTTP %d: %s' % (e.code, detail),
-                                   'status': e.code}, ensure_ascii=False)
+                out = {'ok': False, 'error': 'HTTP %d: %s' % (e.code, detail),
+                       'status': e.code}
+                # 修复（2026-10-21 用户实测 P0）：1211/404-model 时顺带拉取该 Key
+                # 的可用模型清单附在响应里——用户点一次「测试连接」就直接看到
+                # 「这些模型可用」，不用再去猜模型名（GLM 的 4xx 无 CORS 头，前端
+                # 发送路径看不到真因，这个后端通道是唯一信息入口）。
+                if '1211' in snippet or ('model' in snippet.lower()
+                                         and ('not' in snippet.lower() or '不存在' in snippet)):
+                    try:
+                        from .local_model_service import models as _list_models
+                        lst = _list_models(_models_base(url), timeout=8.0, api_key=str(api_key or ''))
+                        if lst.get('ok') and lst.get('models'):
+                            ids = [m['id'] for m in lst['models'] if m.get('id')][:20]
+                            if ids:
+                                out['available_models'] = ids
+                    except Exception:
+                        pass          # 清单拉取失败不掩盖原始错误
+                return json.dumps(out, ensure_ascii=False)
         except Exception as e:
             return json.dumps({'ok': False, 'error': '连接失败: %s' % e}, ensure_ascii=False)
+
+
+def _models_base(url):
+    """从 chat/completions URL 派生 models 清单 URL（剥 /chat/completions 与
+    既有 /models 后缀）——1211 救援附清单用。"""
+    u = str(url or '').rstrip('/')
+    if u.endswith('/chat/completions'):
+        u = u[:-len('/chat/completions')]
+    if u.endswith('/models'):
+        u = u[:-len('/models')]
+    return u + '/models'
 
 
 def humanize_http_error(status, body=''):
@@ -112,6 +139,13 @@ def humanize_http_error(status, body=''):
         return 'API Key 无效或未授权'
     if status == 403:
         return '无权访问该端点（Key 权限不足或 IP 限制）'
+    # 修复（2026-10-21 用户实测 P0）：GLM 1211 = 模型不存在/已下线/Key 无权限。
+    # 前端 fetch 对该 4xx 会因响应无 CORS 头被 EdgeWebView 吞成 Failed to fetch，
+    # 测试连接走后端通道是本环境下用户唯一能看到真因的入口——人话直接给换模型出路。
+    b = str(body or '').lower()
+    if '1211' in b or ('model' in b and ('无权限' in b or '未授权' in b or '不可用' in b)):
+        return ('模型不可用（GLM 1211）：该模型不存在、已下线，或当前 Key 无访问权限。'
+                '请点「获取模型」拉取可用清单换模型（如 glm-4.5），或切换到本地模型预设')
     if status == 404:
         # 修复（2026-10-21 用户实测反馈）：同一 404 两种病因——Base URL 错 vs
         # 模型已下线（GLM 等端点对下线模型返回 404 model not found，请求体带

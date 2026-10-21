@@ -7,16 +7,23 @@
 const ERROR_HUMANIZE = [
   [/1113|余额不足.*coding|coding plan/i,
     'GLM Coding Plan 仅限官方指定工具使用，API 直连会报 1113。\n可行操作：① 在 bigmodel.cn 充值按量付费并使用平台 API Key；② 或切换到自定义 OpenAI 兼容端点（设置 → 模型服务商）。'],
-  // 修复（2026-10-21 用户实测）：模型已下线与端点地址错都是 404——先按模型特征
-  // 分流（GLM 等对下线模型返回 404 model not found，请求体带 model），避免误导
-  // 用户去查本来正确的 Base URL。顺序即优先级：具体模式必须在通用 404 前。
+  // 修复（2026-10-21 用户实测 P0）：GLM 1211 = 模型不存在/已下线/Key 无权限。
+  // 实测链路：glm-5.3-flash → GLM 400 1211；该 4xx 响应无 CORS 头 → 前端 fetch
+  // 被 EdgeWebView 拦成「Failed to fetch」（真因被吞），后端测试连接才看得到
+  // 1211 原文。人话必须给「换模型」的明确出路。
+  [/\b1211\b|模型[^\n]{0,16}(不存在|未上线|已下线|已下架|无权限|未授权|不可用)|无权访问[^\n]{0,6}模型/i,
+    '模型不可用（GLM 1211）：该模型不存在、已下线，或当前 API Key 无访问权限。\n可行操作：① 设置 →「获取模型」拉取当前 Key 可用的模型清单，换一个（如 glm-4.5）；② 或手动输入其他模型名；③ 或切到「FreeToken Desktop / Ollama」本地预设用本地模型。'],
+  // 404 也要先按模型特征分流（GLM 等对下线模型返回 404 model not found）
   [/model[^\n]{0,24}(not\s+(found|exist)|不存在|已下线|下线|deprecat)|不存在[^\n]{0,4}模型/i,
     '模型不存在或已下线：请更换模型（点「获取模型」刷新清单，或手动输入其他模型名）。'],
   [/\b401\b|invalid.*key|unauthorized/i, 'API Key 无效或未授权：请检查设置中的 Key 是否正确、是否属于所选服务商。'],
   [/\b403\b/i, '无权访问该端点（Key 权限不足或 IP 受限）。'],
   [/\b404\b/i, '端点地址不存在：请检查 Base URL（OpenAI 兼容端点通常需要 /v1 后缀）。'],
   [/\b429\b|rate.?limit/i, '请求过于频繁或额度耗尽：\n① 智谱 GLM：请到 open.bigmodel.cn 检查账户余额与调用配额（免费层有 RPM/RPD 限制）；\n② 稍等 30-60 秒重试；③ 或切换其他服务商预设（设置 → 连接与模型）。'],
-  [/failed to fetch|networkerror|ENOTFOUND|timeout/i, '网络连接失败：检查网络或代理；GLM 端点在国内直连通常无需代理。'],
+  // 修复（2026-10-21）：Failed to fetch 在 GLM 云端场景常是「服务端 4xx 响应无
+  // CORS 头被浏览器吞」——先导用户去「测试连接」看真实返回，而不是一句「检查网络」
+  [/failed to fetch|networkerror|ENOTFOUND|timeout/i,
+    '请求被网络层拦截：\n① **先在设置里点「测试连接」**——服务端的真实错误（如模型不可用 1211）可能被浏览器安全策略吞掉，测试连接走后端通道能看到原文；\n② 若测试连接正常，再检查网络/代理；GLM 端点在国内直连通常无需代理。'],
 ];
 
 /* 修复 B4（v1.5）：local 模式错误分类口径（与后端 classify_local_error 同文案）——
@@ -108,16 +115,22 @@ function humanizeApiError(msg, isLocal, headers) {
   return raw;
 }
 
-/** 预估下一次请求费用（粗估：上下文字符数/1.7 ≈ token，加假定输出）。 */
+/** 预估下一次请求费用（v1.8.0 W10：上下文估算改 estTokens 分层采样 + usage
+ * 回校校准系数；无该函数时回落 chars/1.7 粗估）。 */
 function estimateNextCost(s) {
   let chars = 0;
+  let text = '';
   (s && s.messages ? s.messages : []).forEach(m => {
     const c = typeof m.content === 'string' ? m.content
       : Array.isArray(m.content) ? m.content.map(p => p.text || '').join('') : '';
+    text += c;
+    if (m.tool_calls) text += JSON.stringify(m.tool_calls);
     chars += c.length;
     if (m.tool_calls) chars += JSON.stringify(m.tool_calls).length;
   });
-  const inputTokens = Math.ceil(chars / 1.7);
+  const inputTokens = (typeof estTokensCalibrated === 'function')
+    ? estTokensCalibrated(text)
+    : Math.ceil(chars / 1.7);
   const outputTokens = 1024;   // 假定一轮输出
   const model = providerState.enabled ? (providerState.model || '') : (document.getElementById('modelSelect')?.value || 'glm-5.3-flash');
   const p = providerPriceFor(model);

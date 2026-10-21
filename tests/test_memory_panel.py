@@ -68,11 +68,11 @@ class TestMemoryDelete:
 
     def test_delete_audit_written(self, fresh_home):
         from backend.api import Api
-        from backend import paths
+        from backend.services.guard_service import AUDIT_LOG
         api = Api()
         api.append_memory(json.dumps({'text': 'y'}))
         json.loads(api.memory_delete(0))
-        log = paths.AUDIT_LOG
+        log = AUDIT_LOG
         assert os.path.exists(log)
         lines = io.open(log, encoding='utf-8').read().strip().splitlines()
         rec = [json.loads(x) for x in lines if 'memory_delete' in x]
@@ -81,12 +81,13 @@ class TestMemoryDelete:
 
     def test_delete_block_audit(self, fresh_home):
         from backend.api import Api
-        from backend import paths
+        from backend.services.guard_service import AUDIT_LOG
         api = Api()
         json.loads(api.memory_delete(0))          # 空 → 拒绝
-        lines = io.open(paths.AUDIT_LOG, encoding='utf-8').read().strip().splitlines()
+        lines = io.open(AUDIT_LOG, encoding='utf-8').read().strip().splitlines()
         rec = [json.loads(x) for x in lines if 'memory_delete' in x]
-        assert rec and rec[-1]['decision'] == 'block'
+        assert rec and rec[-1]['action'] == 'block'
+        assert rec[-1]['decision'] == 'BAD_PARAMS'
 
     def test_in_v12_extra(self):
         from backend.api import _V12_EXTRA

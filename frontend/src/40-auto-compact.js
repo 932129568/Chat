@@ -102,3 +102,47 @@ async function maybeAutoCompact(s) {   // 修复 ㊸：传会话对象（原传�
   }
   return true;
 }
+
+/* ================= v1.8.0 W10：estTokens usage 回校校准 =================
+ * 问题：静态系数（ascii/3.5 + 非ascii/1.8）对不同模型/语言比例有系统性偏差，
+ * 预估费用与压缩时机判定（后者不用本校准，见下）都会漂。
+ * 方案：流末 usage.prompt_tokens 到达时与本地 estTokens(上下文) 比对，
+ * EMA（α=0.3）平滑 + 钳制 [0.6, 1.8] + ≥3 样本才持久化（localStorage
+ * harbor_est_calib）——防单次异常 usage（如服务端计费口径差异）把系数打偏。
+ * **作用域纪律**：校准只作用于展示/预估（estTokensCalibrated → 费用预估），
+ * 压缩阈值判定（historyTokens）保持静态口径——压缩是功能逻辑，不能被校准
+ * 系数挪动阈值造成误压缩/漏压缩。 */
+const EST_CALIB_KEY = 'harbor_est_calib';
+const _estCalib = { ratio: 1, n: 0 };
+(function _estCalibLoad() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(EST_CALIB_KEY) || '{}');
+    if (saved && typeof saved.ratio === 'number' && typeof saved.n === 'number'
+        && saved.n >= 3) {
+      _estCalib.ratio = Math.min(1.8, Math.max(0.6, saved.ratio));
+      _estCalib.n = saved.n;
+    }
+  } catch (e) { /* 无存储/损坏：保持默认 1 */ }
+})();
+function estTokensCalibrate(real, est) {
+  try {
+    const r = Number(real), e = Number(est);
+    if (!(r > 0) || !(e > 0)) return _estCalib;   // 无效样本忽略（防 0/NaN 污染）
+    const raw = Math.min(1.8, Math.max(0.6, r / e));   // 单样本先钳制再入 EMA
+    _estCalib.n += 1;
+    _estCalib.ratio = (_estCalib.n === 1)
+      ? raw
+      : _estCalib.ratio * 0.7 + raw * 0.3;
+    _estCalib.ratio = Math.min(1.8, Math.max(0.6, _estCalib.ratio));
+    if (_estCalib.n >= 3) {
+      try {
+        localStorage.setItem(EST_CALIB_KEY,
+          JSON.stringify({ ratio: _estCalib.ratio, n: _estCalib.n }));
+      } catch (e2) { /* 存储不可用：内存校准仍生效 */ }
+    }
+  } catch (e3) { /* 任何异常不阻塞主流程 */ }
+  return _estCalib;
+}
+function estTokensCalibrated(s) {
+  return Math.ceil(estTokens(s) * _estCalib.ratio);
+}

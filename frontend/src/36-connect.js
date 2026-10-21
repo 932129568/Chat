@@ -759,7 +759,22 @@ async function connectTestNow() {
     const r = JSON.parse(raw || '{}');
     if (r && r.ok && r.state === 'loading') done(true, r.message || '模型加载中');
     else if (r && r.ok) done(true, (r.reply ? '回复：' + r.reply : '端点可达' + (local ? ' · 本地 · 0 费用' : '')));
-    else done(false, (r && r.error) || '端点不可达');
+    else {
+      // 修复（2026-10-21 P0）：1211 等模型不可用时后端顺带拉了可用清单
+      // （available_models）——展示出来，用户点一次就知道能换什么
+      let msg = (r && r.error) || '端点不可达';
+      if (r && Array.isArray(r.available_models) && r.available_models.length) {
+        msg += '\n可用模型（' + r.available_models.length + '）：'
+          + r.available_models.slice(0, 8).join('、')
+          + (r.available_models.length > 8 ? ' 等' : '');
+      }
+      done(false, msg);
+      if (r && Array.isArray(r.available_models) && r.available_models.length) {
+        // 一键填入第一个可用模型（用户可改）——降低「知道能换什么但懒得找」的摩擦
+        const inp = document.getElementById('cmManualInput');
+        if (inp && !inp.value) inp.value = r.available_models[0];
+      }
+    }
   } catch (e) {
     done(false, (e && e.message) || '请求失败');
   } finally {
