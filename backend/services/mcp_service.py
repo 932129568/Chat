@@ -70,6 +70,9 @@ class McpService:
         # 修复 ㉒：净化名 → 原名反解映射（tool_schemas 重建时刷新）
         self._server_alias = {}      # 净化 server 段 -> 原始服务器名
         self._tool_alias = {}        # (净化 server 段, 净化 tool 段含 _2 后缀) -> 原始工具名
+        # W10 楼层规则统计（tool_schemas 上次调用的截断/跳过计数；未调用为零值）
+        self._floor_stats = {'truncated_desc': 0, 'skipped_per_server': 0,
+                             'skipped_total': 0, 'emitted': 0}
         # 修复 S4①/W26：MCP 会话信任态（键 server__tool；切会话清空）
         self._session_trust = set()
         # 修复 S2（v1.5.1）：stdio 温启登记表（启用/测试后保留 client；IDLE 到期转
@@ -197,17 +200,37 @@ class McpService:
         }
 
     # ============ 注入 ============
+    # W10 楼层规则（2026-10-21）：工具面防稀释（架构文档 R4）——MCP 工具定义注入
+    # build_tools 时的三道闸：① 单工具描述长度上限（超长描述按字符价计费还稀释
+    # 主提示词注意力）；② 单 server 工具数上限（个别 server 一次吐 200+ 工具会
+    # 挤爆上下文）；③ 总工具面上限（多 server 叠加爆炸）。截断在 description 尾部
+    # 标「…[已截断]」保持可解释；顺序按 server 名 sorted（稳定，diff 可review）。
+    MAX_TOOL_DESC_CHARS = 600
+    MAX_TOOLS_PER_SERVER = 50
+    MAX_TOTAL_TOOLS = 200
+
     def tool_schemas(self) -> list:
-        """enabled 且 ok 的服务器 → OpenAI 函数定义（读缓存零 IO；stale/error 跳过）。"""
+        """enabled 且 ok 的服务器 → OpenAI 函数定义（读缓存零 IO；stale/error 跳过）。
+
+        W10 楼层规则见类常量三道闸；截断/跳过均计数，供 mcp_status 观测。
+        """
         enabled = {s['name'] for s in self._cfg.list_servers() if s.get('enabled')}
         with self._lock:
-            names = [n for n, e in self._rt.items()
-                     if e.get('status') == 'ok' and n in enabled]
+            names = sorted(n for n, e in self._rt.items()
+                           if e.get('status') == 'ok' and n in enabled)
         out, used = [], {}
         server_alias, tool_alias = {}, {}
+        n_trunc_desc = n_skip_server = n_skip_total = 0
         for name in names:
             entry = self._rt.get(name) or {}
-            for tool in entry.get('tools') or []:
+            tools = entry.get('tools') or []
+            if len(tools) > self.MAX_TOOLS_PER_SERVER:
+                n_skip_server += len(tools) - self.MAX_TOOLS_PER_SERVER
+                tools = tools[:self.MAX_TOOLS_PER_SERVER]
+            for tool in tools:
+                if len(out) >= self.MAX_TOTAL_TOOLS:
+                    n_skip_total += 1
+                    break
                 fname = self._unique_name(
                     self.function_name(name, tool.get('name', '')), used)
                 # 修复 ㉒：登记净化名反解映射（_2 去重后缀/特殊字符在派发时可还原原名）
@@ -215,16 +238,32 @@ class McpService:
                 if len(segs) == 3:
                     server_alias[segs[1]] = name
                     tool_alias[(segs[1], segs[2])] = tool.get('name', '')
+                desc = '[MCP·%s] %s' % (
+                    name, tool.get('description') or tool.get('name') or '')
+                if len(desc) > self.MAX_TOOL_DESC_CHARS:
+                    desc = desc[:self.MAX_TOOL_DESC_CHARS] + '…[已截断]'
+                    n_trunc_desc += 1
                 out.append({'type': 'function', 'function': {
                     'name': fname,
-                    'description': '[MCP·%s] %s' % (
-                        name, tool.get('description') or tool.get('name') or ''),
+                    'description': desc,
                     'parameters': tool.get('inputSchema')
                                   or {'type': 'object', 'properties': {}},
                 }})
+            if n_skip_total:
+                break
+        if n_skip_total:
+            # 总量闸触顶：break 时只记了首个，这里一次性精确记账
+            # （全部候选工具数 - 已发射数）
+            total_tools = sum(len((self._rt.get(n) or {}).get('tools') or [])
+                              for n in names)
+            n_skip_total = max(0, total_tools - len(out))
         with self._lock:
             self._server_alias = server_alias
             self._tool_alias = tool_alias
+            self._floor_stats = {'truncated_desc': n_trunc_desc,
+                                 'skipped_per_server': n_skip_server,
+                                 'skipped_total': n_skip_total,
+                                 'emitted': len(out)}
         return out
 
     # ============ 档位 ============
