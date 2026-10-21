@@ -229,6 +229,7 @@ async function deleteSession(id, e) {
 // 属性上下文（onclick="..."）里双引号同样有注入面（与单引号一并纵深防御）
 const _escId = (id) => escapeHtml(String(id)).replace(/'/g, '&#39;').replace(/"/g, '&quot;');
 function renderSessionList() {
+  if (typeof ensureHistoryFoot === 'function') ensureHistoryFoot();
   const box = document.getElementById('sessionList');
   if (sessions.length === 0) {
     box.innerHTML = '<div class="sidebar-empty">暂无历史对话</div>';
@@ -287,3 +288,161 @@ function updateSessionTitle(text) {
   if (!s || s.title) return;
   s.title = text.replace(/\s+/g, ' ').slice(0, 20) || '新对话';
 }
+
+/* ============ 历史存放目录 + 真删（2026-10-21 用户需求）============
+ * 「历史记录存放可以自己选择放哪个文件夹，删掉就是真的删掉了」。
+ * 全部动态 DOM（零 template 改动——UI 并行协作纪律）；类名避开既有
+ * UI 契约集合（40 id/13 onclick/43 callApi/39 类/21 变量只增不改的
+ * 是既有面，新增动态类不在此列）。
+ * 数据流：history_dir_get/set（后端 history.json 独立配置）+ 目录对话
+ * 框复用 legacy pick_folder(sid)；删除经 session_purge 后端真删
+ * （sessions 条目 + ws 绑定 + plan json + checkpoint 目录）。
+ */
+
+/* 历史目录 UI 动态样式（JS 注入，零 template 改动——UI 并行协作纪律） */
+(function _hdStyle() {
+  if (document.getElementById('hdDynamicStyle')) return;
+  const st = document.createElement('style');
+  st.id = 'hdDynamicStyle';
+  st.textContent =
+    '.history-foot{padding:6px 8px 10px;border-top:1px solid var(--glass-border);}' +
+    '.history-dir-btn{width:100%;text-align:left;background:none;border:1px solid transparent;' +
+    'border-radius:8px;padding:6px 8px;font-size:11.5px;color:var(--text-3);cursor:pointer;' +
+    'overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}' +
+    '.history-dir-btn:hover{border-color:var(--glass-border);color:var(--text-1);}' +
+    '.history-dir-mask{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9999;' +
+    'display:flex;align-items:center;justify-content:center;}' +
+    '.history-dir-panel{width:min(440px,92vw);background:var(--bg-2,#fff);color:var(--text-1);' +
+    'border:1px solid var(--glass-border);border-radius:14px;padding:18px;' +
+    'box-shadow:0 18px 50px rgba(0,0,0,.25);}' +
+    '.hd-title{font-size:14px;font-weight:600;margin-bottom:6px;}' +
+    '.hd-desc{font-size:11.5px;color:var(--text-3);margin-bottom:12px;line-height:1.5;}' +
+    '.hd-row{margin-bottom:10px;}' +
+    '.hd-input{width:100%;box-sizing:border-box;padding:7px 9px;font-size:12px;' +
+    'border:1px solid var(--glass-border);border-radius:8px;background:var(--bg-1);' +
+    'color:var(--text-1);}' +
+    '.hd-btns{display:flex;gap:8px;align-items:center;}' +
+    '.hd-btn{padding:6px 12px;font-size:12px;border:1px solid var(--glass-border);' +
+    'border-radius:8px;background:var(--bg-1);color:var(--text-1);cursor:pointer;}' +
+    '.hd-btn:hover{border-color:var(--text-3);}' +
+    '.hd-primary{background:var(--accent,#2563eb);border-color:var(--accent,#2563eb);color:#fff;}' +
+    '.hd-chk{font-size:11.5px;color:var(--text-3);display:flex;gap:5px;align-items:center;' +
+    'margin-left:auto;cursor:pointer;}' +
+    '.hd-msg{font-size:11.5px;min-height:16px;margin-top:4px;}' +
+    '.hd-msg.ok{color:var(--ok);}' +
+    '.hd-msg.err{color:var(--err);}';
+  document.head.appendChild(st);
+})();
+
+function ensureHistoryFoot() {
+  if (document.getElementById('historyFoot')) return;
+  const list = document.getElementById('sessionList');
+  if (!list) return;
+  const foot = document.createElement('div');
+  foot.id = 'historyFoot';
+  foot.className = 'history-foot';
+  foot.innerHTML = '<button class="history-dir-btn" id="historyDirBtn" title="选择历史记录存放文件夹">📁 历史目录</button>';
+  if (list.parentNode) list.parentNode.appendChild(foot);
+  const btn = document.getElementById('historyDirBtn');
+  if (btn) btn.addEventListener('click', showHistoryDirPanel);
+  refreshHistoryFoot();
+}
+async function refreshHistoryFoot() {
+  const btn = document.getElementById('historyDirBtn');
+  if (!btn) return;
+  try {
+    const r = JSON.parse(await callApi('history_dir_get', [], 20000) || '{}');
+    btn.textContent = r.dir ? '📁 ' + _shortDir(r.dir) : '📁 历史目录（默认）';
+    btn.title = r.dir ? ('历史存放：' + r.dir + '\n点击更改') : '历史存放：默认 ~/.glm-chat\n点击更改';
+  } catch (e) { /* 后端旧版：保持默认文案 */ }
+}
+function _shortDir(d) {
+  const s = String(d || '');
+  return s.length > 22 ? '…' + s.slice(-21) : s;
+}
+function showHistoryDirPanel() {
+  if (document.getElementById('historyDirMask')) return;
+  const mask = document.createElement('div');
+  mask.id = 'historyDirMask';
+  mask.className = 'history-dir-mask';
+  const panel = document.createElement('div');
+  panel.className = 'history-dir-panel';
+  panel.innerHTML =
+    '<div class="hd-title">历史记录存放</div>' +
+    '<div class="hd-desc">选择会话历史的存放文件夹（默认在用户目录 .glm-chat）。切换后新对话写入新位置。</div>' +
+    '<div class="hd-row"><input class="hd-input" id="hdInput" placeholder="目录路径（如 D:////harbor-history）" spellcheck="false"></div>' +
+    '<div class="hd-row hd-btns">' +
+    '<button class="hd-btn" id="hdBrowse">浏览…</button>' +
+    '<label class="hd-chk"><input type="checkbox" id="hdMigrate"> 迁移已有历史</label>' +
+    '</div>' +
+    '<div class="hd-row hd-btns">' +
+    '<button class="hd-btn hd-primary" id="hdSave">保存</button>' +
+    '<button class="hd-btn" id="hdDefault">恢复默认</button>' +
+    '<button class="hd-btn" id="hdClose">取消</button>' +
+    '</div>' +
+    '<div class="hd-msg" id="hdMsg"></div>';
+  mask.appendChild(panel);
+  document.body.appendChild(mask);
+  const input = document.getElementById('hdInput');
+  const msg = document.getElementById('hdMsg');
+  const say = (t, ok) => { msg.textContent = t; msg.className = 'hd-msg ' + (ok ? 'ok' : 'err'); };
+  callApi('history_dir_get', [], 20000).then(raw => {
+    const r = JSON.parse(raw || '{}');
+    if (r.dir) input.value = r.dir;
+  }).catch(() => {});
+  document.getElementById('hdBrowse').addEventListener('click', async () => {
+    try {
+      const raw = JSON.parse(await callApi('pick_folder', [currentSessionId], 60000) || '{}');
+      if (raw && raw.ok && raw.path) input.value = raw.path;
+      else if (raw && raw.err) say('目录选择不可用：' + raw.err + '（请手动输入）', false);
+    } catch (e) { say('目录选择失败', false); }
+  });
+  document.getElementById('hdSave').addEventListener('click', async () => {
+    const d = input.value.trim();
+    if (!d) { say('请输入目录路径', false); return; }
+    try {
+      const raw = JSON.parse(await callApi('history_dir_set', [d, document.getElementById('hdMigrate').checked], 60000) || '{}');
+      if (raw.error) { say(raw.error, false); return; }
+      say(raw.migrated ? '已保存并迁移旧历史' : '已保存', true);
+      refreshHistoryFoot();
+      setTimeout(() => mask.remove(), 800);
+    } catch (e) { say('保存失败: ' + (e.message || e), false); }
+  });
+  document.getElementById('hdDefault').addEventListener('click', async () => {
+    try {
+      await callApi('history_dir_set', ['', false], 20000);
+      say('已恢复默认目录', true);
+      refreshHistoryFoot();
+      setTimeout(() => mask.remove(), 600);
+    } catch (e) { say('恢复失败', false); }
+  });
+  document.getElementById('hdClose').addEventListener('click', () => mask.remove());
+  mask.addEventListener('click', (e) => { if (e.target === mask) mask.remove(); });
+}
+/* 真删：deleteSession 增加 session_purge 后端调用（sessions+ws+plan+checkpoint）。
+ * 前端 filter + saveSessions 后调 purge 保底——后端写失败也不留残留。 */
+const _origDeleteSession = deleteSession;
+deleteSession = async function (id, e) {
+  const r = await uiConfirm({ title: '删除对话', body: '确定彻底删除这条对话？历史条目、工作区绑定、计划与检查点快照都将真删除，不可恢复。', danger: true, okText: '彻底删除' });
+  if (!r.ok) return;
+  const s = sessions.find(x => x.id === id) || {};
+  const taskIds = (s.plan && s.plan.task_id) ? JSON.stringify([s.plan.task_id]) : '[]';
+  sessions = sessions.filter(x => x.id !== id);
+  rememberDeletedSession(id);
+  saveSessions();
+  callApi('delete_session_ws', [id]).catch(() => {});
+  callApi('session_purge', [id, taskIds], 30000).then(raw => {
+    try {
+      const r2 = JSON.parse(raw || '{}');
+      const rm = (r2 && r2.removed) || {};
+      const bits = [];
+      if (rm.sessions) bits.push('历史条目');
+      if (rm.ws) bits.push('工作区绑定');
+      if (rm.plans) bits.push('计划');
+      if (rm.checkpoints) bits.push('检查点');
+      if (bits.length) toast('已真删：' + bits.join('、'), 'ok');
+    } catch (e2) { /*  purge 结果解析失败不打扰（列表已更新） */ }
+  }).catch(() => {});
+  if (currentSessionId === id) newSession();
+  else renderSessionList();
+};

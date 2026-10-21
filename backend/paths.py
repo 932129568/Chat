@@ -13,6 +13,10 @@ CONFIG_DIR_NAME = '.glm-chat'
 CONFIG_DIR = os.path.join(os.path.expanduser('~'), CONFIG_DIR_NAME)
 CONFIG_PATH = os.path.join(CONFIG_DIR, 'config.json')
 SESSIONS_PATH = os.path.join(CONFIG_DIR, 'sessions.json')
+# v1.8.0 历史自选存放（2026-10-21 用户需求）：history.json 独立文件存用户选的
+# 目录（config.json 零污染铁律——契约测试比对 config.json）。空/缺失 = 默认
+# SESSIONS_PATH（~/.glm-chat/sessions.json）。
+HISTORY_FILE = os.path.join(CONFIG_DIR, 'history.json')
 MEMORY_PATH = os.path.join(CONFIG_DIR, 'memory.json')
 SESSION_WS_FILE = os.path.join(CONFIG_DIR, 'session_ws.json')
 RECENT_WS_FILE = os.path.join(CONFIG_DIR, 'recent_ws.json')

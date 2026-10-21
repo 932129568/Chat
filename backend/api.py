@@ -96,6 +96,7 @@ _V12_EXTRA = frozenset({
     # v1.8.0 W11 域·记忆 UI（1 个；删 memory.json 第 index 条，边界校验
     # 不静默夹逼；get_api_info 零漂移同款隐身）
     'memory_delete', 'prompt_get', 'trace_new', 'local_readiness',
+    'history_dir_get', 'history_dir_set', 'session_purge',
 })
 
 
@@ -158,6 +159,31 @@ class Api:
         修复 S4：窗口就绪即武装护栏——此后 always/session 档在执行点强制 token/信任校验。"""
         self._runtime.win = win
         self._guard.arm()
+
+    # ============ 历史自选存放 + 真删（2026-10-21 用户需求）============
+    def history_dir_get(self):
+        """当前历史存放目录（''=默认 ~/.glm-chat/）+ sessions.json 实际路径。"""
+        return ok(self._config.history_dir_get())
+
+    def history_dir_set(self, dir_path, migrate=False):
+        """设置历史存放目录（空串恢复默认；migrate=True 搬旧 sessions.json）。
+
+        后端校验：目录存在可写、禁系统敏感目录、realpath 归一。
+        """
+        r = self._config.history_dir_set(dir_path, migrate)
+        if 'error' in r:
+            return err(r['error'])
+        return ok(r)
+
+    # 注：历史目录选择复用 legacy 契约方法 pick_folder(sid)（下方原定义，
+    # 工作区与历史目录对话框共用；无窗口环境返回 {ok:False, err:'no window'}，
+    # 前端回落手动输入）——不重复定义（同类名后定义覆盖，曾误加死方法）。
+
+    def session_purge(self, sid, task_ids_json='[]'):
+        """真删一条会话的全部痕迹：sessions.json 条目 + session_ws 绑定 +
+        关联 plan json + 关联 checkpoint 目录。task_ids 由前端传 s.plan.task_id。
+        """
+        return ok(self._config.session_purge(sid, task_ids_json))
 
     def clear_caches(self):
         self._files.file_fp.clear()
