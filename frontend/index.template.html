@@ -124,7 +124,15 @@
 
   /* ===== v4 导航与面板尺寸（v3 值保留）===== */
   --rail-w:60px; --rail-btn:40px; --rail-gap:6px;
-  --panel-pad:22px; --panel-gap:16px; --panel-title:18px;
+  --panel-pad:22px; --panel-gap:16px; --panel-title:19px;
+  /* ===== v4 字阶（2026-10-21 层级重构）：五级语义化 =====
+     display 面板大标题 / title 卡片标题 / body 正文 / caption 辅助 / micro 微注
+     层级靠字重+字距+色彩三件套表达，不再靠无差别缩小字号 */
+  --fs-display:19px;   /* 面板大标题（panel-title 升半档——信息架构顶层） */
+  --fs-title:13.5px;   /* 卡片/区块标题（set-title/会话标题层级） */
+  --fs-body:13.5px;    /* 正文统一（消息/说明——修复 11/12px 坍缩占 131 处的主因区） */
+  --fs-caption:12px;   /* 辅助文字（提示/次级操作） */
+  --fs-micro:11px;     /* 徽标/时间戳/标签——只用于身份注记，不承载信息内容 */
   --chart-h:240px; --chart-h-sm:160px;
   --main-veil:rgba(246,247,249,.88);
 }
@@ -437,8 +445,8 @@ body.dark .eff-tag-s{background:var(--ok-bg);color:var(--ok);}
 @keyframes v4PanelOutBack{from{opacity:1;transform:none}to{opacity:0;transform:translateX(var(--shift-panel))}}
 .panel-head{padding:16px var(--panel-pad) 12px;display:flex;align-items:flex-end;justify-content:space-between;
   gap:12px;border-bottom:1px solid var(--border);flex-shrink:0;}
-.panel-title{font-size:var(--panel-title);font-weight:600;letter-spacing:-.2px;line-height:1.3;}
-.panel-sub{font-size:13px;color:var(--text-2);margin-top:2px;}
+.panel-title{font-size:var(--fs-display);font-weight:650;letter-spacing:-.3px;line-height:1.25;}
+.panel-sub{font-size:var(--fs-caption);color:var(--text-2);margin-top:3px;}
 .panel-scroll{flex:1;overflow-y:auto;padding:var(--panel-gap) var(--panel-pad) 24px;
   display:flex;flex-direction:column;gap:var(--panel-gap);}
 /* ===== 设置面板 · v4 重设计：独立设置窗口（遮罩 + 居中窗口 + 左右分栏 + 弹簧入场） =====
@@ -546,7 +554,7 @@ body.fx-off .set-content .set-block.active{animation:none}
 .hs-dot.ok{background:var(--ok);}
 .hs-dot.warn{background:var(--warn);}
 .hs-dot.off{background:var(--err);}
-.set-title{font-size:12px;font-weight:700;color:var(--text);margin-bottom:12px;
+.set-title{font-size:var(--fs-title);font-weight:650;color:var(--text);margin-bottom:12px;
   padding-bottom:9px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:7px;
   letter-spacing:.02em;}
 .set-title::before{content:"";width:3px;height:12px;border-radius:var(--radius-full);background:var(--primary);}
@@ -561,7 +569,7 @@ body.fx-off .set-content .set-block.active{animation:none}
 body.fx-off .settings-panel input:focus,body.fx-off .settings-panel textarea:focus{box-shadow:0 0 0 3px var(--primary-soft);}
 .settings-panel input[type=range]{width:100%;accent-color:var(--primary);}
 .settings-panel .field{margin-top:12px;}
-.set-hint{font-size:11px;color:var(--text-3);margin-top:12px;line-height:1.75;
+.set-hint{font-size:var(--fs-caption);color:var(--text-3);margin-top:12px;line-height:1.75;
   padding-top:12px;border-top:1px solid var(--border);}
 .set-hint a{color:var(--primary);text-decoration:none;}
 .set-hint a:hover{text-decoration:underline;}
@@ -584,7 +592,7 @@ body.fx-off .settings-panel input:focus,body.fx-off .settings-panel textarea:foc
 .chat-container.batch .message,.chat-container.batch .empty-state{animation:none;}
 /* 头像样式已退役（极简范式隐藏头像；DOM 保留不动保 UI 契约） */
 .message .content{padding:11px 15px;border-radius:var(--radius-lg);max-width:72%;
-  line-height:1.65;font-size:14px;word-break:break-word;}
+  line-height:1.7;font-size:var(--fs-body);word-break:break-word;}
 /* v4 极简：user 浅灰扁气泡（无阴影无重色——WorkBuddy 范式） */
 .message.user .content{background:var(--surface-2);color:var(--text);
   border-bottom-right-radius:var(--radius-xs);border-top-right-radius:var(--radius-xs);
@@ -1931,6 +1939,22 @@ body.fx-off .empty-icon .glyph,body.fx-off .brand-logo{will-change:auto}
 body.theming .set-window,body.theming .modal-card,body.theming .ob-win,body.theming .plan-badge,
 body.theming .gg-ind,body.theming .hy-cost,body.theming .chart-tip,body.theming .brand-logo{
   transition-property:background-color,color,border-color,box-shadow,transform}
+
+/* ============================================================
+   v4 层级重构（2026-10-21 二段）：操作面层级 + 密度节奏
+   ============================================================ */
+/* 输入区 focus 浮升：主操作面被聚焦时 shadow 升档+受光边——「准备好受理」 */
+.input-row{transition:box-shadow var(--dur-comp) var(--ease-out-soft)}
+/* 三合一：glow-focus（品牌光圈，1948 行前的既有语义）+ 浮升 shadow + 受光边 */
+.input-row:focus-within{box-shadow:var(--glow-focus),var(--shadow-sm),var(--edge-hi-soft)}
+body.fx-off .input-row:focus-within{box-shadow:var(--shadow-sm)}
+/* 会话标题层级：12→title 档（原与时间戳同级——列表主信息不够突出） */
+.session-title{font-size:var(--fs-title);font-weight:550}
+.session-time{font-size:var(--fs-micro);font-family:var(--font-mono);letter-spacing:.01em}
+/* stat 数值层级：label 降 micro 档突出数值 */
+.stat-label{font-size:var(--fs-micro);color:var(--text-3);letter-spacing:.03em;text-transform:uppercase}
+.stat-value{letter-spacing:-.2px}
+body.theming .input-row{transition-property:box-shadow,background-color,border-color}
 </style>
 </head>
 <body>
