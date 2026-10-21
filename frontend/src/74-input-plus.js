@@ -86,15 +86,22 @@ function ipModelRender() {
   const sel = ipEl('modelSelect');
   const cur = sel ? sel.value : '';
   const esc = (t) => (typeof escapeHtml === 'function' ? escapeHtml(String(t)) : String(t));
-  // 预设/识别模型（来自设置区模型流）
+  // 预设/识别模型（来自设置区模型流；__group__ → 分组头；__manual__ 手动输入项与
+  // 空占位项跳过——2026-10-21 用户实测：未配 API 的手动输入选了也用不了，去掉）
   let rows = '';
   if (sel) {
     for (const opt of sel.options) {
-      if (opt.value && ipCustomModels().indexOf(opt.value) !== -1) continue;   // 自定义项不重复列
-      rows += '<button type="button" class="mc-item' + (opt.value === cur ? ' on' : '') +
-        '" data-val="' + String(opt.value).replace(/"/g, '&quot;') + '">' +
+      const v = opt.value || '';
+      if (v === '__group__') {   // 分组头（connectFillModels 的 CONNECT_GROUP_VALUE）
+        if (rows) rows += '<div class="mc-sec">' + esc(opt.textContent) + '</div>';
+        continue;
+      }
+      if (v === '__manual__' || v === '') continue;   // 手动输入项 / 占位项
+      if (ipCustomModels().indexOf(v) !== -1) continue;   // 自定义项不重复列
+      rows += '<button type="button" class="mc-item' + (v === cur ? ' on' : '') +
+        '" data-val="' + v.replace(/"/g, '&quot;') + '">' +
         '<span class="mc-name">' + esc(opt.textContent) + '</span>' +
-        (opt.value === cur ? '<span class="mc-check">✓</span>' : '') + '</button>';
+        (v === cur ? '<span class="mc-check">✓</span>' : '') + '</button>';
     }
   }
   if (!rows) rows = '<div class="mc-empty">暂无预设模型，请先在设置中识别</div>';
@@ -106,16 +113,9 @@ function ipModelRender() {
       (m === cur ? '<span class="mc-check">✓</span>' : '') +
       '<button type="button" class="mc-del" data-del="' + esc(m) + '" title="删除该自定义模型">✕</button>' +
     '</div>').join('');
-  // 手动输入行（点击展开输入框）
-  const manual = '<div class="mc-manual-row" id="mcManualRow">' +
-    '<button type="button" class="mc-item mc-add" id="mcAddBtn"><span class="mc-name">＋ 手动输入模型名…</span></button>' +
-    '<div class="mc-add-form" id="mcAddForm" style="display:none;">' +
-      '<input type="text" id="mcAddInput" placeholder="模型名，回车确认（如 deepseek-v4.1）" spellcheck="false">' +
-    '</div></div>';
   pop.innerHTML = '<div class="mc-pop-head">选择模型</div>' +
     '<div class="mc-list">' + rows + '</div>' +
     (customs.length ? '<div class="mc-sec">自定义模型</div><div class="mc-list mc-custom-list">' + customRows + '</div>' : '') +
-    manual +
     '<button type="button" class="mc-config">配置自定义模型 →</button>';
 
   // 选择（预设区 + 自定义区共用）
@@ -140,29 +140,6 @@ function ipModelRender() {
       ipModelRender();   // 重渲染（删除后若当前模型被删不切状态——仅从库移除）
     });
   });
-  // 手动输入：展开 → 回车加入并选用
-  const addBtn = ipEl('mcAddBtn'), addForm = ipEl('mcAddForm'), addInput = ipEl('mcAddInput');
-  if (addBtn && addForm && addInput) {
-    addBtn.addEventListener('click', () => {
-      addForm.style.display = '';
-      addInput.focus();
-    });
-    const commit = () => {
-      const v = addInput.value.trim();
-      if (!v) { addForm.style.display = 'none'; return; }
-      ipCustomAdd(v);
-      if (sel) {
-        sel.value = v;
-        if (typeof onModelChange === 'function') { try { onModelChange(v); } catch (err) {} }
-      }
-      ipModelRefresh();
-      ipModelRender();
-      addInput.value = '';
-      addForm.style.display = 'none';
-    };
-    addInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); commit(); } });
-    addInput.addEventListener('blur', () => { if (!addInput.value.trim()) addForm.style.display = 'none'; });
-  }
   const cfg = pop.querySelector('.mc-config');
   if (cfg) cfg.addEventListener('click', () => {
     pop.classList.remove('on');
@@ -172,7 +149,8 @@ function ipModelRender() {
 
 /** 跳设置「连接与模型」块：切面板 → 滚动入视 → 一次性闪光定位。 */
 function ipGotoModelSettings() {
-  if (typeof switchPanel === 'function') switchPanel('settings');
+  // Harbor 无 settings 面板——设置是 chat 面板内的独立窗口（toggleSettings 打开）
+  if (typeof toggleSettings === 'function') toggleSettings();
   setTimeout(() => {
     const block = ipEl('cmBlock');
     if (!block) return;

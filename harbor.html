@@ -2115,13 +2115,6 @@ body.fx-off .cm-save-btn::after{display:none}
   cursor:pointer;border-radius:var(--radius-xs);font-size:10px;padding:0;line-height:1;
   transition:color var(--dur-micro) var(--ease-out-soft),background-color var(--dur-micro) var(--ease-out-soft)}
 .mc-del:hover{color:var(--err);background:var(--err-bg)}
-.mc-manual-row{border-top:1px solid var(--border);padding:5px}
-.mc-add .mc-name{color:var(--primary)}
-.mc-add-form{padding:5px 6px 2px}
-.mc-add-form input{width:100%;height:28px;padding:0 9px;font-size:var(--fs-caption);font-family:var(--font-mono);
-  border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--bg);color:var(--text);outline:none;
-  transition:border-color var(--dur-micro) var(--ease-out-soft),box-shadow var(--dur-micro) var(--ease-out-soft)}
-.mc-add-form input:focus{border-color:var(--primary);box-shadow:var(--glow-focus),var(--glow-inset)}
 </style>
 </head>
 <body>
@@ -5677,7 +5670,11 @@ async function localLoadModels(baseUrl) {
   } catch (e) {
     toast('获取模型清单失败：' + e.message, 'err');
   } finally {
-    localRestoreIdentifyBtn(btn, '拉取模型清单');
+    // 修复（round4 遗留·对抗复审）：原 finally 无条件复位按钮——陈旧请求
+    // （seq 已被更新的加载超过）返回时，会把在途新请求的「拉取中…」禁用态
+    // 按钮复位成空闲态（新请求还在跑，按钮却可再点 → 并发第三轮加载）。
+    // 加 seq 判定：只有「我仍是当前加载」才复位；按钮所有权归最新请求。
+    if (seq === _localLoadSeq) localRestoreIdentifyBtn(btn, '拉取模型清单');
   }
 }
 
@@ -6211,7 +6208,13 @@ function connectSyncState() {
 
 /* ================= 模型下拉（下拉 ⇄ 手动输入 双态）================= */
 
-/** 按钮 loading 态（spinner + 文案，dataset 暂存原文案）。 */
+/** 按钮 loading 态（spinner + 文案，dataset 暂存原文案）。
+ * 修复（round4 遗留·对抗复审）：识别按钮（#cmIdentifyBtn）的文案随预设而变
+ * （connectIdentifyLabel：获取模型/探测本机/探测目录/识别模型）——加载期间用户
+ * 切预设时 connectApplyPresetNow 已把 innerHTML 改成新预设文案，但 dataset.html
+ * 快照仍是旧预设的；原 off 分支盲目还原 dataset.html → 按钮显示陈旧预设文案
+ * （如 ollama 预设下显示「↻ 获取模型」）。改为按当前预设重刷（其余按钮文案
+ * 静态，dataset.html 还原仍正确）。 */
 function connectSetButtonLoading(btn, on, text) {
   if (!btn) return;
   if (on) {
@@ -6219,7 +6222,11 @@ function connectSetButtonLoading(btn, on, text) {
     btn.disabled = true;
     btn.innerHTML = '<span class="tool-spinner"></span><span>' + (text || '处理中') + '</span>';
   } else {
-    btn.innerHTML = btn.dataset.html || btn.innerHTML;
+    if (btn.id === 'cmIdentifyBtn' && typeof connectIdentifyLabel === 'function') {
+      btn.innerHTML = connectIdentifyLabel(connectCurrentPreset());
+    } else {
+      btn.innerHTML = btn.dataset.html || btn.innerHTML;
+    }
     delete btn.dataset.html;
     btn.disabled = false;
   }
@@ -12720,7 +12727,10 @@ function scOpen() {
   mask.addEventListener('click', e => { if (e.target === mask) scClose(); });
   card.querySelector('.sc-ok').onclick = scClose;
   document.addEventListener('keydown', scEsc);
-  setTimeout(() => { const b = card.querySelector('.sc-ok'); if (b) b.focus(); }, 60);
+  // 修复（建议14 残余）：60ms 硬编码 focus 延时改 MOTION 令牌（staggerSm=60ms，
+  // 值与原一致；fx-off 下 0ms）。typeof 守卫保 vm 沙箱可测。
+  const _scFocusMs = (typeof MOTION !== 'undefined' && MOTION.staggerSm) ? MOTION.staggerSm() : 60;
+  setTimeout(() => { const b = card.querySelector('.sc-ok'); if (b) b.focus(); }, _scFocusMs);
 }
 function scEsc(e) {
   // 不 stopPropagation：Esc 应继续冒泡给其他浮层（设置/搜索面板/图片查看）各自收尾
@@ -12988,15 +12998,22 @@ function ipModelRender() {
   const sel = ipEl('modelSelect');
   const cur = sel ? sel.value : '';
   const esc = (t) => (typeof escapeHtml === 'function' ? escapeHtml(String(t)) : String(t));
-  // 预设/识别模型（来自设置区模型流）
+  // 预设/识别模型（来自设置区模型流；__group__ → 分组头；__manual__ 手动输入项与
+  // 空占位项跳过——2026-10-21 用户实测：未配 API 的手动输入选了也用不了，去掉）
   let rows = '';
   if (sel) {
     for (const opt of sel.options) {
-      if (opt.value && ipCustomModels().indexOf(opt.value) !== -1) continue;   // 自定义项不重复列
-      rows += '<button type="button" class="mc-item' + (opt.value === cur ? ' on' : '') +
-        '" data-val="' + String(opt.value).replace(/"/g, '&quot;') + '">' +
+      const v = opt.value || '';
+      if (v === '__group__') {   // 分组头（connectFillModels 的 CONNECT_GROUP_VALUE）
+        if (rows) rows += '<div class="mc-sec">' + esc(opt.textContent) + '</div>';
+        continue;
+      }
+      if (v === '__manual__' || v === '') continue;   // 手动输入项 / 占位项
+      if (ipCustomModels().indexOf(v) !== -1) continue;   // 自定义项不重复列
+      rows += '<button type="button" class="mc-item' + (v === cur ? ' on' : '') +
+        '" data-val="' + v.replace(/"/g, '&quot;') + '">' +
         '<span class="mc-name">' + esc(opt.textContent) + '</span>' +
-        (opt.value === cur ? '<span class="mc-check">✓</span>' : '') + '</button>';
+        (v === cur ? '<span class="mc-check">✓</span>' : '') + '</button>';
     }
   }
   if (!rows) rows = '<div class="mc-empty">暂无预设模型，请先在设置中识别</div>';
@@ -13008,16 +13025,9 @@ function ipModelRender() {
       (m === cur ? '<span class="mc-check">✓</span>' : '') +
       '<button type="button" class="mc-del" data-del="' + esc(m) + '" title="删除该自定义模型">✕</button>' +
     '</div>').join('');
-  // 手动输入行（点击展开输入框）
-  const manual = '<div class="mc-manual-row" id="mcManualRow">' +
-    '<button type="button" class="mc-item mc-add" id="mcAddBtn"><span class="mc-name">＋ 手动输入模型名…</span></button>' +
-    '<div class="mc-add-form" id="mcAddForm" style="display:none;">' +
-      '<input type="text" id="mcAddInput" placeholder="模型名，回车确认（如 deepseek-v4.1）" spellcheck="false">' +
-    '</div></div>';
   pop.innerHTML = '<div class="mc-pop-head">选择模型</div>' +
     '<div class="mc-list">' + rows + '</div>' +
     (customs.length ? '<div class="mc-sec">自定义模型</div><div class="mc-list mc-custom-list">' + customRows + '</div>' : '') +
-    manual +
     '<button type="button" class="mc-config">配置自定义模型 →</button>';
 
   // 选择（预设区 + 自定义区共用）
@@ -13042,29 +13052,6 @@ function ipModelRender() {
       ipModelRender();   // 重渲染（删除后若当前模型被删不切状态——仅从库移除）
     });
   });
-  // 手动输入：展开 → 回车加入并选用
-  const addBtn = ipEl('mcAddBtn'), addForm = ipEl('mcAddForm'), addInput = ipEl('mcAddInput');
-  if (addBtn && addForm && addInput) {
-    addBtn.addEventListener('click', () => {
-      addForm.style.display = '';
-      addInput.focus();
-    });
-    const commit = () => {
-      const v = addInput.value.trim();
-      if (!v) { addForm.style.display = 'none'; return; }
-      ipCustomAdd(v);
-      if (sel) {
-        sel.value = v;
-        if (typeof onModelChange === 'function') { try { onModelChange(v); } catch (err) {} }
-      }
-      ipModelRefresh();
-      ipModelRender();
-      addInput.value = '';
-      addForm.style.display = 'none';
-    };
-    addInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); commit(); } });
-    addInput.addEventListener('blur', () => { if (!addInput.value.trim()) addForm.style.display = 'none'; });
-  }
   const cfg = pop.querySelector('.mc-config');
   if (cfg) cfg.addEventListener('click', () => {
     pop.classList.remove('on');
@@ -13074,7 +13061,8 @@ function ipModelRender() {
 
 /** 跳设置「连接与模型」块：切面板 → 滚动入视 → 一次性闪光定位。 */
 function ipGotoModelSettings() {
-  if (typeof switchPanel === 'function') switchPanel('settings');
+  // Harbor 无 settings 面板——设置是 chat 面板内的独立窗口（toggleSettings 打开）
+  if (typeof toggleSettings === 'function') toggleSettings();
   setTimeout(() => {
     const block = ipEl('cmBlock');
     if (!block) return;
@@ -15292,15 +15280,44 @@ window.onload = function () {
   const go = () => { if (!called) { called = true; loadAll(); } };
   if (window.pywebview && window.pywebview.api) go();
   else {
-    window.addEventListener('pywebviewready', go);
-    setTimeout(() => { if (!called) { called = true; loadAll(); } }, 5000);
+    window.addEventListener('pywebviewready', () => {
+      if (called) { bridgeLateReady(); }   // 修复（建议18）：5s 回退已跑过 loadAll（无桥）→ 补偿补齐桥依赖部分
+      else go();
+    });
+    setTimeout(() => {
+      if (!called) {
+        called = true;
+        // 修复（建议18）：回退分支不再静默缺桥——置中性态「等待后端就绪」
+        // （非错误红字；原逻辑此处无任何提示，随后 get_api_info 整段被跳过，
+        // 后端实际已就绪也无从得知，护栏配置/本地代理/方法自检全部缺失）。
+        // pywebviewready 晚到时由 bridgeLateReady 覆写为真实自检结果。
+        backendWarning = '◇ 等待后端就绪…（桌面端连接中）';
+        loadAll();
+      }
+    }, 5000);
   }
 };
+/* pywebviewready 晚到（回退分支已跑过 loadAll）：补偿执行桥依赖初始化并刷新状态行。
+ * 幂等：bridgeDependentInit 内各步骤均带 try/catch，重复调用安全；
+ * backendWarning 先置 null——若桥实际仍不可用，由 bridgeDependentInit 的
+ * get_api_info 重试失败后再置真实错误态（不会残留中性态假装就绪）。 */
+function bridgeLateReady() {
+  backendWarning = null;
+  try {
+    Promise.resolve(bridgeDependentInit()).then(() => {
+      if (typeof updateTokenStat === 'function') updateTokenStat();
+    }).catch(() => {});
+  } catch (e) { /* bridgeDependentInit 同步抛也不拖垮启动 */ }
+}
 async function loadAll() {
+  // 修复（建议17）：initFx 提到首个 await 之前——特效总开关必须在任何桥调用
+  // 前生效（initFx 无 await 依赖：读 localStorage + 切 body class，纯同步）。
+  // 原位置在 get_memory await 之后：桥慢/挂起（旧 exe/浏览器调试）时 fx-off
+  // 迟迟不应用，开屏极光/入场动画先闪一跳关特效用户的眼。
+  initFx();   // v3：特效总开关（.fx-off + localStorage['glm_fx'] 持久化）
   try { window.__memCache = await callApi('get_memory', []); } catch (e) { window.__memCache = '[]'; }
   setupContextMenu();
   document.querySelectorAll('select').forEach(initCustomSelect);
-  initFx();   // v3：特效总开关（.fx-off + localStorage['glm_fx'] 持久化）
   applyTheme((function () { try { return localStorage.getItem('glm_theme') || 'light'; } catch (e) { return 'light'; } })());
   const tempEl = document.getElementById('temperature');
   const topPEl = document.getElementById('topP');
@@ -15441,14 +15458,12 @@ async function loadAll() {
   /* v4「连接与模型」单块：预设 + 单一 URL/Key/模型流回填（含旧配置一次性 seed 迁移，幂等） */
   try { connectLoadFromConfig(cfg); } catch (e) { console.warn('连接与模型回填失败', e); }
   try { loadLocalUI(cfg); } catch (e) {}   // v1.5 本地专属项（ctx 覆盖 / 工具调用；local_* 键回填）
-  // 实现 v1.6 HF-P0：本地 CORS 代理基址——后端补齐 ACAO 头，EdgeWebView 才读得到
-  // 不输出 CORS 头的本地服务器（FreeToken/裸 llama.cpp/vLLM）响应；取不到静默
-  // （resolveApiEndpoint 回落直连，行为不劣化）。须在 loadLocalUI 后（localState 就绪）
-  try {
-    const pr = JSON.parse(await callApi('get_local_proxy', []) || '{}');
-    if (pr && pr.ok && pr.base_url) window.__localProxyBase = pr.base_url;
-  } catch (e) {}
-  try { await loadGuardConfig(); } catch (e) {}
+  /* 修复（建议18）：桥依赖初始化提取为独立函数——loadAll 正常路径与
+   * pywebviewready 晚到补偿（bridgeLateReady）共用。原三段（本地代理/护栏
+   * 配置/get_api_info 自检）散在 loadAll 内，5s 回退分支（无桥）跑过后，
+   * 桥晚到也无法补齐：护栏配置停在默认态、本地代理基址缺失、方法自检
+   * 从未执行（backendWarning 恒 null，旧 exe 缺方法也不报警）。 */
+  await bridgeDependentInit();
   // 实现 v1.6 T6：沙箱设置面板 + 状态灯（加载配置/状态；失败不阻塞启动）
   try { await loadSandboxPanel(); } catch (e) {}
   // 实现 v1.6 T11/T13：左侧主导航引导 + 空态引导 + 头部状态区 + 通知中心 + DND 回填
@@ -15461,6 +15476,30 @@ async function loadAll() {
   document.getElementById('searchEngineWrap').style.display = cfg.enable_search ? 'flex' : 'none';
   updateLabels();
   CS.syncAll();
+  updateTokenStat();
+  refreshWsCard();
+  renderSessionList();
+  renderAnalytics();   // v3：分析面板首次聚合（数据来自运行时 sessions，空态友好显示）
+  checkForUpdate(false);   // v1.2 R1：启动后台静默检查更新（有新版本时右上角 pill 轻提示）
+  if (sessions.length > 0) {
+    const latest = [...sessions].sort((a, b) => b.updatedAt - a.updatedAt)[0];
+    switchSession(latest.id, true);   // v4：boot 首载静默重建（不走 swapping 淡出，避免开屏闪空容器）
+  }
+}
+
+/* 桥依赖初始化（get_api_info 方法自检 + 本地 CORS 代理 + 护栏配置回填）。
+ * 调用点：loadAll 正常路径（loadLocalUI 之后——localState 就绪，get_local_proxy
+ * 的前置条件保持）与 pywebviewready 晚到补偿（bridgeLateReady）。
+ * 无桥时各步骤静默跳过（与回退分支行为一致）；晚到补偿时桥已就绪，三步真实执行。 */
+async function bridgeDependentInit() {
+  // 实现 v1.6 HF-P0：本地 CORS 代理基址——后端补齐 ACAO 头，EdgeWebView 才读得到
+  // 不输出 CORS 头的本地服务器（FreeToken/裸 llama.cpp/vLLM）响应；取不到静默
+  // （resolveApiEndpoint 回落直连，行为不劣化）。
+  try {
+    const pr = JSON.parse(await callApi('get_local_proxy', []) || '{}');
+    if (pr && pr.ok && pr.base_url) window.__localProxyBase = pr.base_url;
+  } catch (e) {}
+  try { await loadGuardConfig(); } catch (e) {}
   try {
     if (window.pywebview && window.pywebview.api) {
       let info = null;
@@ -15482,15 +15521,6 @@ async function loadAll() {
       }
     }
   } catch (e) {}
-  updateTokenStat();
-  refreshWsCard();
-  renderSessionList();
-  renderAnalytics();   // v3：分析面板首次聚合（数据来自运行时 sessions，空态友好显示）
-  checkForUpdate(false);   // v1.2 R1：启动后台静默检查更新（有新版本时右上角 pill 轻提示）
-  if (sessions.length > 0) {
-    const latest = [...sessions].sort((a, b) => b.updatedAt - a.updatedAt)[0];
-    switchSession(latest.id, true);   // v4：boot 首载静默重建（不走 swapping 淡出，避免开屏闪空容器）
-  }
 }
 </script>
 </body>
