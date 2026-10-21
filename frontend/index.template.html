@@ -1675,6 +1675,76 @@ body.fx-off .think-body.open{animation:none}
 .msg-time{align-self:center;margin:0 4px;padding:0 2px;order:9}
 .message.user .msg-time{order:-1;margin-left:0}
 .message.assistant .msg-time{margin-right:0}
+
+/* ============================================================
+   v4 UI 欠缺补缺（2026-10-21 三轮审计）：① 按压反馈家族
+   ② 全局 focus-visible 环（键盘可达性）③ notify 入场 stagger
+   ============================================================ */
+/* ① 按压反馈：可交互元素 :active 统一 scale(.97)（v4-h 口径 press 96ms）——
+   此前只补了 hover transition，按压无体感是「廉价手感」主要来源 */
+.cs-opt:active,.session-item:active,.ctx-menu-item:active,.sp-fold:active,.sp-close:active,
+.mcp-tab:active,.wsq-main:active,.wsq-opt:active,.cm-back:active,.mn-btn:active,
+.plan-rollback:active,.sp-item-title:active,.mm-del:active,.sw-test-btn:active,
+.gg-rule-del:active,.tm-rb:active,.set-win-close:active,.search-hit:active,
+.sp-btn-primary:active,.cs-trigger:active,.clr-opt:active,.ob-card:active,.sc-ok:active{
+  transform:scale(.97);transition:transform var(--dur-press) var(--ease-out-soft)}
+body.fx-off .cs-opt:active,body.fx-off .session-item:active,body.fx-off .ctx-menu-item:active,
+body.fx-off .sp-fold:active,body.fx-off .sp-close:active,body.fx-off .mcp-tab:active,
+body.fx-off .wsq-main:active,body.fx-off .wsq-opt:active,body.fx-off .cm-back:active,
+body.fx-off .mn-btn:active,body.fx-off .plan-rollback:active,body.fx-off .sp-item-title:active,
+body.fx-off .mm-del:active,body.fx-off .sw-test-btn:active,body.fx-off .gg-rule-del:active,
+body.fx-off .tm-rb:active,body.fx-off .set-win-close:active,body.fx-off .search-hit:active,
+body.fx-off .sp-btn-primary:active,body.fx-off .cs-trigger:active,body.fx-off .clr-opt:active,
+body.fx-off .ob-card:active,body.fx-off .sc-ok:active{transform:none}
+/* ② 全局 focus-visible 环（WCAG 2.4.7：键盘用户必须看见焦点）——
+   覆盖全部现存与未来可交互元素；静态环无需 fx-off 降级 */
+button:focus-visible,a:focus-visible,[tabindex]:focus-visible,summary:focus-visible,
+.notify-item:focus-visible,.think-line:focus-visible{
+  outline:2px solid var(--primary);outline-offset:1px;border-radius:var(--radius-sm)}
+input:focus-visible,textarea:focus-visible,select:focus-visible{
+  outline:2px solid var(--primary);outline-offset:1px}
+/* ③ notify 入场 stagger（40ms 阶梯，5 项封顶 160ms——v4 §编排） */
+.notify-item{animation:v4LineIn var(--dur-comp) var(--ease-out-soft) both}
+.notify-item:nth-child(2){animation-delay:40ms}
+.notify-item:nth-child(3){animation-delay:80ms}
+.notify-item:nth-child(4){animation-delay:120ms}
+.notify-item:nth-child(5){animation-delay:160ms}
+body.fx-off .notify-item{animation:none}
+
+/* ============================================================
+   v4 UI 欠缺补缺（2026-10-21 三轮审计）：① 按压反馈家族
+   ② 全局 focus-visible 环（键盘可达性）③ notify 入场 stagger
+   ============================================================ */
+/* ① 按压反馈：可交互元素 :active 统一 scale(.97)（v4-h 口径 press 96ms）——
+   此前只补了 hover transition，按压无体感是「廉价手感」主要来源 */
+.cs-opt:active,.session-item:active,.ctx-menu-item:active,.sp-fold:active,.sp-close:active,
+.mcp-tab:active,.wsq-main:active,.wsq-opt:active,.cm-back:active,.mn-btn:active,
+.plan-rollback:active,.sp-item-title:active,.mm-del:active,.sw-test-btn:active,
+.gg-rule-del:active,.tm-rb:active,.set-win-close:active,.search-hit:active,
+.sp-btn-primary:active,.cs-trigger:active,.clr-opt:active,.ob-card:active,.sc-ok:active{
+  transform:scale(.97);transition:transform var(--dur-press) var(--ease-out-soft)}
+body.fx-off .cs-opt:active,body.fx-off .session-item:active,body.fx-off .ctx-menu-item:active,
+body.fx-off .sp-fold:active,body.fx-off .sp-close:active,body.fx-off .mcp-tab:active,
+body.fx-off .wsq-main:active,body.fx-off .wsq-opt:active,body.fx-off .cm-back:active,
+body.fx-off .mn-btn:active,body.fx-off .plan-rollback:active,body.fx-off .sp-item-title:active,
+body.fx-off .mm-del:active,body.fx-off .sw-test-btn:active,body.fx-off .gg-rule-del:active,
+body.fx-off .tm-rb:active,body.fx-off .set-win-close:active,body.fx-off .search-hit:active,
+body.fx-off .sp-btn-primary:active,body.fx-off .cs-trigger:active,body.fx-off .clr-opt:active,
+body.fx-off .ob-card:active,body.fx-off .sc-ok:active{transform:none}
+/* ② 全局 focus-visible 环（WCAG 2.4.7：键盘用户必须看见焦点）——
+   覆盖全部现存与未来可交互元素；静态环无需 fx-off 降级 */
+button:focus-visible,a:focus-visible,[tabindex]:focus-visible,summary:focus-visible,
+.notify-item:focus-visible,.think-line:focus-visible{
+  outline:2px solid var(--primary);outline-offset:1px;border-radius:var(--radius-sm)}
+input:focus-visible,textarea:focus-visible,select:focus-visible{
+  outline:2px solid var(--primary);outline-offset:1px}
+/* ③ notify 入场 stagger（40ms 阶梯，5 项封顶 160ms——v4 §编排） */
+.notify-item{animation:v4LineIn var(--dur-comp) var(--ease-out-soft) both}
+.notify-item:nth-child(2){animation-delay:40ms}
+.notify-item:nth-child(3){animation-delay:80ms}
+.notify-item:nth-child(4){animation-delay:120ms}
+.notify-item:nth-child(5){animation-delay:160ms}
+body.fx-off .notify-item{animation:none}
 </style>
 </head>
 <body>
