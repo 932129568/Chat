@@ -1956,6 +1956,13 @@ body.fx-off .input-row:focus-within{box-shadow:var(--shadow-sm)}
 .stat-label{font-size:var(--fs-micro);color:var(--text-3);letter-spacing:.03em;text-transform:uppercase}
 .stat-value{letter-spacing:-.2px}
 body.theming .input-row{transition-property:box-shadow,background-color,border-color}
+
+/* ---- v4 阅读节奏（2026-10-21）：表格斑马纹 + 空态淡出退场 ---- */
+.md-body tbody tr:nth-child(even) td{background:var(--surface-2);}
+.md-body tbody tr:nth-child(even) td:hover{background:var(--hover);}
+#emptyState.leaving{animation:v4EmptyOut var(--dur-comp-out) var(--ease-in-soft) forwards}
+@keyframes v4EmptyOut{to{opacity:0;transform:translateY(6px) scale(.98)}}
+body.fx-off #emptyState.leaving{animation:none;opacity:0}
 </style>
 </head>
 <body>

@@ -71,7 +71,14 @@ function viewImage(src) {
 function addMessage(role, content, extra) {
   const container = document.getElementById('chatContainer');
   const empty = document.getElementById('emptyState');
-  if (empty) empty.remove();
+  if (empty) {
+    // v4：淡出退场（原瞬删突兀）；fx-off/instant 直删
+    if (typeof MOTION !== 'undefined' && !MOTION.instant()) {
+      empty.classList.add('leaving');
+      MOTION.onAnimEnd(empty, 'animationend', MOTION.compOut())
+        .then(() => empty.remove()).catch(() => { try { empty.remove(); } catch (e) {} });
+    } else empty.remove();
+  }
   const div = document.createElement('div');
   div.className = 'message ' + role;
   let extraHtml = '';

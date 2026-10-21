@@ -1956,6 +1956,13 @@ body.fx-off .input-row:focus-within{box-shadow:var(--shadow-sm)}
 .stat-label{font-size:var(--fs-micro);color:var(--text-3);letter-spacing:.03em;text-transform:uppercase}
 .stat-value{letter-spacing:-.2px}
 body.theming .input-row{transition-property:box-shadow,background-color,border-color}
+
+/* ---- v4 阅读节奏（2026-10-21）：表格斑马纹 + 空态淡出退场 ---- */
+.md-body tbody tr:nth-child(even) td{background:var(--surface-2);}
+.md-body tbody tr:nth-child(even) td:hover{background:var(--hover);}
+#emptyState.leaving{animation:v4EmptyOut var(--dur-comp-out) var(--ease-in-soft) forwards}
+@keyframes v4EmptyOut{to{opacity:0;transform:translateY(6px) scale(.98)}}
+body.fx-off #emptyState.leaving{animation:none;opacity:0}
 </style>
 </head>
 <body>
@@ -7672,7 +7679,14 @@ function viewImage(src) {
 function addMessage(role, content, extra) {
   const container = document.getElementById('chatContainer');
   const empty = document.getElementById('emptyState');
-  if (empty) empty.remove();
+  if (empty) {
+    // v4：淡出退场（原瞬删突兀）；fx-off/instant 直删
+    if (typeof MOTION !== 'undefined' && !MOTION.instant()) {
+      empty.classList.add('leaving');
+      MOTION.onAnimEnd(empty, 'animationend', MOTION.compOut())
+        .then(() => empty.remove()).catch(() => { try { empty.remove(); } catch (e) {} });
+    } else empty.remove();
+  }
   const div = document.createElement('div');
   div.className = 'message ' + role;
   let extraHtml = '';
@@ -8028,7 +8042,7 @@ async function runAgentLoop(s, apiKey) {
     resetCostDefense();   // v1.2 R4：每次任务重置循环/无进展计数
     const sendBtn = document.getElementById('sendBtn');
     sendBtn.textContent = '■';
-    sendBtn.style.background = '#ff4d4f';
+    sendBtn.style.background = 'var(--err)';   // 令牌化（原硬编码 #ff4d4f 违反令牌铁律；走 .send-btn 既有 transition 即得三态平滑形变）
     sendBtn.onclick = () => {
       // 修复（2026-10-18）：点暂停立即置位 + 立即视觉反馈（原只 abort fetch，
       // 工具执行阶段点下去像没反应——用户实测「点暂停时没有马上暂停」）

@@ -111,7 +111,7 @@ async function runAgentLoop(s, apiKey) {
     resetCostDefense();   // v1.2 R4：每次任务重置循环/无进展计数
     const sendBtn = document.getElementById('sendBtn');
     sendBtn.textContent = '■';
-    sendBtn.style.background = '#ff4d4f';
+    sendBtn.style.background = 'var(--err)';   // 令牌化（原硬编码 #ff4d4f 违反令牌铁律；走 .send-btn 既有 transition 即得三态平滑形变）
     sendBtn.onclick = () => {
       // 修复（2026-10-18）：点暂停立即置位 + 立即视觉反馈（原只 abort fetch，
       // 工具执行阶段点下去像没反应——用户实测「点暂停时没有马上暂停」）
