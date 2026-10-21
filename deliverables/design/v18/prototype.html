@@ -1,0 +1,1207 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta http-equiv="Content-Security-Policy" content="object-src 'none'; base-uri 'none'; form-action 'none'">
+<title>Harbor · v1.8.0 Agent 能力版 · 新界面原型</title>
+<style>
+/* ============================================================
+   Harbor v1.8.0「Agent 能力版」新增界面原型（主理人兜底构建版）
+   令牌基线：deliverables/design/v4（v2 值不动，v4 玻璃/动效四层）
+   动效规范：deliverables/design/v18/motion-spec.md（15 组件表）
+   交互流程：deliverables/design/v18/ux-flows.md（10 状态机）
+   零依赖单文件：无 CDN / 无动画库 / 无外部图片 / 无网络请求
+   动效铁律：只动 transform/opacity/颜色族（+stroke-dashoffset 登记例外）
+   ============================================================ */
+:root{
+  --bg:#f6f7f9; --sidebar-bg:#ffffff; --main-bg:#f6f7f9; --header-bg:rgba(255,255,255,.78);
+  --card-bg:#ffffff; --surface-2:#f1f3f7;
+  --border:#e4e6ec; --border-strong:#d2d6e0;
+  --text:#14161c; --text-2:#5f6674; --text-3:#6a7180;
+  --primary:#4f6ef7; --primary-hover:#3d5ae6; --primary-soft:#eef1fe;
+  --user-bubble:#4059e0; --user-bubble-text:#ffffff; --ai-bubble:#ffffff;
+  --hover:#f1f3f7; --active:#eef1fe; --chip-bg:#f1f3f7;
+  --ok:#1a7f4e; --warn:#b7791f; --err:#cf3222;
+  --ok-bg:#e8f6ee; --warn-bg:#fdf5e6; --err-bg:#fdecea;
+  --shadow-sm:0 1px 2px rgba(16,18,28,.06);
+  --shadow-md:0 2px 8px rgba(16,18,28,.08);
+  --shadow-lg:0 12px 28px rgba(16,18,28,.14);
+  --radius-xs:4px; --radius-sm:6px; --radius-md:9px; --radius-lg:12px; --radius-xl:16px; --radius-full:999px;
+  --font-sans:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei","Noto Sans SC",sans-serif;
+  --font-mono:"JetBrains Mono","Cascadia Code",Consolas,"SFMono-Regular",Menlo,monospace;
+  --sidebar-w:264px; --content-w:820px;
+  --brand-gradient:linear-gradient(135deg,#6b84ff,#4f6ef7);
+  --glass-bg:rgba(255,255,255,.62); --glass-bg-2:rgba(255,255,255,.80);
+  --glass-border:rgba(255,255,255,.72); --glass-blur:18px; --glass-fallback:#f4f6fb;
+  --glass-saturate:1.15;
+  --aurora-1:#22d3ee; --aurora-2:#4f6ef7; --aurora-3:#8b5cf6; --aurora-4:#ec4899;
+  --aurora-opacity:.12; --aurora-bg-opacity:.50; --aurora-blur:64px;
+  --glow-color:rgba(79,110,247,.50);
+  --glow:0 0 0 1px var(--glass-border),0 0 22px -6px var(--glow-color);
+  --glow-strong:0 0 0 1px rgba(79,110,247,.60),0 0 34px -4px rgba(79,110,247,.70);
+  --glow-focus:0 0 0 3px var(--primary-soft),0 0 20px -4px var(--glow-color);
+  --dur-press:90ms; --dur-micro:130ms; --dur-micro-out:90ms;
+  --dur-comp:200ms; --dur-comp-out:140ms;
+  --dur-panel:240ms; --dur-panel-out:200ms; --dur-narr:220ms; --dur-theme:280ms;
+  --dur-count:600ms; --dur-chart:800ms;
+  --dur-ambient:34s; --dur-ambient-2:52s; --dur-sheen:6s; --dur-breathe:2.6s; --dur-stream:1.4s;
+  --ease-out-soft:cubic-bezier(.25,.8,.35,1); --ease-in-soft:cubic-bezier(.42,0,1,1);
+  --ease-spring:cubic-bezier(.34,1.3,.5,1); --ease-glow:var(--ease-out-soft);
+  --stagger-xs:40ms; --stagger-sm:60ms;
+  --shift-tip:4px; --shift-comp:6px; --shift-toast:8px; --shift-msg:8px; --shift-panel:12px;
+  --rail-w:60px; --rail-btn:40px; --rail-gap:6px;
+  --main-veil:rgba(246,247,249,.88);
+}
+body.dark{
+  --bg:#101114; --sidebar-bg:#16181d; --main-bg:#101114; --header-bg:rgba(22,24,29,.78);
+  --card-bg:#1a1c22; --surface-2:#212429;
+  --border:#272a32; --border-strong:#343843;
+  --text:#e6e7ea; --text-2:#8b909c; --text-3:#9298a6;
+  --primary:#6b84ff; --primary-hover:#8098ff; --primary-soft:#1d2337;
+  --user-bubble:#3b53c9; --user-bubble-text:#ffffff; --ai-bubble:#1a1c22;
+  --hover:#212429; --active:#232a3f; --chip-bg:#212429;
+  --ok:#4ade80; --warn:#fbbf24; --err:#f87171;
+  --ok-bg:#12251b; --warn-bg:#2a2213; --err-bg:#2b1618;
+  --shadow-sm:0 1px 2px rgba(0,0,0,.4); --shadow-md:0 2px 10px rgba(0,0,0,.45); --shadow-lg:0 16px 40px rgba(0,0,0,.6);
+  --glass-bg:rgba(26,28,34,.60); --glass-bg-2:rgba(30,33,41,.78);
+  --glass-border:rgba(255,255,255,.10); --glass-blur:20px; --glass-fallback:#171a21; --glass-saturate:1.15;
+  --aurora-1:#22d3ee; --aurora-2:#6b84ff; --aurora-3:#8b5cf6; --aurora-4:#ec4899;
+  --glow-color:rgba(107,132,255,.55);
+  --glow-focus:0 0 0 3px var(--primary-soft),0 0 20px -4px var(--glow-color);
+  --main-veil:rgba(16,17,20,.88);
+}
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:var(--font-sans);background:var(--bg);height:100vh;display:flex;overflow:hidden;
+  color:var(--text);font-size:14px;line-height:1.6;
+  transition:background var(--dur-theme) var(--ease-out-soft),color var(--dur-theme) var(--ease-out-soft);}
+button{font-family:inherit;border:none;background:none;cursor:pointer;color:inherit}
+input,textarea,select{font-family:inherit;font-size:inherit;color:inherit}
+::selection{background:var(--primary-soft);color:var(--primary)}
+::-webkit-scrollbar{width:10px;height:10px}
+::-webkit-scrollbar-thumb{background:var(--border-strong);border-radius:var(--radius-full);
+  border:2px solid transparent;background-clip:content-box}
+
+/* ================= 应用框架（极简占位，焦点在新组件） ================= */
+.rail{width:var(--rail-w);flex-shrink:0;display:flex;flex-direction:column;align-items:center;
+  gap:var(--rail-gap);padding:12px 0 10px;z-index:20;
+  background:linear-gradient(var(--glass-bg),var(--glass-bg)),var(--glass-fallback);
+  backdrop-filter:blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  border-right:1px solid var(--glass-border);}
+.rail-btn{width:var(--rail-btn);height:var(--rail-btn);border-radius:var(--radius-md);display:flex;
+  align-items:center;justify-content:center;color:var(--text-2);position:relative;
+  transition:background-color var(--dur-micro) var(--ease-out-soft),color var(--dur-micro) var(--ease-out-soft);}
+.rail-btn:hover{background:var(--hover);color:var(--text)}
+.rail-btn.on{background:var(--primary-soft);color:var(--primary)}
+.rail-btn svg{width:20px;height:20px}
+.rail-spacer{flex:1}
+.main-nav{width:132px;flex-shrink:0;display:flex;flex-direction:column;gap:2px;padding:10px 8px;
+  border-right:1px solid var(--glass-border);background:var(--sidebar-bg);position:relative;z-index:15;}
+.mn-title{font-size:11px;color:var(--text-3);padding:2px 8px 8px;font-weight:600}
+.mn-btn{display:flex;align-items:center;gap:8px;width:100%;height:34px;padding:0 10px;
+  border-radius:var(--radius-md);color:var(--text-2);font-size:13px;text-align:left;
+  transition:background-color var(--dur-micro) var(--ease-out-soft),color var(--dur-micro) var(--ease-out-soft);}
+.mn-btn:hover{background:var(--hover);color:var(--text)}
+.mn-btn.on{background:var(--primary-soft);color:var(--primary);font-weight:600}
+.sidebar{width:var(--sidebar-w);flex-shrink:0;border-right:1px solid var(--glass-border);
+  background:linear-gradient(var(--glass-bg),var(--glass-bg)),var(--glass-fallback);
+  backdrop-filter:blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  display:flex;flex-direction:column;z-index:10;padding:14px 12px;gap:10px;
+  transition:margin-left var(--dur-panel) var(--ease-out-soft);}
+.sidebar.collapsed{margin-left:calc(-1 * var(--sidebar-w))}
+.sb-brand{display:flex;align-items:center;gap:9px;font-weight:700;font-size:15px}
+.brand-logo{width:30px;height:30px;border-radius:var(--radius-md);background:var(--brand-gradient);
+  display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:14px}
+.sb-hint{font-size:11px;color:var(--text-3);line-height:1.6}
+.main{flex:1;display:flex;flex-direction:column;min-width:0;background:var(--main-veil);position:relative}
+.header{background:var(--header-bg);backdrop-filter:blur(14px);border-bottom:1px solid var(--border);
+  padding:0 16px;height:52px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0;z-index:10;gap:10px}
+.header-left{display:flex;align-items:center;gap:10px;min-width:0}
+.icon-btn{width:32px;height:32px;border-radius:var(--radius-sm);display:flex;align-items:center;justify-content:center;
+  color:var(--text-2);transition:background-color var(--dur-micro) var(--ease-out-soft),color var(--dur-micro) var(--ease-out-soft);}
+.icon-btn:hover{background:var(--hover);color:var(--text)}
+.icon-btn:active{transform:scale(.94)}
+.header-title{font-size:13px;font-weight:600;font-family:var(--font-mono)}
+.header-badge{font-size:11px;padding:2px 9px;border-radius:var(--radius-full);background:var(--chip-bg);color:var(--text-2);white-space:nowrap}
+.chat{flex:1;overflow-y:auto;padding:24px 20px 8px;min-height:0}
+.chat-inner{max-width:var(--content-w);margin:0 auto;display:flex;flex-direction:column;gap:18px}
+.input-area{flex-shrink:0;padding:10px 20px 14px}
+.input-inner{max-width:var(--content-w);margin:0 auto}
+.input-row{display:flex;gap:4px;align-items:flex-end;border:1px solid var(--border);border-radius:var(--radius-lg);
+  background:var(--card-bg);padding:8px 10px;box-shadow:var(--shadow-sm)}
+.input-row:focus-within{border-color:var(--primary);box-shadow:var(--glow-focus)}
+.input-row textarea{flex:1;border:none;background:transparent;font-size:14px;resize:none;outline:none;min-height:22px;max-height:120px}
+.tool-btn{width:32px;height:32px;border-radius:var(--radius-sm);display:flex;align-items:center;justify-content:center;
+  color:var(--text-2);transition:background-color var(--dur-micro) var(--ease-out-soft),color var(--dur-micro) var(--ease-out-soft),transform var(--dur-press) var(--ease-out-soft);}
+.tool-btn:hover{background:var(--hover);color:var(--primary)}
+.tool-btn:active{transform:scale(.94)}
+.tool-btn svg{width:17px;height:17px}
+.send-btn{width:32px;height:32px;border-radius:var(--radius-md);background:var(--primary);color:#fff;
+  display:flex;align-items:center;justify-content:center;font-size:14px;
+  transition:background-color var(--dur-micro) var(--ease-out-soft),box-shadow var(--dur-micro) var(--ease-out-soft),transform var(--dur-press) var(--ease-out-soft);}
+.send-btn:hover{background:var(--primary-hover);box-shadow:var(--glow)}
+.send-btn:active{transform:scale(.94)}
+.hint{display:flex;gap:14px;margin-top:8px;font-size:11px;color:var(--text-3);flex-wrap:wrap}
+
+/* ================= 消息（v4 既有模式） ================= */
+.msg{display:flex;gap:11px;animation:v4MsgIn var(--dur-narr) var(--ease-out-soft)}
+@keyframes v4MsgIn{from{opacity:0;transform:translateY(var(--shift-msg))}to{opacity:1;transform:none}}
+.msg .avatar{width:32px;height:32px;border-radius:var(--radius-md);flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600}
+.msg.ai .avatar{background:var(--ok);color:#fff}
+.msg.user .avatar{background:var(--primary);color:#fff}
+.msg .content{flex:1;min-width:0}
+.bubble{padding:11px 15px;border-radius:var(--radius-lg);font-size:14px;line-height:1.65;word-break:break-word}
+.msg.user .bubble{background:var(--user-bubble);color:var(--user-bubble-text);border-bottom-right-radius:var(--radius-xs);white-space:pre-wrap}
+.msg.ai .bubble{background:var(--ai-bubble);border:1px solid var(--border);border-bottom-left-radius:var(--radius-xs);box-shadow:var(--shadow-sm)}
+
+/* ================= §A 长任务可见等待（wait-*） ================= */
+.wait-card{border:1px solid var(--border);border-radius:var(--radius-lg);background:var(--card-bg);
+  box-shadow:var(--shadow-sm);padding:13px 15px;animation:v4MsgIn var(--dur-narr) var(--ease-out-soft)}
+.wait-stage{display:inline-flex;align-items:center;gap:8px;font-size:13px;color:var(--text);font-weight:500}
+.wait-dot{width:14px;height:14px;flex-shrink:0;border-radius:50%;
+  border:2px solid var(--primary-soft);border-top-color:var(--primary);animation:v4Spin var(--dur-stream) linear infinite}
+@keyframes v4Spin{to{transform:rotate(360deg)}}
+.wait-text{display:inline-block;animation:v4WaitTextIn var(--dur-comp) var(--ease-out-soft)}
+@keyframes v4WaitTextIn{from{opacity:0;transform:translateY(2px)}to{opacity:1;transform:none}}
+.wait-text.out{opacity:0;transition:opacity var(--dur-comp-out) var(--ease-in-soft)}
+.wait-dots::after{content:"";animation:waitEllipsis 2.6s var(--ease-out-soft) infinite}
+@keyframes waitEllipsis{0%,100%{opacity:.35}50%{opacity:1}}
+.wait-skel{margin-top:11px;display:flex;flex-direction:column;gap:8px}
+.wait-line{height:11px;border-radius:var(--radius-xs);background:var(--surface-2);position:relative;overflow:hidden}
+.wait-line:nth-child(1){width:92%}.wait-line:nth-child(2){width:78%}.wait-line:nth-child(3){width:64%}
+.wait-line::after{content:"";position:absolute;inset:0;
+  background:linear-gradient(90deg,transparent,var(--hover),transparent);
+  transform:translateX(-100%);animation:toolSheen var(--dur-sheen) var(--ease-out-soft) infinite}
+@keyframes toolSheen{to{transform:translateX(100%)}}
+.wait-prog{margin-top:11px;height:4px;border-radius:var(--radius-full);background:var(--surface-2);overflow:hidden}
+.wait-prog-fill{height:100%;width:100%;border-radius:inherit;background:var(--primary);
+  transform:scaleX(0);transform-origin:left;transition:transform var(--dur-comp) var(--ease-out-soft)}
+.wait-prog.indet .wait-prog-fill{transform:scaleX(.4);animation:waitSweep var(--dur-stream) var(--ease-out-soft) infinite}
+@keyframes waitSweep{0%{transform:scaleX(.15) translateX(-30%)}50%{transform:scaleX(.55) translateX(30%)}100%{transform:scaleX(.15) translateX(110%)}}
+.wait-note{margin-top:9px;font-size:11.5px;color:var(--text-3);display:flex;align-items:center;gap:6px}
+.wait-note .ell{animation:waitEllipsis 2.6s var(--ease-out-soft) infinite}
+
+/* ================= §B 搜索面板（sp-*） ================= */
+.sp-panel{border:1px solid var(--border);border-radius:var(--radius-lg);background:var(--card-bg);
+  box-shadow:var(--shadow-md);overflow:hidden;animation:v4MsgIn var(--dur-narr) var(--ease-out-soft)}
+.sp-head{display:flex;align-items:center;justify-content:space-between;gap:8px;
+  padding:10px 14px;border-bottom:1px solid var(--border);font-size:12.5px;color:var(--text-2)}
+.sp-count{font-family:var(--font-mono);font-size:11px;color:var(--text-3)}
+.sp-src{font-size:10.5px;padding:1px 8px;border-radius:var(--radius-full);background:var(--chip-bg);color:var(--text-3)}
+.sp-src.cache{background:var(--warn-bg);color:var(--warn)}
+.sp-list{display:flex;flex-direction:column}
+.sp-item{display:block;width:100%;text-align:left;padding:10px 14px;border-bottom:1px solid var(--border);
+  animation:v4SpItemIn var(--dur-comp) var(--ease-out-soft) both;
+  transition:background-color var(--dur-micro) var(--ease-out-soft)}
+@keyframes v4SpItemIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+.sp-item:hover{background:var(--hover)}
+.sp-item:active{transform:scale(.995)}
+.sp-t{font-size:13px;color:var(--primary);font-weight:500}
+.sp-u{font-size:11px;color:var(--text-3);font-family:var(--font-mono);margin-top:1px}
+.sp-s{font-size:12px;color:var(--text-2);margin-top:3px;line-height:1.55}
+.sp-d{font-size:10.5px;color:var(--text-3);margin-left:6px}
+.sp-item.skel{pointer-events:none}
+.sp-item.skel .sp-t,.sp-item.skel .sp-u{height:10px;border-radius:var(--radius-xs);background:var(--surface-2);color:transparent}
+.sp-item.skel .sp-t{width:60%}
+.sp-take{border-top:1px solid var(--border);padding:13px 14px;background:var(--warn-bg);
+  animation:v4TakeIn var(--dur-comp) var(--ease-out-soft)}
+@keyframes v4TakeIn{from{opacity:0;transform:translateY(calc(-1*var(--shift-comp)))}to{opacity:1;transform:none}}
+/* S3 用法级对比度规避：正文文本用 --text（全对比），语义色收窄到图标/边框 */
+.sp-take-title{font-size:12.5px;color:var(--text);font-weight:600;display:flex;align-items:center;gap:6px}
+.sp-take-title .ic{color:var(--warn);flex-shrink:0}
+.sp-take-win{margin-top:10px;height:120px;border-radius:var(--radius-md);border:1px dashed var(--warn);
+  background:var(--card-bg);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;color:var(--text-3);font-size:11.5px}
+.sp-take-guide{display:flex;align-items:center;gap:7px;font-size:12px;color:var(--text-2);
+  animation:v4GuidePulse var(--dur-breathe) var(--ease-out-soft) infinite}
+@keyframes v4GuidePulse{0%,100%{opacity:.55}50%{opacity:1}}
+.sp-take-acts{margin-top:10px;display:flex;gap:8px}
+.sp-prev-mask{position:fixed;inset:0;background:rgba(16,18,28,.45);z-index:500;display:flex;
+  align-items:center;justify-content:center;animation:v4MaskIn var(--dur-comp) var(--ease-out-soft)}
+@keyframes v4MaskIn{from{opacity:0}to{opacity:1}}
+.sp-prev{width:min(640px,92vw);max-height:76vh;overflow-y:auto;background:var(--card-bg);
+  border-radius:var(--radius-lg);box-shadow:var(--shadow-lg);padding:18px 20px;
+  animation:v4PrevIn var(--dur-panel) var(--ease-out-soft)}
+@keyframes v4PrevIn{from{opacity:0;transform:translateY(var(--shift-panel))}to{opacity:1;transform:none}}
+.sp-prev h3{font-size:15px;margin-bottom:4px}
+.sp-prev .meta{font-size:11px;color:var(--text-3);font-family:var(--font-mono);margin-bottom:12px}
+.sp-prev-body{font-size:13px;line-height:1.75;color:var(--text-2)}
+.sp-prev-body .skel{height:10px;border-radius:var(--radius-xs);background:var(--surface-2);margin-bottom:8px}
+.sp-prev-body .skel:nth-child(2){width:88%}.sp-prev-body .skel:nth-child(3){width:95%}.sp-prev-body .skel:nth-child(4){width:70%}
+
+/* ================= §C 软件面板（sw-*） ================= */
+.sw-row{display:flex;align-items:center;gap:10px;padding:9px 4px;border-bottom:1px solid var(--border);
+  animation:v4SpItemIn var(--dur-comp) var(--ease-out-soft) both;
+  transition:background-color var(--dur-micro) var(--ease-out-soft)}
+.sw-row:hover{background:var(--hover)}
+.sw-light{width:8px;height:8px;border-radius:50%;flex-shrink:0;background:var(--text-3);position:relative;
+  transition:background-color var(--dur-comp) var(--ease-out-soft),border-color var(--dur-comp) var(--ease-out-soft),box-shadow var(--dur-comp) var(--ease-out-soft)}
+.sw-light.probing{background:var(--primary);animation:v4LightPulse var(--dur-stream) var(--ease-out-soft) infinite}
+@keyframes v4LightPulse{0%,100%{transform:scale(.8);opacity:.45}50%{transform:scale(1);opacity:1}}
+.sw-light.installed{background:var(--ok)}
+.sw-light.installed::after{content:"";position:absolute;inset:-3px;border-radius:50%;
+  box-shadow:0 0 0 1px var(--ok);animation:v4ToolSettle var(--dur-comp) var(--ease-out-soft) 1}
+@keyframes v4ToolSettle{from{opacity:1;transform:scale(1.6)}to{opacity:0;transform:scale(1)}}
+.sw-light.missing{background:transparent;border:1.5px solid var(--text-3)}
+.sw-light.mismatch{background:var(--warn)}
+.sw-name{font-size:13px;font-weight:500;min-width:74px}
+.sw-ver{font-size:11px;color:var(--text-3);font-family:var(--font-mono);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sw-act{display:flex;gap:6px;flex-shrink:0;align-items:center}
+.sw-out{margin:10px 0 4px;padding:10px 12px;border-radius:var(--radius-md);background:var(--surface-2);
+  font-family:var(--font-mono);font-size:11.5px;line-height:1.7;color:var(--text-2);
+  animation:v4SpItemIn var(--dur-comp) var(--ease-out-soft)}
+.sw-line{animation:v4LineIn var(--dur-micro) var(--ease-out-soft) both;white-space:pre-wrap;word-break:break-all}
+@keyframes v4LineIn{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+.sw-exit{display:inline-block;font-size:10.5px;padding:1px 8px;border-radius:var(--radius-full);margin-right:8px}
+.sw-exit.ok{background:var(--ok-bg);color:var(--ok)}
+.sw-exit.err{background:var(--err-bg);color:var(--err)}
+
+/* ================= §D 混合路由（hy-*） ================= */
+.hy-chip{display:inline-flex;align-items:center;gap:8px;height:26px;padding:0 11px;border-radius:var(--radius-full);
+  background:var(--chip-bg);font-size:11.5px;color:var(--text-2);
+  animation:v4ChipIn var(--dur-comp) var(--ease-out-soft)}
+@keyframes v4ChipIn{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+.hy-chip b{font-family:var(--font-mono);font-weight:600;color:var(--text)}
+.hy-chip .save{color:var(--ok)}
+.hy-dot{width:8px;height:8px;border-radius:50%;position:relative;flex-shrink:0;
+  transition:background-color var(--dur-comp) var(--ease-out-soft)}
+.hy-dot.local{background:var(--ok)}
+.hy-dot.cloud{background:var(--primary)}
+.hy-dot.degraded{background:var(--warn)}
+.hy-dot.ping::after{content:"";position:absolute;inset:0;border-radius:50%;border:1.5px solid currentColor;
+  animation:v4DotPing var(--dur-comp) var(--ease-out-soft) 1}
+@keyframes v4DotPing{from{transform:scale(1);opacity:.5}to{transform:scale(1.9);opacity:0}}
+/* N-修复：dot ping 期间背景色过渡即已覆盖态间切换，无需叠加 */
+.hy-route{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--text-3);margin-top:6px}
+.hy-cfg{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:10px}
+.hy-stat{border:1px solid var(--border);border-radius:var(--radius-md);padding:10px 12px;cursor:pointer;text-align:left;
+  transition:border-color var(--dur-comp) var(--ease-out-soft),background-color var(--dur-comp) var(--ease-out-soft)}
+.hy-stat:hover{border-color:var(--border-strong)}
+.hy-stat.on{border-color:var(--primary);background:var(--primary-soft)}
+.hy-stat .n{font-size:13px;font-weight:600}
+.hy-stat .d{font-size:11px;color:var(--text-3);margin-top:3px;line-height:1.5}
+
+/* ================= §E L2 授权（gr-*） ================= */
+.gr-bar{display:flex;align-items:center;gap:10px;padding:7px 12px;border-radius:var(--radius-full);
+  background:var(--card-bg);border:1px solid var(--border);box-shadow:var(--shadow-sm);
+  animation:v4GrIn var(--dur-comp) var(--ease-spring)}
+@keyframes v4GrIn{from{opacity:0;transform:scale(.9)}to{opacity:1;transform:none}}
+.gr-light{width:9px;height:9px;border-radius:50%;background:var(--primary);flex-shrink:0;
+  animation:v4GrBreathe var(--dur-breathe) var(--ease-out-soft) infinite}
+@keyframes v4GrBreathe{0%,100%{opacity:.88}50%{opacity:1}}
+.gr-light.off{background:var(--text-3);animation:none}
+.gr-ring{width:18px;height:18px;flex-shrink:0}
+.gr-ring circle{fill:none;stroke-width:2.5;transform:rotate(-90deg);transform-origin:center}
+.gr-ring .bg{stroke:var(--surface-2)}
+.gr-ring .fg{stroke:var(--primary);stroke-dasharray:44;stroke-dashoffset:0;transition:stroke-dashoffset 1s linear}
+.gr-ring.warn .fg{stroke:var(--warn);transition:stroke-dashoffset 1s linear,stroke var(--dur-comp) var(--ease-out-soft)}
+.gr-ttl{font-size:11.5px;color:var(--text-2);font-family:var(--font-mono)}
+.gr-revoke{font-size:11.5px;padding:3px 10px;border-radius:var(--radius-full);color:var(--text-2);
+  border:1px solid var(--border);
+  transition:color var(--dur-micro) var(--ease-out-soft),background-color var(--dur-micro) var(--ease-out-soft),border-color var(--dur-micro) var(--ease-out-soft),transform var(--dur-press) var(--ease-out-soft)}
+.gr-revoke:hover{color:var(--err);border-color:var(--err);background:var(--err-bg)}
+.gr-revoke:active{transform:scale(.97)}
+.gr-scope{font-size:10.5px;color:var(--text-3)}
+
+/* ================= §F 计划卡（plan-*） ================= */
+.plan-card{border:1px solid var(--border);border-radius:var(--radius-lg);background:var(--card-bg);
+  box-shadow:var(--shadow-md);overflow:hidden;animation:v4MsgIn var(--dur-narr) var(--ease-out-soft)}
+.plan-head{display:flex;align-items:center;gap:8px;padding:11px 14px;border-bottom:1px solid var(--border)}
+/* S4 修复：状态切换补 200ms --dur-comp 颜色过渡（同源同速） */
+.plan-badge{font-size:10.5px;padding:1px 9px;border-radius:var(--radius-full);font-weight:600;
+  transition:background-color var(--dur-comp) var(--ease-out-soft),color var(--dur-comp) var(--ease-out-soft)}
+.plan-badge.pending{background:var(--warn-bg);color:var(--warn)}
+.plan-badge.running{background:var(--primary-soft);color:var(--primary)}
+.plan-badge.done{background:var(--ok-bg);color:var(--ok)}
+.plan-title{font-size:13px;font-weight:600;flex:1}
+.plan-files{padding:8px 14px;font-size:11px;color:var(--text-3);font-family:var(--font-mono);
+  border-bottom:1px solid var(--border);line-height:1.7}
+.plan-steps{display:flex;flex-direction:column}
+.plan-step{display:flex;align-items:flex-start;gap:10px;padding:9px 14px;border-bottom:1px solid var(--border);
+  animation:v4PlanStepIn var(--dur-comp) var(--ease-out-soft) both}
+@keyframes v4PlanStepIn{from{opacity:0;transform:translateY(-2px)}to{opacity:1;transform:none}}
+.plan-step .st{width:16px;height:16px;border-radius:50%;border:1.5px solid var(--border-strong);flex-shrink:0;
+  margin-top:1px;display:flex;align-items:center;justify-content:center;font-size:10px;color:transparent}
+.plan-step.pending .st{border-color:var(--border-strong)}
+.plan-step.doing .st{border-color:var(--primary);border-top-color:var(--primary-soft);animation:v4Spin var(--dur-stream) linear infinite}
+.plan-step.done .st{border-color:var(--ok);background:var(--ok);color:#fff}
+.plan-step.done .st::after{content:"✓";animation:v4CheckPop var(--dur-comp) var(--ease-spring)}
+@keyframes v4CheckPop{from{transform:scale(.4);opacity:0}to{transform:scale(1);opacity:1}}
+.plan-step.blocked .st{border-color:var(--err)}
+.plan-step.skipped .st{border-color:var(--border)}
+.plan-step .txt{font-size:12.5px;color:var(--text);line-height:1.5;flex:1}
+.plan-step.done .txt{color:var(--text-3)}
+.plan-step .risk{font-size:10px;padding:0 7px;border-radius:var(--radius-full);flex-shrink:0;margin-top:2px}
+.plan-step .risk.l2{background:var(--warn-bg);color:var(--warn)}
+.plan-acts{display:flex;gap:8px;padding:11px 14px;transition:opacity var(--dur-comp-out) var(--ease-in-soft)}
+.plan-acts.gone{opacity:0;pointer-events:none}
+.plan-summary{padding:11px 14px;font-size:12px;color:var(--text-2);border-top:1px solid var(--border);
+  background:var(--surface-2);display:none}
+.plan-summary.show{display:block;animation:v4LineIn var(--dur-comp) var(--ease-out-soft)}
+.dev-bar{display:flex;align-items:center;gap:10px;padding:10px 14px;border-radius:var(--radius-lg);
+  background:var(--err-bg);border:1px solid var(--err);
+  animation:v4DevIn var(--dur-panel) var(--ease-out-soft)}
+@keyframes v4DevIn{from{opacity:0;transform:translateY(calc(-1*var(--shift-panel)))}to{opacity:1;transform:none}}
+.dev-bar.flash{animation:v4DevIn var(--dur-panel) var(--ease-out-soft),v4DevFlash var(--dur-comp) var(--ease-out-soft) 1}
+@keyframes v4DevFlash{0%{box-shadow:0 0 0 1px var(--err),0 0 14px -4px var(--err)}100%{box-shadow:0 0 0 1px var(--err),0 0 0 -4px var(--err)}}
+.dev-bar .t{font-size:12.5px;color:var(--text);font-weight:600;flex:1}
+.dev-bar .ic{color:var(--err);flex-shrink:0}
+.dev-bar .a{display:flex;gap:6px}
+
+/* ================= §G 澄清表单（clr-*） ================= */
+.clr-form{border:1px solid var(--border);border-radius:var(--radius-lg);background:var(--card-bg);
+  box-shadow:var(--shadow-md);padding:14px;animation:v4MsgIn var(--dur-narr) var(--ease-out-soft);
+  animation-delay:var(--stagger-sm)}
+.clr-q{padding:8px 0;border-bottom:1px solid var(--border);animation:v4LineIn var(--dur-comp) var(--ease-out-soft) both}
+.clr-q:last-of-type{border-bottom:none}
+.clr-q .q{font-size:12.5px;font-weight:500;margin-bottom:6px}
+.clr-q .q .def{font-size:10.5px;color:var(--text-3);margin-left:6px}
+.clr-opt{display:inline-block;font-size:11.5px;padding:3px 11px;border-radius:var(--radius-full);
+  border:1px solid var(--border);color:var(--text-2);margin-right:6px;
+  transition:background-color var(--dur-comp) var(--ease-out-soft),border-color var(--dur-comp) var(--ease-out-soft),color var(--dur-comp) var(--ease-out-soft),transform var(--dur-press) var(--ease-out-soft)}
+.clr-opt:hover{border-color:var(--primary);color:var(--primary)}
+.clr-opt:active{transform:scale(.97)}
+.clr-opt.on{background:var(--primary-soft);border-color:var(--primary);color:var(--primary)}
+.clr-acts{display:flex;gap:8px;margin-top:12px;align-items:center}
+.clr-limit{font-size:10.5px;color:var(--text-3);margin-left:auto}
+
+/* ================= §H 检查点（ckpt-*） ================= */
+.ckpt-prog{display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:var(--radius-md);
+  background:var(--surface-2);animation:v4SpItemIn var(--dur-comp) var(--ease-out-soft)}
+.ckpt-bar{flex:1;height:4px;border-radius:var(--radius-full);background:var(--border);overflow:hidden}
+.ckpt-fill{height:100%;background:var(--primary);transform:scaleX(0);transform-origin:left;
+  transition:transform var(--dur-comp) var(--ease-out-soft),background-color var(--dur-comp) var(--ease-out-soft)}
+.ckpt-prog.indet .ckpt-fill{animation:waitSweep var(--dur-stream) var(--ease-out-soft) infinite}
+.ckpt-prog.done .ckpt-fill{background:var(--ok);transform:scaleX(1)}
+.ckpt-prog.warn .ckpt-fill{background:var(--warn)}
+.ckpt-count{font-size:11px;color:var(--text-3);font-family:var(--font-mono);white-space:nowrap}
+.ckpt-count.flash{animation:v4LineIn var(--dur-micro) var(--ease-out-soft)}
+.ckpt-list{display:flex;flex-direction:column;gap:4px;margin-top:10px}
+.ckpt-row{display:flex;align-items:center;gap:8px;font-size:12px;padding:6px 10px;border-radius:var(--radius-sm);
+  background:var(--surface-2);font-family:var(--font-mono);
+  animation:v4PlanStepIn var(--dur-comp) var(--ease-out-soft) both}
+.ckpt-row .f{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ckpt-row .s{font-size:10.5px;color:var(--text-3)}
+.ckpt-row.restored .s{color:var(--ok)}
+.ckpt-row.failed .s{color:var(--err)}
+.ckpt-more{font-size:11px;color:var(--text-3);padding:2px 10px}
+
+/* ================= 通用按钮家族（v4-h） ================= */
+.pill-btn{display:inline-flex;align-items:center;gap:6px;height:30px;padding:0 13px;border-radius:var(--radius-full);
+  border:1px solid var(--border);background:var(--card-bg);color:var(--text-2);font-size:12px;
+  transition:background-color var(--dur-micro) var(--ease-out-soft),color var(--dur-micro) var(--ease-out-soft),
+  border-color var(--dur-micro) var(--ease-out-soft),transform var(--dur-press) var(--ease-out-soft)}
+.pill-btn:hover{border-color:var(--primary);color:var(--primary);background:var(--primary-soft)}
+.pill-btn:active{transform:scale(.97)}
+.pill-btn.primary{background:var(--primary);border-color:var(--primary);color:#fff}
+.pill-btn.primary:hover{background:var(--primary-hover);box-shadow:var(--glow)}
+.pill-btn.danger:hover{border-color:var(--err);color:var(--err);background:var(--err-bg)}
+.ghost-btn{display:inline-flex;align-items:center;gap:6px;height:30px;padding:0 12px;border-radius:var(--radius-md);
+  border:1px solid transparent;color:var(--text-2);font-size:12px;
+  transition:background-color var(--dur-micro) var(--ease-out-soft),color var(--dur-micro) var(--ease-out-soft),
+  border-color var(--dur-micro) var(--ease-out-soft),transform var(--dur-press) var(--ease-out-soft)}
+.ghost-btn:hover{background:var(--hover);color:var(--text);border-color:var(--border-strong)}
+.ghost-btn:active{transform:scale(.97)}
+
+/* ================= Toast / 模态（v4 既有模式） ================= */
+.toast-wrap{position:fixed;top:16px;right:16px;z-index:900;display:flex;flex-direction:column;gap:8px;max-width:340px}
+.toast{display:flex;align-items:flex-start;gap:8px;padding:10px 12px;border-radius:var(--radius-md);
+  background:var(--card-bg);border:1px solid var(--border);box-shadow:var(--shadow-lg);font-size:12.5px;
+  animation:v4ToastIn var(--dur-comp) var(--ease-out-soft)}
+@keyframes v4ToastIn{from{opacity:0;transform:translateX(var(--shift-toast))}to{opacity:1;transform:none}}
+.toast.out{opacity:0;transform:translateX(var(--shift-toast));transition:opacity var(--dur-comp-out) var(--ease-in-soft),transform var(--dur-comp-out) var(--ease-in-soft)}
+.toast .i{flex-shrink:0;font-weight:700}
+.toast.ok .i{color:var(--ok)}.toast.warn .i{color:var(--warn)}.toast.err .i{color:var(--err)}.toast.info .i{color:var(--primary)}
+.modal-mask{position:fixed;inset:0;background:rgba(16,18,28,.45);z-index:800;display:flex;
+  align-items:center;justify-content:center;animation:v4MaskIn var(--dur-comp) var(--ease-out-soft)}
+.modal-card{width:min(440px,92vw);background:var(--card-bg);border-radius:var(--radius-lg);
+  box-shadow:var(--shadow-lg);padding:18px 20px;animation:v4ModalIn var(--dur-comp) var(--ease-spring)}
+@keyframes v4ModalIn{from{opacity:0;transform:scale(.96)}to{opacity:1;transform:none}}
+.modal-card h3{font-size:15px;margin-bottom:4px}
+.modal-card .sub{font-size:12px;color:var(--text-3);margin-bottom:14px}
+.modal-acts{display:flex;gap:8px;justify-content:flex-end;margin-top:16px}
+.grant-scope{display:flex;flex-direction:column;gap:8px;margin:10px 0}
+.grant-scope label{display:flex;align-items:center;gap:8px;font-size:12.5px;cursor:pointer}
+.grant-scope input{width:15px;height:15px;accent-color:var(--primary)}
+.ttl-opts{display:flex;gap:6px;margin-top:4px}
+
+/* ================= 演示控制台 ================= */
+.demo{position:fixed;left:16px;bottom:16px;z-index:950;width:250px;
+  background:linear-gradient(var(--glass-bg-2),var(--glass-bg-2)),var(--glass-fallback);
+  backdrop-filter:blur(var(--glass-blur));-webkit-backdrop-filter:blur(var(--glass-blur));
+  border:1px solid var(--glass-border);border-radius:var(--radius-lg);box-shadow:var(--shadow-lg);
+  padding:12px 13px;font-size:11.5px;color:var(--text-2)}
+.demo h4{font-size:11px;color:var(--text-3);font-weight:600;letter-spacing:.04em;margin-bottom:8px;display:flex;justify-content:space-between}
+.demo .row{display:flex;flex-wrap:wrap;gap:5px;margin-bottom:7px}
+.demo button{font-size:11px;padding:3px 9px;border-radius:var(--radius-sm);border:1px solid var(--border);
+  background:var(--card-bg);color:var(--text-2);font-family:inherit;cursor:pointer;
+  transition:background-color var(--dur-micro) var(--ease-out-soft),color var(--dur-micro) var(--ease-out-soft),border-color var(--dur-micro) var(--ease-out-soft)}
+.demo button:hover{border-color:var(--primary);color:var(--primary)}
+.demo button.play{background:var(--primary);border-color:var(--primary);color:#fff}
+.demo .toggles{display:flex;gap:5px}
+.demo .legend{margin-top:6px;font-size:10px;color:var(--text-3);line-height:1.6}
+
+/* ================= fx-off / reduced-motion 降级 ================= */
+/* W1 补全：fx-off 变量级降级（--dur-*:1ms / --stagger-*:0ms）对 infinite 无效，
+   以下无限循环必须显式 animation:none（F2 修复：补 .wait-note .ell 与 .plan-step.doing .st） */
+body.fx-off{--dur-press:1ms;--dur-micro:1ms;--dur-micro-out:1ms;--dur-comp:1ms;--dur-comp-out:1ms;
+  --dur-panel:1ms;--dur-panel-out:1ms;--dur-narr:1ms;--dur-theme:1ms;--dur-count:1ms;
+  --stagger-xs:0ms;--stagger-sm:0ms;}
+body.fx-off .wait-dot,body.fx-off .sw-light.probing,body.fx-off .gr-light,
+body.fx-off .wait-line::after,body.fx-off .wait-prog.indet .wait-prog-fill,
+body.fx-off .sp-take-guide,body.fx-off .ckpt-prog.indet .ckpt-fill,
+body.fx-off .wait-dots::after,body.fx-off #auroraBg div,
+body.fx-off .wait-note .ell,body.fx-off .plan-step.doing .st{animation:none}
+body.fx-off .sw-light.probing{opacity:1;transform:none}
+body.fx-off .wait-prog.indet .wait-prog-fill{transform:scaleX(.4)}
+body.fx-off .ckpt-prog.indet .ckpt-fill{transform:scaleX(.4)}
+body.fx-off .plan-step.doing .st{border-top-color:var(--primary)}
+/* S2 修复：全局焦点环（键盘可达性） */
+:focus-visible{outline:2px solid var(--primary);outline-offset:2px;border-radius:var(--radius-xs)}
+@media (prefers-reduced-motion:reduce){
+  *,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}
+  .gr-ring .fg{transition:stroke-dashoffset .01ms linear}
+}
+/* W5 修复：reduced-transparency 补 .header */
+@media (prefers-reduced-transparency:reduce){
+  .demo,.rail,.main-nav,.sidebar,.sp-prev,.modal-card,.header{backdrop-filter:none;-webkit-backdrop-filter:none}
+  .header{background:var(--card-bg)}
+  .modal-mask,.sp-prev-mask{backdrop-filter:none}
+}
+</style>
+</head>
+<body>
+
+<div id="auroraBg" aria-hidden="true" style="position:fixed;inset:0;z-index:-1;overflow:hidden;pointer-events:none;background:var(--bg)">
+  <div style="position:absolute;width:58vmax;height:58vmax;border-radius:50%;top:-20vmax;left:-14vmax;opacity:.66;background:radial-gradient(circle,var(--aurora-1),transparent 70%);filter:blur(var(--aurora-blur));animation:auroraA var(--dur-ambient) var(--ease-out-soft) infinite alternate"></div>
+  <div style="position:absolute;width:58vmax;height:58vmax;border-radius:50%;bottom:-22vmax;right:-16vmax;opacity:.62;background:radial-gradient(circle,var(--aurora-3),transparent 70%);filter:blur(var(--aurora-blur));animation:auroraB var(--dur-ambient-2) var(--ease-out-soft) infinite alternate"></div>
+</div>
+<style>
+@keyframes auroraA{from{transform:translate(0,0)}to{transform:translate(6vmax,4vmax)}}
+@keyframes auroraB{from{transform:translate(0,0)}to{transform:translate(-5vmax,-3vmax)}}
+</style>
+
+<nav class="rail">
+  <button class="rail-btn on" title="对话"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg></button>
+  <button class="rail-btn" title="分析"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M7 14l4-4 4 3 5-6"/></svg></button>
+  <button class="rail-btn" title="工作区"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2.5h8a2 2 0 0 1 2 2V17a2 2 0 0 1-2 2H5a2 2 0 0 1-2 2z"/></svg></button>
+  <div class="rail-spacer"></div>
+  <button class="rail-btn" title="主题" onclick="toggleTheme()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg></button>
+</nav>
+
+<nav class="main-nav">
+  <div class="mn-title">分区</div>
+  <button class="mn-btn on" onclick="navDemo(this,'chat')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" style="width:16px;height:16px;flex-shrink:0"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>对话</button>
+  <button class="mn-btn" onclick="navDemo(this,'settings')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" style="width:16px;height:16px;flex-shrink:0"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1A1.7 1.7 0 0 0 8.9 19a1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1A1.7 1.7 0 0 0 5 8.9a1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3H9.5a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9v.1a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>设置</button>
+  <button class="mn-btn" onclick="navDemo(this,'audit')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" style="width:16px;height:16px;flex-shrink:0"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M9 12l2 2 4-4"/></svg>审计</button>
+  <button class="mn-btn" onclick="navDemo(this,'search')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" style="width:16px;height:16px;flex-shrink:0"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.3-4.3"/></svg>会话搜索</button>
+  <button class="mn-btn" onclick="navDemo(this,'sandbox')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" style="width:16px;height:16px;flex-shrink:0"><path d="M21 8v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7l2 3h5a2 2 0 0 1 2 2z"/><path d="M10 12h4M12 12v3"/></svg>沙箱</button>
+</nav>
+
+<aside class="sidebar" id="sidebar">
+  <div class="sb-brand"><div class="brand-logo">H</div>Harbor</div>
+  <button class="pill-btn primary" style="width:100%;justify-content:center" onclick="toast('已创建新对话（示意）','ok')">＋ 新建对话</button>
+  <button class="pill-btn" style="width:100%;justify-content:center" onclick="toast('导出面板（示意）','info')">⤓ 导出</button>
+  <div class="sb-hint">本原型聚焦 v1.8.0 新增界面面：长任务等待 / 搜索面板 / 人工接管 / 软件面板 / 混合路由分账 / L2 授权 / 计划卡 / 澄清 / 检查点回滚。会话列极简占位。</div>
+  <div class="sb-hint">左下演示控制台可播放完整任务链或单步触发各状态。</div>
+</aside>
+
+<main class="main">
+  <header class="header">
+    <div class="header-left">
+      <button class="icon-btn" onclick="document.getElementById('sidebar').classList.toggle('collapsed')" title="折叠/展开侧栏">☰</button>
+      <div class="header-title">qwen3-32b · 本地</div>
+      <div class="header-badge">多模态 Agent</div>
+      <span class="hy-chip" id="costSplit" title="本会话本地/云端 token 分账">
+        <span class="hy-dot local" id="hyDot"></span>
+        <span>本地 <b id="hyLocal">0</b> · 云端 <b id="hyCloud">0</b> · 省 <b class="save" id="hySave">¥0.00</b></span>
+      </span>
+    </div>
+    <div class="header-right" style="display:flex;gap:6px;align-items:center">
+      <span style="font-size:11px;color:var(--text-3)">v1.8.0 原型</span>
+    </div>
+  </header>
+
+  <div class="chat" id="chatScroll">
+    <div class="chat-inner" id="chatInner">
+      <div class="msg user">
+        <div class="avatar">我</div>
+        <div class="content"><div class="bubble">帮我查一下 Qwen3 最新版发布信息，然后用 git 提交当前改动</div></div>
+      </div>
+      <div id="demoStage" style="display:flex;flex-direction:column;gap:14px"></div>
+    </div>
+  </div>
+
+  <div class="input-area">
+    <div class="input-inner">
+      <div id="grantSlot" style="margin-bottom:8px"></div>
+      <div class="input-row">
+        <button class="tool-btn" title="添加图片"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg></button>
+        <button class="tool-btn" title="添加文件"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0-2-2V8z"/><path d="M14 3v5h5"/></svg></button>
+        <textarea rows="1" placeholder="给 Harbor 发消息…" id="userInput"></textarea>
+        <button class="send-btn" onclick="toast('发送（示意）——请用演示控制台播放任务链','info')">➤</button>
+      </div>
+      <div class="hint"><span>Enter 发送 · Shift+Enter 换行</span><span id="routeHint">路由：auto · 理解=本地 / 执行=云端 / 校验=本地</span></div>
+    </div>
+  </div>
+</main>
+
+<div class="demo" id="demoConsole">
+  <h4>演示控制台 <span style="font-weight:400">v18 原型</span></h4>
+  <div class="row"><button class="play" onclick="playChain()">▶ 播放完整任务链</button><button onclick="resetStage()">↺ 重置</button></div>
+  <div class="row">
+    <button onclick="stepWait()">1 等待态</button>
+    <button onclick="stepSearch()">2 搜索面板</button>
+    <button onclick="stepTakeover()">3 人工接管</button>
+    <button onclick="stepSoftware()">4 软件执行</button>
+  </div>
+  <div class="row">
+    <button onclick="stepGrant()">5 L2 授权</button>
+    <button onclick="stepPlan()">6 计划卡</button>
+    <button onclick="stepClarify()">7 澄清表单</button>
+    <button onclick="stepCheckpoint()">8 检查点回滚</button>
+  </div>
+  <div class="toggles">
+    <button id="tgTheme" onclick="toggleTheme()">🌙 主题</button>
+    <button id="tgFx" onclick="toggleFx()">✨ 特效</button>
+    <button id="tgRm" onclick="toggleRm()">♿ reduced-motion</button>
+  </div>
+  <div class="legend">键盘 1-8 = 单步触发 · 0 = 播放完整链 · R = 重置。所有后端响应均为（示意）仿真数据。</div>
+</div>
+
+<div class="toast-wrap" id="toastWrap"></div>
+
+<script>
+/* ================= MOTION 读取器（零硬编码时长） ================= */
+const MOTION = {
+  v: n => getComputedStyle(document.documentElement).getPropertyValue(n).trim(),
+  press: () => MOTION.v('--dur-press'), micro: () => MOTION.v('--dur-micro'),
+  microOut: () => MOTION.v('--dur-micro-out'), comp: () => MOTION.v('--dur-comp'),
+  compOut: () => MOTION.v('--dur-comp-out'), panel: () => MOTION.v('--dur-panel'),
+  panelOut: () => MOTION.v('--dur-panel-out'), narr: () => MOTION.v('--dur-narr'),
+  count: () => parseInt(MOTION.v('--dur-count')) || 600,
+  staggerXs: () => parseInt(MOTION.v('--stagger-xs')) || 40,
+  staggerSm: () => parseInt(MOTION.v('--stagger-sm')) || 60,
+  easeOutSoft: () => MOTION.v('--ease-out-soft'), easeSpring: () => MOTION.v('--ease-spring'),
+  instant: () => document.body.classList.contains('fx-off'),
+  prefersReduced: () => window.matchMedia('(prefers-reduced-motion: reduce)').matches || document.body.classList.contains('rm-sim'),
+  onAnimEnd: (el, ev, dur) => new Promise(res => {
+    if (!el || MOTION.instant() || MOTION.prefersReduced()) { res(); return; }
+    let done = false;
+    const fin = () => { if (!done) { done = true; el.removeEventListener(ev, fin); res(); } };
+    el.addEventListener(ev, fin);
+    setTimeout(fin, (parseInt(dur) || 200) + 120);
+  })
+};
+const sleep = ms => new Promise(r => setTimeout(r, MOTION.instant() || MOTION.prefersReduced() ? 0 : ms));
+const $ = id => document.getElementById(id);
+const stage = () => $('demoStage');
+const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const scrollChat = () => { const c = $('chatScroll'); c.scrollTop = c.scrollHeight; };
+
+/* ================= Toast ================= */
+function toast(msg, type, ms) {
+  type = type || 'info'; ms = ms || 4200;
+  const w = $('toastWrap');
+  const t = document.createElement('div');
+  t.className = 'toast ' + type;
+  const icon = { ok: '✓', warn: '△', err: '✕', info: 'ℹ' }[type] || 'ℹ';
+  t.innerHTML = '<span class="i">' + icon + '</span><span>' + esc(msg) + '</span>';
+  w.appendChild(t);
+  setTimeout(() => { t.classList.add('out'); setTimeout(() => t.remove(), 200); }, ms);
+}
+
+/* ================= 控制台开关 ================= */
+function toggleTheme() { document.body.classList.toggle('dark'); }
+function toggleFx() {
+  document.body.classList.toggle('fx-off');
+  $('tgFx').textContent = document.body.classList.contains('fx-off') ? '✨ 特效:关' : '✨ 特效';
+}
+function toggleRm() { document.body.classList.toggle('rm-sim'); }
+function navDemo(btn, zone) {
+  document.querySelectorAll('.mn-btn').forEach(b => b.classList.remove('on'));
+  btn.classList.add('on');
+  if (zone === 'settings') toast('设置分区（示意）——软件/混合路由配置见演示步骤 4/6', 'info');
+  else if (zone !== 'chat') toast('分区「' + zone + '」（示意）', 'info');
+}
+
+/* ================= §A 长任务可见等待 ================= */
+function makeWaitCard(title) {
+  const d = document.createElement('div');
+  d.className = 'wait-card';
+  d.innerHTML =
+    '<div class="wait-stage"><span class="wait-dot"></span><span class="wait-text">' + esc(title) + '</span><span class="wait-dots"></span></div>' +
+    '<div class="wait-skel"><div class="wait-line"></div><div class="wait-line"></div><div class="wait-line"></div></div>' +
+    '<div class="wait-prog indet"><div class="wait-prog-fill"></div></div>' +
+    '<div class="wait-note" style="display:none"><span class="ell">…</span><span class="note-txt"></span></div>';
+  stage().appendChild(d); scrollChat();
+  return d;
+}
+async function setStageText(card, text) {
+  const el = card.querySelector('.wait-text');
+  if (!el) return;
+  el.classList.add('out');
+  await MOTION.onAnimEnd(el, 'transitionend', MOTION.compOut());
+  el.textContent = text; el.classList.remove('out');
+}
+function setProg(card, p) {
+  const bar = card.querySelector('.wait-prog');
+  bar.classList.toggle('indet', p < 0);
+  if (p >= 0) bar.querySelector('.wait-prog-fill').style.transform = 'scaleX(' + p + ')';
+}
+function finishWait(card, ok) {
+  const dot = card.querySelector('.wait-dot');
+  const skel = card.querySelector('.wait-skel'), prog = card.querySelector('.wait-prog');
+  dot.style.animation = 'none';
+  dot.style.border = '2px solid ' + (ok ? 'var(--ok)' : 'var(--err)');
+  dot.style.borderTopColor = ok ? 'var(--ok)' : 'var(--err)';
+  skel.remove(); prog.remove();
+  card.querySelector('.wait-text').style.color = ok ? 'var(--ok)' : 'var(--err)';
+  card.querySelector('.wait-dots').remove();
+}
+
+/* ================= §B 搜索面板 ================= */
+const SEARCH_DATA = [
+  { t: 'Qwen3 正式发布：架构、基准与开源权重详解', u: 'qwenlm.github.io/blog/qwen3', s: 'Qwen3 系列包含 6 个 dense 模型……支持 119 种语言，上下文最长 128K tokens。', d: '2026-10-12' },
+  { t: 'Qwen3-32B 技术报告（arXiv）', u: 'arxiv.org/abs/2510.12345', s: 'We present Qwen3, the latest generation……post-training with SFT and RLHF.', d: '2026-10-14' },
+  { t: 'Qwen3 实例：本地部署指南（Ollama）', u: 'github.com/ollama/ollama/blob/main/docs', s: 'ollama run qwen3:32b —— 需 20GB+ 内存，支持工具调用模板。', d: '2026-10-15' },
+  { t: 'Qwen3 与 DeepSeek-V4 基准对比', u: 'blog.csdn.net/qwen3-vs-deepseek', s: '在 MMLU-Pro 上 Qwen3-32B 达 78.2%，DeepSeek-V4.1-256k 为 76.5%……', d: '2026-10-16' }
+];
+function makeSearchPanel(cached) {
+  const p = document.createElement('div');
+  p.className = 'sp-panel';
+  p.innerHTML =
+    '<div class="sp-head"><span>搜索结果 · Qwen3 最新版发布</span>' +
+    '<span><span class="sp-src' + (cached ? ' cache' : '') + '">' + (cached ? 'cache · 30 分钟前' : 'live · 刚刚') + '</span> <span class="sp-count">' + SEARCH_DATA.length + ' 条</span></span></div>' +
+    '<div class="sp-list" id="spList"></div>' +
+    '<div class="sp-take" id="spTake" style="display:none">' +
+      '<div class="sp-take-title"><span class="ic">⚠</span>搜索引擎要求人机验证</div>' +
+      '<div class="sp-take-win">🛡 可见搜索窗口（示意）<div style="font-size:11px">请在弹出的真实窗口中手动完成验证</div></div>' +
+      '<div class="sp-take-guide" style="margin-top:8px">👉 手动过检后点击「继续」，Agent 会自动交还结果</div>' +
+      '<div class="sp-take-acts"><button class="pill-btn primary" onclick="takeoverContinue(this)">继续</button><button class="ghost-btn" onclick="takeoverAbort(this)">放弃</button></div>' +
+    '</div>';
+  stage().appendChild(p); scrollChat();
+  return p;
+}
+async function fillSearch(panel) {
+  const list = panel.querySelector('#spList');
+  for (let i = 0; i < 3; i++) {
+    const s = document.createElement('div');
+    s.className = 'sp-item skel';
+    s.innerHTML = '<div class="sp-t"></div><div class="sp-u"></div>';
+    list.appendChild(s);
+  }
+  await sleep(700);
+  list.innerHTML = '';
+  for (let i = 0; i < SEARCH_DATA.length; i++) {
+    const d = SEARCH_DATA[i];
+    const it = document.createElement('button');
+    it.className = 'sp-item';
+    it.style.animationDelay = Math.min(i, 6) * MOTION.staggerXs() + 'ms';
+    it.innerHTML = '<div class="sp-t">' + esc(d.t) + '<span class="sp-d">' + esc(d.d) + '</span></div><div class="sp-u">' + esc(d.u) + '</div><div class="sp-s">' + esc(d.s) + '</div>';
+    it.onclick = () => openPreview(d);
+    list.appendChild(it);
+  }
+  scrollChat();
+}
+function openPreview(d) {
+  const mask = document.createElement('div');
+  mask.className = 'sp-prev-mask';
+  mask.innerHTML =
+    '<div class="sp-prev">' +
+      '<h3>' + esc(d.t) + '</h3><div class="meta">' + esc(d.u) + ' · readability 提取</div>' +
+      '<div class="sp-prev-body" id="prevBody"><div class="skel"></div><div class="skel"></div><div class="skel"></div></div>' +
+      '<div style="margin-top:12px;font-size:11px;color:var(--text-3)">正文超长已截断至 8000 字符 · 全文见 toolcache（示意）</div>' +
+      '<div style="margin-top:14px;text-align:right"><button class="pill-btn" onclick="this.closest(\'.sp-prev-mask\').remove()">关闭</button></div>' +
+    '</div>';
+  document.body.appendChild(mask);
+  mask.onclick = e => { if (e.target === mask) mask.remove(); };
+  setTimeout(() => {
+    const b = mask.querySelector('#prevBody');
+    b.innerHTML = '<p>Qwen3 是 Qwen 系列的第三代基础模型。本代核心变化：① 采用混合专家与 dense 双形态；② 后训练引入大规模 RLHF；③ 工具调用与 JSON 结构化输出能力显著增强；④ 权重以 Apache 2.0 开源，允许商用。</p><p style="margin-top:8px">基准方面，Qwen3-32B 在 MMLU-Pro 取得 78.2%，GPQA 为 61.4%，LiveCodeBench 达到 55.8%，与同级开源模型相比处于第一梯队。</p><p style="margin-top:8px">部署建议：本地推理推荐 Ollama 或 vLLM；32B 模型在 24GB 显存下可完整加载，支持 128K 上下文。</p>';
+  }, MOTION.instant() ? 0 : 900);
+}
+function takeoverContinue(btn) {
+  const take = btn.closest('.sp-take');
+  take.querySelector('.sp-take-guide').style.opacity = '0';
+  btn.textContent = '✓ 已交还';
+  toast('验证已通过，Agent 正在重新提取结果（示意）', 'ok');
+  setTimeout(() => { take.style.display = 'none'; }, 800);
+}
+function takeoverAbort(btn) {
+  const take = btn.closest('.sp-take');
+  take.style.display = 'none';
+  toast('已放弃本次接管 · 可改用其他引擎重试（示意）', 'warn');
+}
+
+/* ================= §C 软件面板 ================= */
+const SW_DATA = [
+  { n: 'git', v: '2.43.0.windows.1', s: 'installed' },
+  { n: 'ffmpeg', v: '7.1', s: 'installed' },
+  { n: 'notepad++', v: '8.6（需 8.7）', s: 'mismatch' },
+  { n: '7z', v: '未检测到', s: 'missing' },
+  { n: 'ollama', v: '探测中…', s: 'probing' }
+];
+function makeSoftwarePanel() {
+  const p = document.createElement('div');
+  p.className = 'sp-panel';
+  let rows = SW_DATA.map((s, i) =>
+    '<div class="sw-row" style="animation-delay:' + Math.min(i, 6) * MOTION.staggerXs() + 'ms">' +
+      '<span class="sw-light ' + s.s + '"></span>' +
+      '<span class="sw-name">' + esc(s.n) + '</span>' +
+      '<span class="sw-ver">' + esc(s.v) + '</span>' +
+      '<span class="sw-act">' +
+        (s.s === 'missing' ? '<span style="font-size:11px;color:var(--text-3)">未安装·引导去官网</span>' : '') +
+        '<button class="ghost-btn" onclick="swTest(this,\'' + s.n + '\')">测试</button>' +
+      '</span></div>').join('');
+  p.innerHTML =
+    '<div class="sp-head"><span>外部软件 · 注册表与探测</span><span class="sp-count">~/.glm-chat/software.json</span></div>' +
+    '<div style="padding:4px 14px 12px">' + rows + '<div class="sw-out" id="swOut" style="display:none"></div></div>';
+  stage().appendChild(p); scrollChat();
+  setTimeout(() => {
+    const last = p.querySelectorAll('.sw-light')[4];
+    last.classList.remove('probing'); last.classList.add('installed');
+    last.parentElement.querySelector('.sw-ver').textContent = '0.12.6';
+  }, MOTION.instant() ? 0 : 1600);
+  return p;
+}
+function swTest(btn, name) {
+  const out = btn.closest('.sp-panel').querySelector('#swOut');
+  out.style.display = 'block';
+  out.innerHTML = '';
+  const lines = [
+    '<span class="sw-exit ok">exit 0</span>git version 2.43.0.windows.1',
+    '执行于 Job Object 沙箱 · duration 312ms · sandboxed ✓'
+  ];
+  if (name !== 'git') lines[0] = '<span class="sw-exit ok">exit 0</span>' + name + ' 测试调用完成（示意）';
+  lines.forEach((l, i) => {
+    const d = document.createElement('div');
+    d.className = 'sw-line';
+    /* W2 修复：输出行禁 stagger——节奏由数据驱动不由编排驱动（motion-spec §1-5） */
+    d.style.animationDelay = '0ms';
+    d.innerHTML = l;
+    out.appendChild(d);
+  });
+  toast(name + ' 测试调用完成（exit 0 · 沙箱执行）', 'ok');
+}
+
+/* ================= §D 混合路由分账 ================= */
+let splitState = { local: 0, cloud: 0 };
+function renderSplit() {
+  $('hyLocal').textContent = splitState.local;
+  $('hyCloud').textContent = splitState.cloud;
+  $('hySave').textContent = '¥' + (splitState.local * 0.000004).toFixed(2);
+}
+async function countSplit(toLocal, toCloud) {
+  const from = { local: splitState.local, cloud: splitState.cloud };
+  splitState = { local: toLocal, cloud: toCloud };
+  if (MOTION.instant() || MOTION.prefersReduced()) { renderSplit(); return; }
+  const t0 = performance.now(), dur = MOTION.count();
+  await new Promise(res => {
+    const tick = () => {
+      const p = Math.min(1, (performance.now() - t0) / dur);
+      const e = 1 - Math.pow(1 - p, 3);
+      $('hyLocal').textContent = Math.round(from.local + (toLocal - from.local) * e);
+      $('hyCloud').textContent = Math.round(from.cloud + (toCloud - from.cloud) * e);
+      p < 1 ? requestAnimationFrame(tick) : res();
+    };
+    requestAnimationFrame(tick);
+  });
+  renderSplit();
+}
+function pingDot(cls) {
+  const d = $('hyDot');
+  d.className = 'hy-dot ' + cls + ' ping';
+  setTimeout(() => d.classList.remove('ping'), 400);
+}
+
+/* ================= §E L2 任务授权 ================= */
+let grantTimer = null, grantLeft = 7200;
+function openGrantModal() {
+  const mask = document.createElement('div');
+  mask.className = 'modal-mask';
+  mask.innerHTML =
+    '<div class="modal-card">' +
+      '<h3>任务授权（L2）</h3><div class="sub">本任务内自动执行勾选范围；破坏性操作（删除/越界/提权）除外。可随时收回。</div>' +
+      '<div class="grant-scope">' +
+        '<label><input type="checkbox" checked>工作区内文件写入</label>' +
+        '<label><input type="checkbox" checked>命令执行（沙箱）</label>' +
+        '<label><input type="checkbox">剪贴板写入</label>' +
+      '</div>' +
+      '<div style="font-size:12px;margin-top:6px">TTL</div>' +
+      '<div class="ttl-opts"><button class="pill-btn primary" onclick="grantConfirm(7200,this)">2 小时</button><button class="pill-btn" onclick="grantConfirm(0,this)">跟随任务</button></div>' +
+      '<div class="modal-acts"><button class="ghost-btn" onclick="this.closest(\'.modal-mask\').remove()">取消</button></div>' +
+    '</div>';
+  document.body.appendChild(mask);
+  mask.onclick = e => { if (e.target === mask) mask.remove(); };
+}
+function grantConfirm(ttl, btn) {
+  btn.closest('.modal-mask').remove();
+  grantLeft = ttl || 7200;
+  const slot = $('grantSlot');
+  slot.innerHTML =
+    '<div class="gr-bar">' +
+      '<span class="gr-light" id="grLight"></span>' +
+      '<svg class="gr-ring" id="grRing" viewBox="0 0 16 16"><circle class="bg" cx="8" cy="8" r="7"/><circle class="fg" id="grFg" cx="8" cy="8" r="7"/></svg>' +
+      '<span class="gr-ttl" id="grTtl">2:00:00</span>' +
+      '<span class="gr-scope">工作区写入+命令 · 已授权</span>' +
+      '<button class="gr-revoke" onclick="grantRevoke()">收回授权</button>' +
+    '</div>';
+  toast('已授予任务授权（L2）· 审计 decision=grant', 'ok');
+  if (grantTimer) clearInterval(grantTimer);
+  grantTimer = setInterval(() => {
+    grantLeft--;
+    const fg = $('grFg'), ring = $('grRing'), ttlEl = $('grTtl');
+    if (!fg) { clearInterval(grantTimer); return; }
+    fg.style.strokeDashoffset = 44 * (1 - grantLeft / 7200);
+    const h = Math.floor(grantLeft / 3600), m = Math.floor(grantLeft % 3600 / 60), s = grantLeft % 60;
+    ttlEl.textContent = h + ':' + String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
+    ring.classList.toggle('warn', grantLeft <= 300);
+    if (grantLeft <= 0) { clearInterval(grantTimer); grantRevoke(true); }
+  }, 1000);
+}
+function grantRevoke(expired) {
+  if (grantTimer) clearInterval(grantTimer);
+  const slot = $('grantSlot');
+  if (expired) toast('授权已到期（TTL）· 恢复逐项确认', 'warn');
+  else toast('已收回任务授权 · 后续操作恢复逐项确认', 'ok');
+  slot.innerHTML = '';
+}
+
+/* ================= §F 计划卡 ================= */
+const PLAN_STEPS = [
+  { t: '构造检索式并执行浏览器搜索（Qwen3 发布信息）', r: 'l2' },
+  { t: '提取 Top 3 结果正文并交叉验证', r: '' },
+  { t: 'git status 检查当前改动', r: 'l2' },
+  { t: 'git commit -m "docs: 更新 Qwen3 调研笔记"', r: 'l2' },
+  { t: '生成调研摘要并交付', r: '' }
+];
+function makePlanCard() {
+  const c = document.createElement('div');
+  c.className = 'plan-card';
+  c.innerHTML =
+    '<div class="plan-head"><span class="plan-badge pending">待批准</span><span class="plan-title">任务计划 · 5 步</span></div>' +
+    '<div class="plan-files">涉及：README.md · notes/qwen3.md · git 仓库（工作区内）</div>' +
+    '<div class="plan-steps">' + PLAN_STEPS.map((s, i) =>
+      '<div class="plan-step pending" style="animation-delay:' + (MOTION.staggerSm() + i * MOTION.staggerXs()) + 'ms">' +
+      '<span class="st"></span><span class="txt">' + esc(s.t) + '</span>' +
+      (s.r ? '<span class="risk ' + s.r + '">授权内</span>' : '') + '</div>').join('') + '</div>' +
+    '<div class="plan-acts" id="planActs">' +
+      '<button class="pill-btn primary" onclick="planApprove(this)">批准执行</button>' +
+      '<button class="ghost-btn" onclick="toast(\'编辑态（示意）：可增删步骤/改风险标注\',\'info\')">编辑</button>' +
+      '<button class="ghost-btn" onclick="planReject(this)">拒绝</button>' +
+    '</div>' +
+    '<div class="plan-summary" id="planSummary"></div>';
+  stage().appendChild(c); scrollChat();
+  return c;
+}
+async function planApprove(btn) {
+  const card = btn.closest('.plan-card');
+  const acts = card.querySelector('#planActs');
+  card.querySelector('.plan-badge').className = 'plan-badge running';
+  card.querySelector('.plan-badge').textContent = '执行中';
+  acts.classList.add('gone');
+  await MOTION.onAnimEnd(acts, 'transitionend', MOTION.compOut());
+  acts.style.display = 'none';
+  const steps = card.querySelectorAll('.plan-step');
+  for (let i = 0; i < steps.length; i++) {
+    steps[i].classList.remove('pending'); steps[i].classList.add('doing');
+    scrollChat();
+    await sleep(650);
+    steps[i].classList.remove('doing'); steps[i].classList.add('done');
+  }
+  card.querySelector('.plan-badge').className = 'plan-badge done';
+  card.querySelector('.plan-badge').textContent = '已完成';
+  const sum = card.querySelector('#planSummary');
+  sum.innerHTML = '✓ 5 步全部完成 · 改写 2 个文件 · 1 次 commit（授权内自动）· 校验通过 · 0 个未决事项<br><a href="#" onclick="toast(\'回滚入口（示意）：恢复任务前文件状态\',\'info\');return false" style="color:var(--primary)">回滚到此任务前 →</a>';
+  sum.classList.add('show');
+  card.style.opacity = '.82';
+  scrollChat();
+  toast('任务完成 · 交付摘要已生成', 'ok');
+}
+function planReject(btn) {
+  const card = btn.closest('.plan-card');
+  card.style.transition = 'opacity var(--dur-comp-out) var(--ease-in-soft),transform var(--dur-comp-out) var(--ease-in-soft)';
+  card.style.opacity = '0'; card.style.transform = 'translateY(calc(-1 * var(--shift-comp)))';
+  setTimeout(() => card.remove(), 300);
+  toast('已拒绝计划 · 对话继续', 'info');
+}
+function makeDevBar() {
+  const d = document.createElement('div');
+  d.className = 'dev-bar flash';
+  d.innerHTML =
+    '<span class="ic">⚠</span><span class="t">重大偏差：出现计划外的删除调用</span>' +
+    '<span class="a"><button class="pill-btn" onclick="devResolve(this,\'继续\')">自适应继续</button><button class="pill-btn danger" onclick="devResolve(this,\'停止\')">停止任务</button></span>';
+  stage().appendChild(d); scrollChat();
+  return d;
+}
+function devResolve(btn, act) {
+  const bar = btn.closest('.dev-bar');
+  bar.style.transition = 'opacity var(--dur-panel-out) var(--ease-in-soft),transform var(--dur-panel-out) var(--ease-in-soft)';
+  bar.style.opacity = '0'; bar.style.transform = 'translateY(calc(-1 * var(--shift-panel)))';
+  setTimeout(() => bar.remove(), 300);
+  toast('偏差已处理：' + act + '（示意）', act === '停止' ? 'warn' : 'ok');
+}
+
+/* ================= §G 批量澄清 ================= */
+function makeClarify() {
+  const f = document.createElement('div');
+  f.className = 'clr-form';
+  const qs = [
+    { q: '搜索范围限定在哪个站点？', opts: ['不限', 'github.com', 'arxiv.org'], def: 0 },
+    { q: 'commit 信息语言？', opts: ['中文', '英文'], def: 0 },
+    { q: '是否推送远端？', opts: ['不推送', '推送'], def: 0 }
+  ];
+  f.innerHTML =
+    '<div style="font-size:12.5px;font-weight:600;margin-bottom:4px">需要澄清 3 个问题（一次问完）</div>' +
+    qs.map((q, i) =>
+      '<div class="clr-q" style="animation-delay:' + i * MOTION.staggerXs() + 'ms">' +
+      '<div class="q">' + (i + 1) + '. ' + esc(q.q) + '<span class="def">默认：' + esc(q.opts[q.def]) + '</span></div>' +
+      q.opts.map((o, j) => '<button class="clr-opt' + (j === q.def ? ' on' : '') + '" onclick="clrPick(this)">' + esc(o) + '</button>').join('') +
+      '</div>').join('') +
+    '<div class="clr-acts">' +
+      '<button class="pill-btn primary" onclick="clrSubmit(this)">按所选继续</button>' +
+      '<button class="ghost-btn" onclick="clrSubmit(this,true)">全按默认继续</button>' +
+      '<span class="clr-limit">澄清轮次 1/2 · 上限 5 问</span>' +
+    '</div>';
+  stage().appendChild(f); scrollChat();
+  return f;
+}
+function clrPick(btn) {
+  btn.parentElement.querySelectorAll('.clr-opt').forEach(o => o.classList.remove('on'));
+  btn.classList.add('on');
+}
+function clrSubmit(btn, allDefault) {
+  const f = btn.closest('.clr-form');
+  f.querySelectorAll('.clr-q').forEach(q => q.style.opacity = '.55');
+  f.style.transition = 'opacity var(--dur-comp-out) var(--ease-in-soft)';
+  f.style.opacity = '0';
+  setTimeout(() => f.remove(), 300);
+  toast(allDefault ? '已按默认值继续（示意）' : '已提交澄清答案，正在生成计划（示意）', 'ok');
+}
+
+/* ================= §H 检查点与回滚 ================= */
+function makeCheckpoint() {
+  const c = document.createElement('div');
+  c.className = 'wait-card';
+  c.innerHTML =
+    '<div class="wait-stage" style="margin-bottom:4px"><span style="color:var(--primary)">📦</span><span class="wait-text">任务开始 · 正在创建检查点</span></div>' +
+    '<div class="ckpt-prog indet" id="ckptProg"><span class="ckpt-bar"><span class="ckpt-fill"></span></span><span class="ckpt-count" id="ckptCount">git HEAD 锚点 · 0/6 文件</span></div>' +
+    '<div class="ckpt-list" id="ckptList"></div>' +
+    '<div style="margin-top:10px"><button class="pill-btn" onclick="rollbackDemo(this)">↩ 回滚到此任务前</button></div>';
+  stage().appendChild(c); scrollChat();
+  const prog = c.querySelector('#ckptProg'), cnt = c.querySelector('#ckptCount'), list = c.querySelector('#ckptList');
+  const files = ['README.md', 'notes/qwen3.md', 'src/main.py', '.git/HEAD', 'docs/plan.md', 'config.json'];
+  let i = 0;
+  const tick = setInterval(() => {
+    i++;
+    prog.classList.remove('indet');
+    prog.querySelector('.ckpt-fill').style.transform = 'scaleX(' + i / files.length + ')';
+    cnt.textContent = 'git HEAD 锚点 · ' + i + '/' + files.length + ' 文件';
+    cnt.classList.remove('flash'); void cnt.offsetWidth; cnt.classList.add('flash');
+    const row = document.createElement('div');
+    row.className = 'ckpt-row';
+    row.innerHTML = '<span class="f">' + esc(files[i - 1]) + '</span><span class="s">已快照</span>';
+    list.appendChild(row);
+    if (i >= files.length) {
+      clearInterval(tick);
+      prog.classList.add('done');
+      cnt.textContent = '✓ 检查点就绪 · 上限 200MB/500 文件';
+      toast('检查点创建完成（6 个文件 · git HEAD 锚点）', 'ok');
+    }
+  }, MOTION.instant() ? 0 : 450);
+  return c;
+}
+function rollbackDemo(btn) {
+  const mask = document.createElement('div');
+  mask.className = 'modal-mask';
+  mask.innerHTML =
+    '<div class="modal-card">' +
+      '<h3>确认回滚</h3><div class="sub">将恢复任务开始前的 6 个文件。此操作不可撤销。</div>' +
+      '<div class="ckpt-list" style="max-height:180px;overflow-y:auto">' +
+        ['README.md', 'notes/qwen3.md', 'src/main.py', '.git/HEAD', 'docs/plan.md', 'config.json'].map(f =>
+          '<div class="ckpt-row"><span class="f">' + esc(f) + '</span><span class="s">待恢复</span></div>').join('') +
+        '<div class="ckpt-more">等 6 个文件（全部列出）</div>' +
+      '</div>' +
+      '<div class="modal-acts">' +
+        '<button class="ghost-btn" onclick="this.closest(\'.modal-mask\').remove()">取消</button>' +
+        '<button class="pill-btn primary" id="rbConfirm" onclick="rbTwice(this)">确认回滚</button>' +
+      '</div>' +
+    '</div>';
+  document.body.appendChild(mask);
+  mask.onclick = e => { if (e.target === mask) mask.remove(); };
+}
+let rbTimer = null;
+function rbTwice(btn) {
+  if (btn.dataset.armed) {
+    if (rbTimer) clearTimeout(rbTimer);   /* N1 修复：执行即清超时，消除快速双击竞态 */
+    btn.textContent = '恢复中…';
+    const rows = btn.closest('.modal-card').querySelectorAll('.ckpt-row');
+    rows.forEach((r, i) => setTimeout(() => {
+      r.classList.add('restored');
+      r.querySelector('.s').textContent = '已恢复';
+      r.querySelector('.s').style.color = 'var(--ok)';
+      if (i === rows.length - 1) {
+        setTimeout(() => {
+          btn.closest('.modal-mask').remove();
+          toast('回滚完成 · 6 个文件已恢复任务前状态', 'ok');
+        }, 500);
+      }
+    }, i * (MOTION.instant() ? 0 : 350)));
+    return;
+  }
+  btn.dataset.armed = '1';
+  btn.textContent = '再次点击确认';
+  btn.style.color = 'var(--err)';
+  if (rbTimer) clearTimeout(rbTimer);
+  rbTimer = setTimeout(() => { if (btn.dataset.armed) { btn.dataset.armed = ''; btn.textContent = '确认回滚'; btn.style.color = ''; } }, 3000);
+}
+
+/* ================= 单步触发 ================= */
+function resetStage() { $('demoStage').innerHTML = ''; splitState = { local: 0, cloud: 0 }; renderSplit(); if (grantTimer) clearInterval(grantTimer); $('grantSlot').innerHTML = ''; }
+async function stepWait() {
+  resetStage();
+  const c = makeWaitCard('正在理解任务意图');
+  await sleep(900); setStageText(c, '正在构造检索式');
+  await sleep(900); setStageText(c, '正在打开受控浏览器');
+  setProg(c, -1);
+  const note = c.querySelector('.wait-note');
+  note.style.display = 'flex';
+  note.querySelector('.note-txt').textContent = '仍在进行，可随时查看日志';
+  await sleep(1200); setStageText(c, '正在提取搜索结果');
+  setProg(c, .6);
+  await sleep(900); setStageText(c, '正在本地校验');
+  setProg(c, 1);
+  await sleep(700); finishWait(c, true);
+  setStageText(c, '搜索完成 · 4 条结果');
+  countSplit(1240, 0); pingDot('local');
+  toast('长任务全链路等待态演示完成（阶段 pill+骨架+进度+心跳）', 'ok');
+}
+async function stepSearch() {
+  resetStage();
+  const c = makeWaitCard('正在提取搜索结果');
+  setProg(c, -1);
+  await sleep(900);
+  finishWait(c, true); setStageText(c, '搜索完成');
+  const p = makeSearchPanel(false);
+  await fillSearch(p);
+  countSplit(860, 0); pingDot('local');
+  toast('点击结果项可打开原文预览浮层（示意）', 'info');
+}
+function stepTakeover() {
+  resetStage();
+  const p = makeSearchPanel(false);
+  p.querySelector('#spTake').style.display = 'block';
+  toast('反爬检测：弹出人工接管面板（示意）', 'warn');
+}
+async function stepSoftware() {
+  resetStage();
+  const c = makeWaitCard('正在执行 git commit');
+  setProg(c, -1);
+  const note = c.querySelector('.wait-note');
+  note.style.display = 'flex';
+  let sec = 0;
+  const clock = setInterval(() => { sec++; note.querySelector('.note-txt').textContent = '已运行 ' + Math.floor(sec / 60) + ':' + String(sec % 60).padStart(2, '0'); }, 1000);
+  await sleep(1400);
+  clearInterval(clock);
+  finishWait(c, true); setStageText(c, '执行完成');
+  makeSoftwarePanel();
+  countSplit(0, 210); pingDot('cloud');
+  toast('CLI 经沙箱执行 · 回显 exit 0', 'ok');
+}
+function stepGrant() { resetStage(); openGrantModal(); }
+async function stepPlan() {
+  resetStage();
+  makePlanCard();
+  await sleep(400);
+  const c = makeWaitCard('正在生成任务计划');
+  setProg(c, -1);
+  await sleep(1000);
+  finishWait(c, true); setStageText(c, '计划已生成，等待批准');
+  countSplit(680, 0); pingDot('local');
+}
+function stepClarify() { resetStage(); makeClarify(); }
+function stepCheckpoint() {
+  resetStage();
+  makeCheckpoint();
+  setTimeout(() => { if (stage().querySelector('.dev-bar')) return; makeDevBar(); }, 2600);
+}
+
+/* S2 修复：模态 Esc 关闭（焦点管理：模态打开时焦点移入，关闭后归还） */
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') {
+    const mask = document.querySelector('.modal-mask');
+    if (mask) { mask.remove(); return; }
+    const prev = document.querySelector('.sp-prev-mask');
+    if (prev) prev.remove();
+  }
+});
+function openModalFocus(card) { const b = card.querySelector('button'); if (b) b.focus(); }
+
+/* ================= 完整任务链 ================= */
+let chainRunning = false;
+async function playChain() {
+  if (chainRunning) return;
+  chainRunning = true;
+  resetStage();
+  toast('开始播放完整任务链（示意）', 'info');
+  /* S1 修复：用户可能中途点击重置/单步导致选择器取空——全部加空值防护 */
+  await sleep(500); openGrantModal();
+  await sleep(900);
+  const gBtn = document.querySelector('.ttl-opts .pill-btn.primary');
+  if (!gBtn) { chainRunning = false; return; }
+  grantConfirm(7200, gBtn);
+  await sleep(600);
+  const c = makeWaitCard('正在理解任务意图');
+  await sleep(800); setStageText(c, '正在构造检索式');
+  await sleep(700); setStageText(c, '正在打开受控浏览器');
+  setProg(c, -1);
+  await sleep(1100); setStageText(c, '正在提取搜索结果'); setProg(c, .55);
+  await sleep(900); finishWait(c, true); setStageText(c, '搜索完成');
+  countSplit(960, 0); pingDot('local');
+  const p = makeSearchPanel(false);
+  await fillSearch(p);
+  await sleep(600);
+  const c2 = makeWaitCard('正在执行 git status');
+  setProg(c2, -1);
+  await sleep(1000);
+  finishWait(c2, true); setStageText(c2, '工作区状态已获取');
+  countSplit(0, 260); pingDot('cloud');
+  await sleep(500);
+  makePlanCard();
+  await sleep(1400);
+  const apBtn = document.querySelector('.plan-acts .pill-btn.primary');
+  if (!apBtn) { chainRunning = false; return; }
+  planApprove(apBtn);
+  await sleep(2200);
+  if (!stage().querySelector('.plan-card')) { chainRunning = false; return; }
+  makeDevBar();
+  await sleep(1800);
+  const dBtn = document.querySelector('.dev-bar .pill-btn');
+  if (!dBtn) { chainRunning = false; return; }
+  devResolve(dBtn, '继续');
+  await sleep(600);
+  makeClarify();
+  await sleep(1600);
+  const clBtn = document.querySelector('.clr-acts .pill-btn.primary');
+  if (!clBtn) { chainRunning = false; return; }
+  clrSubmit(clBtn);
+  await sleep(700);
+  makeCheckpoint();
+  await sleep(3200);
+  const rbBtn = document.querySelector('.ckpt-prog') && stage().querySelector('.pill-btn');
+  if (rbBtn) rollbackDemo(rbBtn);
+  chainRunning = false;
+  toast('任务链播放完毕 · 可手动完成回滚二次确认', 'ok');
+}
+
+/* ================= 键盘 ================= */
+document.addEventListener('keydown', e => {
+  if (e.target.tagName === 'TEXTAREA' || e.target.tagName === 'INPUT') return;
+  const map = { '1': stepWait, '2': stepSearch, '3': stepTakeover, '4': stepSoftware, '5': stepGrant, '6': stepPlan, '7': stepClarify, '8': stepCheckpoint, '0': playChain, 'r': resetStage, 'R': resetStage };
+  if (map[e.key]) { e.preventDefault(); map[e.key](); }
+});
+
+renderSplit();
+</script>
+</body>
+</html>

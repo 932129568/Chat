@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Harbor v1.8.0 单版本全量实现方案 · 2026-10-20</title>
+<style>
+  :root { --ink:#1a2332; --sub:#5b6b7f; --line:#e3e9f0; --bg:#f7f9fb; --card:#ffffff;
+          --blue:#1f6feb; --blue-bg:#eaf2ff; --green:#1a7f37; --green-bg:#eaf6ec;
+          --amber:#9a6700; --amber-bg:#fff8e6; --red:#cf222e; --red-bg:#ffebe9;
+          --purple:#8250df; --purple-bg:#f5efff; --mono:Consolas,"Cascadia Code",monospace; }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body { font-family:"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+         background:var(--bg); color:var(--ink); line-height:1.65; font-size:14.5px; }
+  .wrap { max-width:1060px; margin:0 auto; padding:32px 28px 64px; }
+  header { border-bottom:3px solid var(--blue); padding-bottom:18px; margin-bottom:24px; }
+  header .kicker { color:var(--blue); font-weight:600; font-size:13px; letter-spacing:.08em; }
+  header h1 { font-size:24px; margin:6px 0 8px; }
+  header .meta { color:var(--sub); font-size:13px; }
+  header .meta b { color:var(--ink); }
+  h2 { font-size:18px; margin:34px 0 12px; padding-left:10px; border-left:4px solid var(--blue); }
+  h3 { font-size:15px; margin:18px 0 8px; }
+  p { margin:8px 0; }
+  .tldr { background:var(--blue-bg); border:1px solid #c7ddfd; border-radius:10px;
+          padding:16px 18px; margin:16px 0; }
+  .tldr b { color:var(--blue); }
+  table { width:100%; border-collapse:collapse; margin:12px 0; background:var(--card);
+          border-radius:8px; overflow:hidden; box-shadow:0 0 0 1px var(--line); font-size:12.8px; }
+  th { background:#eef3f9; text-align:left; padding:7px 9px; border-bottom:2px solid var(--line);
+       white-space:nowrap; }
+  td { padding:7px 9px; border-bottom:1px solid var(--line); vertical-align:top; }
+  tr:last-child td { border-bottom:none; }
+  .tag { display:inline-block; padding:1px 8px; border-radius:10px; font-size:11.5px; font-weight:600;
+         white-space:nowrap; }
+  .p0 { background:var(--red-bg); color:var(--red); }
+  .p1 { background:var(--amber-bg); color:var(--amber); }
+  .ok { background:var(--green-bg); color:var(--green); }
+  pre { background:#0f1622; color:#d6e2f0; border-radius:10px; padding:14px 16px;
+        font-family:var(--mono); font-size:12.2px; line-height:1.55; overflow-x:auto;
+        margin:12px 0; white-space:pre; }
+  code { background:#eef2f7; border-radius:4px; padding:1px 5px; font-size:12.2px;
+         font-family:var(--mono); }
+  pre code { background:none; padding:0; }
+  .flow { background:#0f1622; color:#a8e0b0; border-radius:10px; padding:14px 16px;
+          font-family:var(--mono); font-size:12px; line-height:1.6; overflow-x:auto;
+          margin:12px 0; white-space:pre; }
+  .warnbox { background:var(--amber-bg); border:1px solid #f0dfa8; border-radius:8px;
+             padding:12px 14px; margin:12px 0; font-size:13.3px; }
+  .notebox { background:var(--green-bg); border:1px solid #bfe3c8; border-radius:8px;
+             padding:12px 14px; margin:12px 0; font-size:13.3px; }
+  ul,ol { margin:8px 0 8px 22px; }
+  li { margin:4px 0; }
+  footer { margin-top:40px; padding-top:14px; border-top:1px solid var(--line);
+           color:var(--sub); font-size:12.5px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <div class="kicker">IMPLEMENTATION PLAN · 单版本全量合并</div>
+  <h1>Harbor v1.8.0 单版本全量实现方案</h1>
+  <div class="meta">
+    <b>版本</b> 1.7.0 → <b>1.8.0</b> ｜ <b>总量</b> 54.5 人日（单人 ~11 周 / 2 人 ~6-7 周）｜
+    <b>基线</b> 721 passed / 契约 PASS<br>
+    合并范围：v1.8 三能力 + 放权四件套 + 信任棒（R1-R25 全部修订）——不拆版
+  </div>
+</header>
+
+<div class="tldr">
+  <b>TL;DR</b>——全部迭代内容合入单一 v1.8.0，分四个内部里程碑（M1 地基 / M2 能力 / M3 放权 / M4 信任）。
+  契约零漂移打法：<b>build_tools 加 include_agent 参数</b>（默认 False 逐字节不变）+ 约 28 个新 js_api 全进
+  <b>_V12_EXTRA</b> 隐身 + 新配置全独立文件（software/hybrid/memory/search_cache）。
+  新增 <b>8 个后端 service + 6 个前端模块 + prompts/ 目录</b>，改 10 个既有模块。
+  最硬的两条实现纪律：① 浏览器提取结果走 <b>pywebview js_api 回调</b>（禁 evaluate_js 返回值——外部站 CSP 会失败）；
+  ② guard 判定链重构为 <b>deny → allow_rules → task_grant → op 档位 → 确认</b>五层。
+</div>
+
+<h2>1. 里程碑与实现顺序（W0-W12）</h2>
+<pre>W0  M1 地基（3d）：prompts/ 目录+迁移逐字一致 · include_agent 参数 · _V12_EXTRA 批量占位
+                  · R23 剪贴板 Flag 实测（可能闭合 KNOWN_ISSUES §17）· R20 DeepSeek preset 校准
+W1  M1 地基（4d）：guard 扩展（deny 5 条+allow_rules+task_grant+判定链重构）· 26-guard 授权条 · trace_id
+W2  M2 H 组（5d）：hybrid_router（四类任务/三策略/5s·3s 预算/降级链）· readiness 8 项 · template 探测
+W3-W5 M2 B 组（11d·最大单项）：search_browser（次窗口+js_api 回调）· adapters 四引擎纯函数 · extract
+                  · search_service（缓存/过滤/dual-LLM-lite/注入包裹）· 39-search-panel · 工具定义+分发
+W6  M2 S 组（3.5d）：software_service（注册表/探测/schema 校验/cli 沙箱/gui FindWindowW/uri）· 64-software-panel
+W7  M2 V1+F1（2.5d）：validation_service 6 类校验器+重试 · reflect verdict+补做循环
+W8-W9 M3 放权（7.5d）：plan_service（状态机/偏差/检查点调度）· 66-plan 计划卡 · clarify 批量澄清
+                  · checkpoint（git 锚点/文件快照 ≤200MB/保留 3 份/回滚）
+W10 M4 信任（3.5d）：MCP 楼层规则（delete_/drop_→L5）+TOFU+健康度 · estTokens 校准（中文 1.8→3.2-3.4）
+                  · 68-onboarding 向导 · R21 GLM web_search 结构化升级
+W11 M4 F2（2d）：memory_service（三类结构化+关键词检索+规则提取）· 67-memory UI · 系统提示注入
+W12 回归发布（2d）：七门+基准链+注入 fixture+审查+四 exe 打包+发布说明</pre>
+<p><b>关键路径</b>：W1 guard → W2 hybrid → W3-W5 搜索 → W8-W9 Plan-Act → W12 回归。
+<b>可并行</b>：W6 与 W7；W10 四项互独立；F2 可浮动。<b>纪律</b>：每里程碑结束跑 pytest+契约差分+check_contract+build×2，未测代码不跨里程碑。</p>
+
+<h2>2. 文件结构（新增 8 service + 6 前端模块 + prompts/，改 20 文件）</h2>
+<table>
+  <tr><th style="width:30%">新增</th><th>职责</th></tr>
+  <tr><td><code>services/search_browser.py</code></td><td>pywebview 次窗口（独立 profile/load_url/<b>on_page_data 回调</b>/下载禁/外链进系统浏览器）</td></tr>
+  <tr><td><code>services/search_adapters.py</code></td><td>Bing/DDG/Baidu/Google+generic：URL 模板+<b>纯函数</b>解析器（fixture 可测）</td></tr>
+  <tr><td><code>services/search_extract.py</code></td><td>readability 风格正文提取 → markdown</td></tr>
+  <tr><td><code>services/search_service.py</code></td><td>编排：缓存→URL→窗口→解析→过滤→dual-LLM 读取→注入包裹→审计</td></tr>
+  <tr><td><code>services/software_service.py</code></td><td>software.json 注册表+探测+--version 验身份+cli 沙箱/gui 核验/uri+异常矩阵</td></tr>
+  <tr><td><code>services/hybrid_router.py</code></td><td>四类任务分类+三策略+预算+降级+stats</td></tr>
+  <tr><td><code>services/plan_service.py</code></td><td>计划生成/状态机/偏差检测/重规划/检查点调度</td></tr>
+  <tr><td><code>services/validation_service.py</code> + <code>memory_service.py</code></td><td>6 类校验器+重试 ｜ 结构化记忆 CRUD+检索+注入</td></tr>
+  <tr><td><code>backend/prompts/</code></td><td>9 个版本化提示词 md + manifest.json（id→version+sha256）</td></tr>
+  <tr><td>前端 39/64/65/66/67/68-*.js</td><td>搜索面板 / 软件面板 / 混合配置+分账 / 计划卡 / 记忆管理 / onboarding 向导</td></tr>
+</table>
+<table>
+  <tr><th style="width:30%">修改</th><th>改动要点</th></tr>
+  <tr><td><code>backend/api.py</code></td><td>装配 8 service；~28 新 js_api 全入 <code>_V12_EXTRA</code>；build_system_prompt 改读 prompts/（输出逐字一致）；trace_id</td></tr>
+  <tr><td><code>backend/tools_schema.py</code></td><td><code>build(role, ws_on, mcp_tools=None, include_agent=False)</code>——默认路径逐字节不变</td></tr>
+  <tr><td><code>services/guard_service.py</code></td><td>DENY_OPS 5 条 + allow_rules + task_grant + <b>五层判定链重构</b></td></tr>
+  <tr><td><code>services/mcp_service.py</code></td><td>derive_tier 楼层规则 + schema hash TOFU + 健康度三态</td></tr>
+  <tr><td><code>services/local_model_service.py</code></td><td>readiness 8 项评分 + /api/show template 探测</td></tr>
+  <tr><td><code>services/sandbox_service.py</code> / <code>paths.py</code></td><td>R23 结论落地（剪贴板 Flag）/ 6 个新路径常量</td></tr>
+  <tr><td>前端 60/25/55/26/34/29/40/100/00/index.template/70-config</td><td>Plan-Act 主循环/新工具分发/include_agent 路由域/授权条/readiness 面板/健康徽标/<b>estTokens 校准</b>/发送入口/新状态/纯新增 DOM/设置接线</td></tr>
+</table>
+
+<h2>3. 关键数据结构（新配置全独立，guard/mcp/sessions 纯增键）</h2>
+<pre>// ~/.glm-chat/software.json
+{"version":1,"presets":{"git":{"kind":"cli","probe":["git","--version"],
+  "actions":{"status":{"argv":["git","status","--short"],"risk":"read"},
+             "commit":{"argv":["git","commit","-m","{message}"],"risk":"mutate",
+                       "args":{"message":{"type":"string","required":true,"max":200}}}}}},
+ "custom":[],"detected":{"git":{"path":"...","version":"2.47.1"}}}
+
+// ~/.glm-chat/hybrid.json
+{"policy":"auto","budgets":{"understand_ms":5000,"validate_ms":3000},"confidence_gate":0.7,
+ "classes":{"understand":"local","validate":"local","plan":"cloud","compose":"cloud"}}
+
+// ~/.glm-chat/memory.json
+{"version":1,"entries":[{"id":"m_xxx","kind":"preference|convention|path","text":"以后都别用 PowerShell",
+  "keywords":["powershell"],"source":"explicit|inferred","created":"iso"}]}
+
+// guard.json 纯增：{"allow_rules":[{"id":"r_xxx","op":"run_command","pattern":"git status*","hits":0}]}
+// sessions.json 纯增：{"plan":{"id":"p_xxx","status":"draft|approved|running|blocked|done","steps":[...]},
+//                    "checkpoint":{"id":"cp_xxx","kind":"git|files","ref":"...","files":[...]}}
+// mcp_servers.json 纯增：{"tool_hashes":{"mcp__fs__read_file":"sha256:..."},"health":{"state":"ok","fails":0}}
+
+// 进程内（不落盘）
+guard._task_grant = {"scope":"workspace_write",
+  "ops":["run_command","run_powershell","write_file","search_replace","append_file"],
+  "excludes":["delete_path","kill_process","clipboard_write","take_screenshot","run_admin_command"],
+  "granted_at":...,"expires_at":...,"trace_id":...}
+trace_id = 't_%s_%s' % (base36(time), rand4)   # 每任务，贯穿 plan/tool/audit</pre>
+
+<h2>4. 接口设计（约 28 个新 js_api，全部隐身）</h2>
+<table>
+  <tr><th style="width:22%">域</th><th style="width:48%">方法</th><th>说明</th></tr>
+  <tr><td>搜索</td><td><code>browser_search(query,opts)</code> / <code>browser_open(url,extract)</code> / <code>search_cache_stats</code> / <code>search_cache_clear</code></td><td>结构化结果+markdown；缓存 TTL 30min</td></tr>
+  <tr><td>软件</td><td><code>software_list</code> / <code>software_probe</code> / <code>software_call(name,args)</code> / <code>software_save</code></td><td>探测/重探测/调用/自定义</td></tr>
+  <tr><td>混合</td><td><code>hybrid_get_config</code> / <code>hybrid_save_config</code> / <code>hybrid_stats</code></td><td>策略/预算/分账统计</td></tr>
+  <tr><td>计划</td><td><code>plan_propose</code> / <code>plan_approve</code> / <code>plan_revise</code> / <code>plan_abort</code> / <code>plan_get</code></td><td>计划卡全生命周期</td></tr>
+  <tr><td>授权</td><td><code>guard_task_grant(scope,ttl)</code> / <code>guard_revoke_grant</code> / <code>guard_rules_list</code> / <code>guard_rule_save</code> / <code>guard_rule_delete</code></td><td>L2/L4 放权管理</td></tr>
+  <tr><td>记忆/检查点/其他</td><td><code>memory_list/add/delete</code> · <code>checkpoint_create/list/rollback</code> · <code>readiness_check</code> · <code>clarify_ask</code></td><td>F2/D/N1/C</td></tr>
+</table>
+<div class="notebox"><b>五层判定链</b>（enforce_exec 重构后，全部模式生效）：
+<code>DENY_OPS（5 条永豁免）→ allow_rules 模式匹配 → task_grant（op∈scope 且 ∉excludes 且未过期）→ op 档位（always→confirm-token/session→会话信任/off→放行）→ 确认弹窗</code></div>
+
+<h2>5. 主要执行流程</h2>
+<div class="flow">【Plan-Act 主循环】
+用户发送 → hybrid.classify → understand（本地 5s；超时→云端；再失败→透传）
+ → plan_service.propose → 计划卡（本地草稿；complex→云端）
+ → 用户批准/编辑/拒绝  ──（L2 授权中+全 low 风险→自动批准）
+ → Act：逐步执行，每步过判定链；validation 失败→reformulate ≤2→blocked
+ → Reflect：hybrid validate（本地 3s）→ verdict+confidence；<0.7→云端复核/补做
+ → Deliver：摘要+回滚链接+trace_id 落审计
+
+【browser_search（dual-LLM-lite）】
+agent → browser_search → cache 命中直返（≤300ms）
+ → adapters.build_url → search_browser.load_url → wait_selector 轮询（≤8s）
+ → 页面 JS 抽原始结果 → window.pywebview.api.on_page_data(json) 回调 ← 禁 evaluate_js 返回值
+ → 本地读取器（hybrid understand）：schema 约束结构化（禁祈使句/禁工具名样式）
+ → 过滤（域名黑白/时效/必含词/URL 归一去重/重排）→ extract=full → browser_open Top N
+ → 注入包裹：provenance 分隔 +「UNTRUSTED DATA」标记 → cache+audit
+ → 降级：窗口超时→urllib 兜底 / 验证码特征→面板人工接管
+
+【software_call】
+resolve（未装→人话引导，不自动下载）→ schema 校验（失败→错误+示例回显自校正）
+ → 判定链（dangerous→always）→ cli 沙箱执行 / gui ShellExecute+FindWindowW 核验（≤10s）/ uri
+ → 结构化结果+错误人话（git/ffmpeg 码表）→ audit
+
+【检查点】plan approved → git 仓库？stash create 记 ref : 复制声明文件至 checkpoints/（≤200MB/500 文件）
+ → rollback：清单→uiConfirm→恢复；保留最近 3 份</div>
+
+<h2>6. 兼容性迁移（八面全纯增/零漂移）</h2>
+<table>
+  <tr><th style="width:22%">面</th><th>处理</th></tr>
+  <tr><td>js_api 契约</td><td>build_tools 默认路径（include_agent=False）逐字节不变；28 新方法全 _V12_EXTRA；get_api_info 零漂移</td></tr>
+  <tr><td>config.json</td><td>零读写变更；新配置全独立文件</td></tr>
+  <tr><td>guard/mcp/sessions</td><td>三文件纯增键，旧文件缺省合并；旧会话 plan=None→无计划直跑（等同 v1.7）</td></tr>
+  <tr><td>UI 契约</td><td>新 DOM id/class 纯增；既有 40 id/13 onclick/43 callApi/39 类/21 变量零改动</td></tr>
+  <tr><td>提示词迁移</td><td>硬编码→prompts/*.md，<b>输出逐字一致</b>（原样落盘+manifest v1.0），行为零变化后再迭代</td></tr>
+  <tr><td>DeepSeek preset</td><td>v4-flash/v4-pro 新 ID；旧型号串经 connectModelValue 既有逻辑回落；价格表新旧并存</td></tr>
+  <tr><td>VERSION/安装器</td><td>1.7.0→1.8.0；update_service 回退常量同步；四 exe 重建，安装逻辑不变</td></tr>
+  <tr><td>本地代理</td><td>hybrid 本地调用经 __localProxyBase 既有分流，CORS 不回归</td></tr>
+</table>
+
+<h2>7. 验证要点（七门 + 基准）</h2>
+<table>
+  <tr><th style="width:16%">门</th><th style="width:44%">方式</th><th>通过标准</th></tr>
+  <tr><td><span class="tag p0">G1</span> 全量测试</td><td><code>pytest tests/ -q</code>（8 个新测试文件约 200 项）</td><td>721 既有+新增全绿</td></tr>
+  <tr><td><span class="tag p0">G2</span> 契约差分</td><td>test_api_contract.py 逐字节</td><td>build_tools 默认路径+get_api_info+config.json 零漂移</td></tr>
+  <tr><td><span class="tag p0">G3</span> UI 契约</td><td>check_contract.py</td><td>PASS（只增不改）</td></tr>
+  <tr><td><span class="tag p1">G4</span> 构建幂等</td><td><code>node frontend/build.js</code> ×2</td><td>md5 一致，模块 43→49</td></tr>
+  <tr><td><span class="tag p1">G5</span> 安装器 e2e</td><td>Setup-1.8.0 --silent 安装→验证→--uninstall</td><td>exit 0+注册表四项+清理干净</td></tr>
+  <tr><td><span class="tag p0">G6</span> 注入 fixture</td><td>毒网页 fixture（含删除指令）+毒 MCP description fixture</td><td>网页零工具触发且被 surface；MCP 被楼层规则拦下</td></tr>
+  <tr><td><span class="tag p1">G7</span> 真机冒烟</td><td>搜索三步/Ollama hybrid/git 调用/计划回滚/记忆跨会话/onboarding/授权收回</td><td>七项全过（目标机）</td></tr>
+</table>
+<p><b>基准对比</b>：3 条标准任务链 × v1.7.0 vs v1.8.0——总 token（-15%）/TTFT/cache hit rate/确认弹窗（-60%）/任务成功率。</p>
+
+<div class="warnbox"><b>止损规则</b>：① 搜索窗口时序不稳→三降级（wait_selector≤8s→urllib 兜底→人工接管），连续失败转仅 API 通道；
+② 本地读取器输出不合规→重试 1 次→降级主模型直读（带包裹），不阻塞；③ 单版本体量大→四里程碑门禁+「功能完 UI 简」可接受，P2（搜索 API 加速器/健康徽标细化）明确可砍；④ 721 回归任一失败→回滚当批，契约红线碰即停。</div>
+
+<footer>
+  Harbor v1.8.0 单版本全量实现方案 · 2026-10-20 · 54.5 人日 / 四里程碑 / 八面兼容纯增 / 七门验证；
+  基于代码库实测与既有方案合成，外部依据见调研报告（deep-research-20261020-harbor-v18-v19-220e3984）。
+</footer>
+
+</div>
+</body>
+</html>

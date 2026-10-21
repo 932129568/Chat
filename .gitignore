@@ -30,3 +30,4 @@ mcp_servers.json
 webdav.json
 config.json
 *.dpapi
+push_exe_tmp.py

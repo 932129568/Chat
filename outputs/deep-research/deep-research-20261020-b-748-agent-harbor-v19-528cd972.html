@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>B站 Agent 教程视频系列解析与 Harbor v1.9 迭代方案 · 深度检索报告 2026-10-20</title>
+<style>
+  :root { --ink:#1a2332; --sub:#5b6b7f; --line:#e3e9f0; --bg:#f7f9fb; --card:#ffffff;
+          --blue:#1f6feb; --blue-bg:#eaf2ff; --green:#1a7f37; --green-bg:#eaf6ec;
+          --amber:#9a6700; --amber-bg:#fff8e6; --red:#cf222e; --red-bg:#ffebe9;
+          --purple:#8250df; --purple-bg:#f5efff; }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body { font-family:"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+         background:var(--bg); color:var(--ink); line-height:1.65; font-size:14.5px; }
+  .wrap { max-width:1000px; margin:0 auto; padding:32px 28px 64px; }
+  header { border-bottom:3px solid var(--blue); padding-bottom:18px; margin-bottom:24px; }
+  header .kicker { color:var(--blue); font-weight:600; font-size:13px; letter-spacing:.08em; }
+  header h1 { font-size:24px; margin:6px 0 8px; }
+  header .meta { color:var(--sub); font-size:13px; }
+  header .meta b { color:var(--ink); }
+  h2 { font-size:18.5px; margin:34px 0 12px; padding-left:10px; border-left:4px solid var(--blue); }
+  h3 { font-size:15.5px; margin:20px 0 8px; }
+  p { margin:8px 0; }
+  .tldr { background:var(--blue-bg); border:1px solid #c7ddfd; border-radius:10px;
+          padding:16px 18px; margin:16px 0; }
+  .tldr b { color:var(--blue); }
+  table { width:100%; border-collapse:collapse; margin:12px 0; background:var(--card);
+          border-radius:8px; overflow:hidden; box-shadow:0 0 0 1px var(--line); font-size:13.2px; }
+  th { background:#eef3f9; text-align:left; padding:8px 10px; border-bottom:2px solid var(--line);
+       white-space:nowrap; }
+  td { padding:8px 10px; border-bottom:1px solid var(--line); vertical-align:top; }
+  tr:last-child td { border-bottom:none; }
+  .tag { display:inline-block; padding:1px 8px; border-radius:10px; font-size:12px; font-weight:600;
+         white-space:nowrap; }
+  .p0 { background:var(--red-bg); color:var(--red); }
+  .p1 { background:var(--amber-bg); color:var(--amber); }
+  .ok { background:var(--green-bg); color:var(--green); }
+  .gap { background:var(--purple-bg); color:var(--purple); }
+  .warnbox { background:var(--amber-bg); border:1px solid #f0dfa8; border-radius:8px;
+             padding:12px 14px; margin:12px 0; font-size:13.3px; }
+  .extbox { background:var(--green-bg); border:1px solid #bfe3c8; border-radius:8px;
+            padding:12px 14px; margin:12px 0; font-size:13.3px; }
+  ul,ol { margin:8px 0 8px 22px; }
+  li { margin:4px 0; }
+  code { background:#eef2f7; border-radius:4px; padding:1px 5px; font-size:12.6px;
+         font-family:Consolas,monospace; }
+  .cols { display:grid; grid-template-columns:1fr 1fr; gap:14px; }
+  @media (max-width:760px){ .cols{grid-template-columns:1fr;} }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:14px 16px; }
+  .card h4 { font-size:14px; margin-bottom:6px; }
+  footer { margin-top:40px; padding-top:14px; border-top:1px solid var(--line);
+           color:var(--sub); font-size:12.5px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <div class="kicker">DEEP-RESEARCH · 视频系列解析 + 迭代规划</div>
+  <h1>B站 Agent 教程视频系列解析与 Harbor v1.9 迭代方案</h1>
+  <div class="meta">
+    <b>日期</b> 2026-10-20 ｜ <b>对象</b> b23.tv/hF2485P（748集·2026-06）+ b23.tv/ueNRdUV（2026-10 章节化新版）<br>
+    输入：两个视频落地页 + 目录快照 + 3 篇第三方拆解 + Harbor 代码库与既有方案 ｜ 输出：概念映射 + v1.9.0「放手版」方案
+  </div>
+</header>
+
+<div class="tldr">
+  <b>TL;DR</b>——两个视频是同一课程体系的 6 月版与 10 月章化新版，四大支柱（智能体搭建/多agent/项目实战/工具调用）完全一致；
+  其设计模式谱系（Fewshot/ReAct/REWOO/LLMComp/Reflexion/LAT）与 Harbor 内部调研<b>殊途同归</b>：逻辑层两大空白是
+  <b>Plan-and-Solve 与 Reflexion</b>，交互层空白是<b>人类反馈机制</b>（与 Harbor 自主阶梯 L0-L2 同构）。
+  <b>诚实边界</b>：本环境无 ASR/视频转写能力，约 720+ 集实际讲授内容无法直读——内容分析基于目录+第三方拆解+两视频互证，需补充清单见 §6。
+</div>
+
+<h2>1. 两个视频的实况（外部核实）</h2>
+<table>
+  <tr><th style="width:16%">项</th><th style="width:42%">视频一</th><th>视频二（用户补充）</th></tr>
+  <tr><td>标题</td><td>【全748集】目前B站最全最细的AI Agent开发零基础教程，2026最新版</td>
+      <td>【2026最新agent开发】Agent开发学习路线，课程涵盖智能体搭建、多agent、项目实战、工具调用</td></tr>
+  <tr><td>发布</td><td>2026-06-02</td><td>2026-10-14（晚 4 个月）</td></tr>
+  <tr><td>标识</td><td>BV1CXfRBrEdZ</td><td>BV 号未取到（页面 JS 渲染，仅得标题）</td></tr>
+  <tr><td>当前集</td><td>748 集合集</td><td>「2-1 本章介绍」——章节化结构</td></tr>
+  <tr><td>已获取</td><td>部分目录（ep02-06/16-21 + 项目篇01-26 标题时长）+ 3 篇第三方结构拆解</td>
+      <td>标题+日期；目录与内容未取到</td></tr>
+  <tr><td>关系判定</td><td colspan="2">同课程体系两个版本（与 2026-01「28个Agent练手项目」<a href="https://www.bilibili.com/video/BV1TXrKBiEYx/">课纲逐课同名</a>，族系滚动更新佐证）[外]</td></tr>
+</table>
+
+<h2>2. 系列概念 → Harbor 差距映射（方案依据）</h2>
+<table>
+  <tr><th style="width:26%">系列概念（目录原文）</th><th style="width:20%">Harbor 现状</th><th style="width:14%">差距定性</th><th>方案落点</th></tr>
+  <tr><td>Re-Act / Function calling（ep19/20）</td><td>✅ 回合制工具循环已有</td><td><span class="tag ok">无差距</span></td><td>保持</td></tr>
+  <tr><td>Plan-and-Solve / 工作流（项目篇21/22）</td><td>❌ 无 upfront 计划</td><td><span class="tag p0">逻辑层空白①</span></td><td>v1.9 B 组 Plan-Act</td></tr>
+  <tr><td>Reflexion / LAT（项目篇07）</td><td>❌ 无任务后自反思</td><td><span class="tag p0">逻辑层空白②</span></td><td>v1.9 F1 自反思环（V1 框架扩展）</td></tr>
+  <tr><td>REWOO / LLMComp（项目篇06）</td><td>❌ 无解耦规划</td><td><span class="tag p1">次要</span></td><td>不单独立项，Plan-Act 计划可编辑性吸收</td></tr>
+  <tr><td>HumanFeedback（项目篇20）</td><td>🔶 guard 逐项确认（93% 橡皮图章）</td><td><span class="tag p0">交互层空白</span></td><td>v1.9 A 组自主阶梯 L0-L4</td></tr>
+  <tr><td>JSON 结构化输出（项目篇19）</td><td>✅ software_call 参数 schema 已规划</td><td><span class="tag p1">部分</span></td><td>并入 F1：自反思产出结构化 verdict</td></tr>
+  <tr><td>记忆系统（第三方「记忆与优化」模块）</td><td>🔶 append_memory 单向写入无检索</td><td><span class="tag p0">能力空白</span></td><td>v1.9 F2 跨会话记忆</td></tr>
+  <tr><td>RAG/知识库（项目篇03/04/23）</td><td>❌ 无</td><td><span class="tag p1">工具层空白</span></td><td>v1.9 F3 go/no-go 评估（不实现）</td></tr>
+  <tr><td>多 Agent 协作（ep03/17/项目篇08/11/14/15）</td><td>❌ 无（刻意 Non-goal）</td><td><span class="tag ok">定位选择</span></td><td>不做</td></tr>
+  <tr><td>部署运维/性能监控（工程层）</td><td>✅ 本地指标+审计+安装器</td><td><span class="tag ok">无差距</span></td><td>保持</td></tr>
+  <tr><td>「国产之光?」（项目篇26）</td><td>？标题带问号，内容未知</td><td><span class="tag gap">待补</span></td><td>§6 待补清单第 5 条</td></tr>
+</table>
+
+<h2>3. v1.9.0「放手版」迭代方案</h2>
+<p><b>架构调整（一句话）</b>：Agent 主循环从「回合制 ReAct」演进为四段式
+<b>Plan（计划契约）→ Act（ReAct+工具+护栏）→ Reflect（自反思环）→ Deliver（校验+摘要+回滚入口）</b>——
+对应系列课程骨架的逻辑层+工程层，落在 Harbor 既有 session 状态机上，<b>不改 js_api 契约</b>。</p>
+
+<table>
+  <tr><th style="width:6%">#</th><th style="width:40%">任务</th><th style="width:7%">优先级</th><th style="width:8%">工作量</th><th>验收标准</th></tr>
+  <tr><td>F1</td><td><b>Reflexion 自反思环</b>：V1 校验框架扩展「任务级复盘」——完成后本地模型三问（目标达成了吗/有遗漏吗/有副作用吗）→ 结构化 verdict → 不过则补做 ≤2 轮 → 结论进交付摘要</td><td><span class="tag p0">P0</span></td><td>3.0</td><td>任务完成必产 verdict+confidence；发现遗漏且置信≥0.7 自动补做并标注</td></tr>
+  <tr><td>F2</td><td><b>跨会话记忆系统</b>：append_memory 升级结构化记忆（偏好/项目约定/常用路径）+ 关键词检索注入系统提示 + 用户可查可删</td><td><span class="tag p1">P1</span></td><td>3.0</td><td>「以后都别用 PowerShell」类偏好跨会话生效；删除后下轮不再注入</td></tr>
+  <tr><td>F3</td><td><b>RAG go/no-go 评估</b>：实测 stdlib sqlite3 的 FTS5 可用性 + 分块/检索质量小样评测 + 结论报告（不做实现）</td><td><span class="tag p1">P1</span></td><td>1.0</td><td>FTS5 可用性结论 + 3 个测试查询检索质量 + 明确建议</td></tr>
+  <tr><td>A1-A2</td><td>自主阶梯基础（任务授权 L2 + 白名单 L4）——引自自主调研，提前至 v1.8.5</td><td><span class="tag p0">P0</span></td><td>3.0</td><td>授权内工作区写入不弹确认；越界仍拦；白名单可增删</td></tr>
+  <tr><td>B/C/D</td><td>Plan-Act + 批量澄清 + 检查点——引自自主调研 v1.9 主件</td><td><span class="tag p0">P0</span></td><td>7.5</td><td>计划可编辑；重大偏差暂停；快照可回滚</td></tr>
+</table>
+
+<div class="cols">
+  <div class="card"><h4>实现步骤</h4>
+    <ul>
+      <li><b>v1.8.5</b>（2-3 天）：A1 任务授权 + A2 白名单（guard 扩展）</li>
+      <li><b>v1.9 W1</b>：B1 Plan-Act 计划生成+todo 状态机（依赖 v1.8 H1）</li>
+      <li><b>W2</b>：B2 偏差检测 + F1 Reflexion 环（共享「计划基准」）</li>
+      <li><b>W3</b>：C1 批量澄清 + D1 检查点回滚</li>
+      <li><b>W4</b>：F2 跨会话记忆（独立，可与 W1 并行）</li>
+      <li><b>W5</b>：F3 RAG 评估 + 回归 + 发布</li>
+    </ul>
+  </div>
+  <div class="card"><h4>预期收益（可证伪）</h4>
+    <ul>
+      <li>确认弹窗/任务 <b>-60%</b>（L2 授权+白名单吸收重复批准；审计日志计数验证）</li>
+      <li>任务结果自检覆盖率 <b>100%</b>（F1 每任务必跑；交付摘要含 verdict 比例验证）</li>
+      <li>「AI 忘了/跑偏」返工率 <b>-30%</b>（计划契约+偏差检测+自反思三保险）</li>
+      <li>重复提问成本 <b>token -10%</b>（F2 记忆注入替代重申）</li>
+      <li>长任务用户中断降至<b>仅重大偏差/高风险</b></li>
+    </ul>
+  </div>
+</div>
+
+<h2>4. §6 需要补充的视频关键信息（诚实缺口）</h2>
+<div class="warnbox">
+  <b>按影响力排序</b>：
+  <ol>
+    <li><b>视频一 ep07-15 目录缺失</b>（快照只有 02-06 与 16+）——基础篇模块划分；影响低</li>
+    <li><b>视频一项目篇 27 之后至 748 集目录完全缺失</b>——若有 MCP/部署专集，对 v1.8 有直接输入；影响中高</li>
+    <li><b>Reflexion/LAT/REWOO/LLMComp 讲授细节</b>（两视频均只有标题级）——F1 实现前的直接设计输入；<b>影响高</b></li>
+    <li><b>视频二完整目录与「2-1」实际内容</b>——10 月新版相对 6 月版有无新增主题（MCP/部署/国产模型）完全未知；影响中</li>
+    <li><b>「国产之光?」（项目篇26）内容</b>——若含 MCP 生态或国产模型实测，对 v1.8 工具有校准价值；影响中</li>
+    <li><b>HumanFeedback 专集交互形态</b>——与 Harbor 自主阶梯如有冲突需调和；影响中</li>
+    <li><b>视频实际讲授深度</b>——第三方称「标题冲骨架稳」但未抽查；影响低</li>
+  </ol>
+  <b>补充方式</b>：① 提供具体集数文字稿/截图（最可靠）；② 按标题逐集 fetch 页面（仅元数据）；③ 维持当前合成口径——<b>本报告即按 ③ 产出，未假装看过视频</b>。
+</div>
+
+<h2>5. 研究方法与来源</h2>
+<div class="extbox">
+  <b>检索路径</b>：WebFetch ×3（两个短链落地页直取；视频二换角度重取 1 轮仍只得标题——JS 渲染上限）+ WebSearch ×1（课程大纲目录）。
+  唯一来源 6 个：B 站官方落地页 2 + 目录快照 2 + 第三方独立拆解 3（互为交叉）；深读 6 篇。
+  <br><b>来源</b>：<br>
+  · [外] <a href="https://b23.tv/hF2485P">b23.tv/hF2485P</a>（视频一落地页）· <a href="https://www.bilibili.com/video/BV1CXfRBrEdZ/">BV1CXfRBrEdZ+目录快照</a><br>
+  · [外] <a href="https://b23.tv/ueNRdUV">b23.tv/ueNRdUV</a>（视频二落地页）· <a href="https://www.bilibili.com/video/BV1TXrKBiEYx/">同族课程 BV1TXrKBiEYx</a>（族系更新佐证）<br>
+  · [外] <a href="http://www.hqwc.cn/news/1254894.html">hqwc.cn 结构拆解</a> · <a href="https://kwkr.cn/news/227291">kwkr.cn 内容拆解</a> · <a href="https://kwkr.cn/news/480247">kwkr.cn 避坑指南</a><br>
+  · [内] agent-autonomy-research-2026-10-20（自主四件套）· iteration-plan-v18-agent-2026-10-20（v1.8 三能力）· sandbox-architecture-2026-10-19（OS 边界）· KNOWN_ISSUES · 代码库实测<br>
+  <b>[⚠ 未覆盖]</b>：两个视频约 720+ 集实际讲授内容（无 ASR）——未以「看过视频」口吻下任何内容级结论。
+</div>
+
+<footer>
+  Harbor v1.9 迭代方案 · 深度检索报告 · 2026-10-20 · 内外来源分别标注，未覆盖项已如实声明；
+  本报告未观看视频实际内容，方案为工程规划建议，重要决策请由产品负责人审定。
+</footer>
+
+</div>
+</body>
+</html>
