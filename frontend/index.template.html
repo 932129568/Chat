@@ -1633,10 +1633,13 @@ body.fx-off .think-body.open{animation:none}
 .tool-call-item:hover{color:var(--text-2)}
 .tool-call-item.done{color:var(--text-3)}
 .tool-call-item.fail{color:var(--err)}
-/* ③ 时间戳外移：与气泡同行（user 左侧/AI 右侧），不再独占第二行 */
-.msg-time{align-self:center;margin:0 4px;padding:0 2px;order:9}
-.message.user .msg-time{order:-1;margin-left:0}
-.message.assistant .msg-time{margin-right:0}
+/* ③ 时间戳（2026-10-21 用户实测修正）：仅 AI 消息显示，固定在内容首行
+   （思考行/正文首行）右端——user 消息不显示时间（「其他地方不用时间」）。
+   绝对定位贴右上：脱离 flex 流不占位，top=content padding(11px)+1 落在首行字垂直中央 */
+.message.user .msg-time{display:none}
+.message.assistant{position:relative}
+.message.assistant .msg-time{position:absolute;top:12px;right:4px;order:0;margin:0;padding:0 2px;
+  align-self:auto;font-size:10.5px;color:var(--text-3);font-family:var(--font-mono);user-select:none}
 
 /* ============================================================
    v4 极简二段（2026-10-21）：① 思考折叠行 ② 工具调用 timeline 化
