@@ -26,11 +26,11 @@
   --bg:#f6f7f9; --sidebar-bg:#ffffff; --main-bg:#f6f7f9; --header-bg:rgba(255,255,255,.78);
   --card-bg:#ffffff; --surface-2:#f1f3f7;
   --border:#e4e6ec; --border-strong:#d2d6e0;
-  --text:#14161c; --text-2:#5f6674; --text-3:#6a7180;
-  --primary:#4f6ef7; --primary-hover:#3d5ae6; --primary-soft:#eef1fe;
+  --text:#14161c; --text-2:#5f6674; --text-3:#656b7a;
+  --primary:#4560e0; --primary-hover:#3a51cc; --primary-soft:#eef1fe;
   --user-bubble:#4f6ef7; --user-bubble-text:#ffffff; --ai-bubble:#ffffff;
   --hover:#f1f3f7; --active:#eef1fe; --chip-bg:#f1f3f7;
-  --ok:#1a7f4e; --warn:#b7791f; --err:#cf3222;
+  --ok:#146b40; --warn:#8f5a0a; --err:#bd2a1c;
   --ok-bg:#e8f6ee; --warn-bg:#fdf5e6; --err-bg:#fdecea;
   --shadow-sm:0 1px 2px rgba(16,18,28,.06);
   --shadow-md:0 2px 8px rgba(16,18,28,.08);
@@ -41,7 +41,7 @@
   --dur-fast:120ms; --dur-base:180ms; --dur-slow:280ms;
   --ease:cubic-bezier(.4,0,.2,1); --ease-out:cubic-bezier(.16,1,.3,1);
   --sidebar-w:264px; --content-w:820px;
-  --brand-gradient:linear-gradient(135deg,#6b84ff,#4f6ef7);
+  --brand-gradient:linear-gradient(135deg,#6b84ff,#4560e0);
 
   /* ===== v4 玻璃层（值保留 v3）===== */
   --glass-bg:rgba(255,255,255,.62);
@@ -1344,7 +1344,8 @@ body.fx-off .plan-step.doing .st{border-top-color:var(--primary)}
 .ob-hero{text-align:center;padding:8px 0}
 .ob-logo{width:52px;height:52px;margin:0 auto 14px;border-radius:var(--radius-lg);
   background:var(--brand-gradient);color:#fff;font-size:24px;font-weight:700;
-  display:flex;align-items:center;justify-content:center}
+  display:flex;align-items:center;justify-content:center;
+  box-shadow:0 0 22px -6px var(--glow-color)}
 .ob-logo.ok{background:var(--ok)}
 .ob-feats{display:flex;flex-direction:column;gap:7px;margin-top:16px;text-align:left}
 .ob-feat{font-size:12.5px;color:var(--text-2);padding:8px 12px;border-radius:var(--radius-md);
@@ -1745,6 +1746,45 @@ input:focus-visible,textarea:focus-visible,select:focus-visible{
 .notify-item:nth-child(4){animation-delay:120ms}
 .notify-item:nth-child(5){animation-delay:160ms}
 body.fx-off .notify-item{animation:none}
+
+/* ---- v4 图表悬停层（2026-10-21 深化）：竖参考线+大圆点+玻璃数值浮层 ---- */
+.chart-wrap{position:relative}
+.chart-hover-line{stroke:var(--chart-1);stroke-width:1;stroke-dasharray:3 3;pointer-events:none;
+  transition:opacity var(--dur-micro) var(--ease-out-soft)}
+.chart-hover-dot{fill:var(--chart-1);stroke:var(--card-bg);stroke-width:2;pointer-events:none;
+  filter:drop-shadow(0 0 6px var(--glow-color));
+  transition:opacity var(--dur-micro) var(--ease-out-soft)}
+.chart-tip{position:absolute;transform:translate(-50%,calc(-100% - 10px));pointer-events:none;
+  display:flex;flex-direction:column;gap:1px;padding:6px 10px;border-radius:var(--radius-sm);
+  background:var(--glass-bg-2);border:1px solid var(--glass-border);
+  backdrop-filter:blur(var(--glass-blur));-webkit-backdrop-filter:blur(var(--glass-blur));
+  box-shadow:var(--shadow-md);white-space:nowrap;opacity:0;
+  transition:opacity var(--dur-micro) var(--ease-out-soft)}
+.chart-tip b{font-size:12.5px;color:var(--text);font-family:var(--font-mono)}
+.chart-tip span{font-size:10.5px;color:var(--text-3)}
+body.fx-off .chart-tip{transition:none}
+body.theming .chart-tip{transition-property:background-color,color,border-color,opacity}
+
+/* ---- v4 sessions 日期分组头（2026-10-21 深化） ---- */
+.session-group{font-size:10.5px;font-weight:600;color:var(--text-3);letter-spacing:.06em;
+  padding:12px 4px 5px;text-transform:uppercase;user-select:none;
+  animation:v4LineIn var(--dur-comp) var(--ease-out-soft) both}
+.session-group:first-child{padding-top:2px}
+body.fx-off .session-group{animation:none}
+body.theming .session-group{transition-property:color}
+
+/* ---- v4 sessions 日期分组头（2026-10-21 深化） ---- */
+.session-group{font-size:10.5px;font-weight:600;color:var(--text-3);letter-spacing:.06em;
+  padding:12px 4px 5px;text-transform:uppercase;user-select:none;
+  animation:v4LineIn var(--dur-comp) var(--ease-out-soft) both}
+.session-group:first-child{padding-top:2px}
+body.fx-off .session-group{animation:none}
+body.theming .session-group{transition-property:color}
+
+/* ---- v4 加载态 inline 点（2026-10-21）：面板「读取中…」配 pulse 点 ---- */
+.load-dot{display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--primary);
+  margin-right:6px;vertical-align:1px;animation:v4LightPulse var(--dur-stream) var(--ease-out-soft) infinite}
+body.fx-off .load-dot{animation:none}
 </style>
 </head>
 <body>
@@ -9305,7 +9345,7 @@ function softwarePanelInit() {
       '<button type="button" class="modal-btn" id="swProbeBtn">↻ 重新探测</button>' +
       '<button type="button" class="modal-btn" id="swCustomBtn">＋ 自定义软件</button>' +
       '<span class="sw-light" id="swPanelLight"></span>' +
-      '<span id="swPanelText" style="font-size:12px;color:var(--text-2);">读取中…</span>' +
+      '<span id="swPanelText" style="font-size:12px;color:var(--text-2);"><span class="load-dot"></span>读取中…</span>' +
     '</div>' +
     '<div class="sw-list" id="swList"></div>' +
     '<div class="sw-wizard" id="swWizard" style="display:none;margin-top:10px;">' +
@@ -9733,7 +9773,7 @@ function hybridInit() {
         '</div>' +
         '<div class="provider-row" style="margin-top:8px;">' +
           '<span class="hy-light" id="hyStatusLight"></span>' +
-          '<span id="hyStatusText" style="font-size:12px;color:var(--text-2);">读取中…</span>' +
+          '<span id="hyStatusText" style="font-size:12px;color:var(--text-2);"><span class="load-dot"></span>读取中…</span>' +
         '</div>';
       grid.appendChild(block);
       hybridWire();
@@ -11495,7 +11535,7 @@ async function checkpointMgrRefresh() {
   const box = tmEl('tmList');
   const cnt = tmEl('tmCount');
   if (!box) return;
-  box.innerHTML = '<div class="tm-empty">读取中…</div>';
+  box.innerHTML = '<div class="tm-empty"><span class="load-dot"></span>读取中…</div>';
   let plans = [];
   try {
     const raw = await tmCall('plan_list', [20], 15000);
@@ -12181,11 +12221,7 @@ function renderTrendChart() {
   svg.appendChild(line);
   // 数据点
   pts.forEach((p, i) => {
-    const c = __svgEl('circle', { cx: p[0].toFixed(1), cy: p[1].toFixed(1), r: 3, fill: 'var(--chart-1)', class: 'chart-dot' });
-    const title = __svgEl('title', {});
-    title.textContent = rows[i].title + ' · ' + fmt(vals[i]);
-    c.appendChild(title);
-    svg.appendChild(c);
+    svg.appendChild(__svgEl('circle', { cx: p[0].toFixed(1), cy: p[1].toFixed(1), r: 3, fill: 'var(--chart-1)', class: 'chart-dot' }));
   });
   // X 轴标（最多 6 个：首 + 均分）
   const stepX = Math.max(1, Math.ceil(rows.length / 6));
@@ -12196,6 +12232,34 @@ function renderTrendChart() {
     t.textContent = (d.getMonth() + 1) + '/' + d.getDate();
     svg.appendChild(t);
   });
+  // v4 深化（2026-10-21）：悬停数值提示——自定义竖参考线+大圆点+玻璃浮层
+  // （替代原生 <title>：悬停延迟高、不可样式化、暗色下系统配色不可控）
+  const hLine = __svgEl('line', { class: 'chart-hover-line', x1: 0, y1: PT, x2: 0, y2: PT + ih });
+  const hDot = __svgEl('circle', { class: 'chart-hover-dot', r: 4.5, cx: 0, cy: 0 });
+  svg.appendChild(hLine); svg.appendChild(hDot);
+  const tip = document.createElement('div');
+  tip.className = 'chart-tip';
+  wrap.appendChild(tip);
+  const _hideHover = () => { hLine.style.opacity = '0'; hDot.style.opacity = '0'; tip.style.opacity = '0'; };
+  _hideHover();
+  svg.addEventListener('mousemove', (ev) => {
+    const rect = svg.getBoundingClientRect();
+    if (!rect.width) return;
+    const sx = (ev.clientX - rect.left) * (W / rect.width);   // → viewBox 坐标
+    let bi = 0, bd = Infinity;
+    pts.forEach((p, i) => { const d = Math.abs(p[0] - sx); if (d < bd) { bd = d; bi = i; } });
+    const p = pts[bi];
+    hLine.setAttribute('x1', p[0]); hLine.setAttribute('x2', p[0]);
+    hDot.setAttribute('cx', p[0]); hDot.setAttribute('cy', p[1]);
+    hLine.style.opacity = '1'; hDot.style.opacity = '1';
+    const d = new Date(rows[bi].updatedAt || Date.now());
+    tip.innerHTML = '<b>' + fmt(vals[bi]) + '</b><span>' + (d.getMonth() + 1) + '/' + d.getDate() +
+      ' · ' + (typeof escapeHtml === 'function' ? escapeHtml(String(rows[bi].title).slice(0, 18)) : String(rows[bi].title).slice(0, 18)) + '</span>';
+    tip.style.opacity = '1';
+    tip.style.left = Math.max(8, Math.min(92, p[0] / W * 100)) + '%';
+    tip.style.top = Math.max(4, p[1] / H * 100) + '%';
+  });
+  svg.addEventListener('mouseleave', _hideHover);
   wrap.appendChild(svg);
   wrap.style.maxWidth = '100%';
   // E6 描画动画：触发 reflow 后进入终态
@@ -12759,7 +12823,13 @@ function renderSessionList() {
     return;
   }
   const sorted = [...sessions].sort((a, b) => b.updatedAt - a.updatedAt);
-  box.innerHTML = sorted.map(s =>
+  // v4 深化（2026-10-21）：日期分组（今天/昨天/更早）——长列表的时间锚点
+  let lastGroup = '';
+  const html = sorted.map(s => {
+    const g = _dayGroup(s.updatedAt);
+    const head = (g !== lastGroup) ? '<div class="session-group">' + g + '</div>' : '';
+    lastGroup = g;
+    return head +
     `<div class="session-item ${s.id === currentSessionId ? 'active' : ''}" onclick="switchSession('${_escId(s.id)}')">
       <div class="session-title">${escapeHtml(s.title || '新对话')}</div>
       <div class="session-time">${formatTime(s.updatedAt)}</div>
@@ -12767,8 +12837,22 @@ function renderSessionList() {
         <button class="session-exp" title="导出为 Markdown" onclick="exportSessionMd('${_escId(s.id)}', event)">⤓</button>
         <button class="session-del" onclick="deleteSession('${_escId(s.id)}', event)">✕</button>
       </span>
-    </div>`).join('');
+    </div>`;
+  }).join('');
+  box.innerHTML = html;
   updateTokenStat();
+}
+/** 日期分组键：今天/昨天/更早（跨天边界用自然日比对，非 24h 减法）。 */
+function _dayGroup(ts) {
+  const t = Number(ts);
+  if (!ts || !isFinite(t)) return '更早';
+  const d = new Date(t), now = new Date();
+  const sameDay = (a, b) => a.getFullYear() === b.getFullYear() &&
+    a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+  if (sameDay(d, now)) return '今天';
+  const y = new Date(Date.now() - 86400000);
+  if (sameDay(d, y)) return '昨天';
+  return '更早';
 }
 function formatTime(ts) {
   // 修复 建议㉲（三轮）：undefined/非时间戳不再显示 Invalid Date/NaN

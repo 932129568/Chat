@@ -107,7 +107,7 @@ function hybridInit() {
         '</div>' +
         '<div class="provider-row" style="margin-top:8px;">' +
           '<span class="hy-light" id="hyStatusLight"></span>' +
-          '<span id="hyStatusText" style="font-size:12px;color:var(--text-2);">读取中…</span>' +
+          '<span id="hyStatusText" style="font-size:12px;color:var(--text-2);"><span class="load-dot"></span>读取中…</span>' +
         '</div>';
       grid.appendChild(block);
       hybridWire();

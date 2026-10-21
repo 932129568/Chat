@@ -60,7 +60,7 @@ async function checkpointMgrRefresh() {
   const box = tmEl('tmList');
   const cnt = tmEl('tmCount');
   if (!box) return;
-  box.innerHTML = '<div class="tm-empty">读取中…</div>';
+  box.innerHTML = '<div class="tm-empty"><span class="load-dot"></span>读取中…</div>';
   let plans = [];
   try {
     const raw = await tmCall('plan_list', [20], 15000);

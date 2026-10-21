@@ -141,11 +141,7 @@ function renderTrendChart() {
   svg.appendChild(line);
   // 数据点
   pts.forEach((p, i) => {
-    const c = __svgEl('circle', { cx: p[0].toFixed(1), cy: p[1].toFixed(1), r: 3, fill: 'var(--chart-1)', class: 'chart-dot' });
-    const title = __svgEl('title', {});
-    title.textContent = rows[i].title + ' · ' + fmt(vals[i]);
-    c.appendChild(title);
-    svg.appendChild(c);
+    svg.appendChild(__svgEl('circle', { cx: p[0].toFixed(1), cy: p[1].toFixed(1), r: 3, fill: 'var(--chart-1)', class: 'chart-dot' }));
   });
   // X 轴标（最多 6 个：首 + 均分）
   const stepX = Math.max(1, Math.ceil(rows.length / 6));
@@ -156,6 +152,34 @@ function renderTrendChart() {
     t.textContent = (d.getMonth() + 1) + '/' + d.getDate();
     svg.appendChild(t);
   });
+  // v4 深化（2026-10-21）：悬停数值提示——自定义竖参考线+大圆点+玻璃浮层
+  // （替代原生 <title>：悬停延迟高、不可样式化、暗色下系统配色不可控）
+  const hLine = __svgEl('line', { class: 'chart-hover-line', x1: 0, y1: PT, x2: 0, y2: PT + ih });
+  const hDot = __svgEl('circle', { class: 'chart-hover-dot', r: 4.5, cx: 0, cy: 0 });
+  svg.appendChild(hLine); svg.appendChild(hDot);
+  const tip = document.createElement('div');
+  tip.className = 'chart-tip';
+  wrap.appendChild(tip);
+  const _hideHover = () => { hLine.style.opacity = '0'; hDot.style.opacity = '0'; tip.style.opacity = '0'; };
+  _hideHover();
+  svg.addEventListener('mousemove', (ev) => {
+    const rect = svg.getBoundingClientRect();
+    if (!rect.width) return;
+    const sx = (ev.clientX - rect.left) * (W / rect.width);   // → viewBox 坐标
+    let bi = 0, bd = Infinity;
+    pts.forEach((p, i) => { const d = Math.abs(p[0] - sx); if (d < bd) { bd = d; bi = i; } });
+    const p = pts[bi];
+    hLine.setAttribute('x1', p[0]); hLine.setAttribute('x2', p[0]);
+    hDot.setAttribute('cx', p[0]); hDot.setAttribute('cy', p[1]);
+    hLine.style.opacity = '1'; hDot.style.opacity = '1';
+    const d = new Date(rows[bi].updatedAt || Date.now());
+    tip.innerHTML = '<b>' + fmt(vals[bi]) + '</b><span>' + (d.getMonth() + 1) + '/' + d.getDate() +
+      ' · ' + (typeof escapeHtml === 'function' ? escapeHtml(String(rows[bi].title).slice(0, 18)) : String(rows[bi].title).slice(0, 18)) + '</span>';
+    tip.style.opacity = '1';
+    tip.style.left = Math.max(8, Math.min(92, p[0] / W * 100)) + '%';
+    tip.style.top = Math.max(4, p[1] / H * 100) + '%';
+  });
+  svg.addEventListener('mouseleave', _hideHover);
   wrap.appendChild(svg);
   wrap.style.maxWidth = '100%';
   // E6 描画动画：触发 reflow 后进入终态

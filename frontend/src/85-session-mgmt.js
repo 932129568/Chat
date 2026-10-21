@@ -236,7 +236,13 @@ function renderSessionList() {
     return;
   }
   const sorted = [...sessions].sort((a, b) => b.updatedAt - a.updatedAt);
-  box.innerHTML = sorted.map(s =>
+  // v4 深化（2026-10-21）：日期分组（今天/昨天/更早）——长列表的时间锚点
+  let lastGroup = '';
+  const html = sorted.map(s => {
+    const g = _dayGroup(s.updatedAt);
+    const head = (g !== lastGroup) ? '<div class="session-group">' + g + '</div>' : '';
+    lastGroup = g;
+    return head +
     `<div class="session-item ${s.id === currentSessionId ? 'active' : ''}" onclick="switchSession('${_escId(s.id)}')">
       <div class="session-title">${escapeHtml(s.title || '新对话')}</div>
       <div class="session-time">${formatTime(s.updatedAt)}</div>
@@ -244,8 +250,22 @@ function renderSessionList() {
         <button class="session-exp" title="导出为 Markdown" onclick="exportSessionMd('${_escId(s.id)}', event)">⤓</button>
         <button class="session-del" onclick="deleteSession('${_escId(s.id)}', event)">✕</button>
       </span>
-    </div>`).join('');
+    </div>`;
+  }).join('');
+  box.innerHTML = html;
   updateTokenStat();
+}
+/** 日期分组键：今天/昨天/更早（跨天边界用自然日比对，非 24h 减法）。 */
+function _dayGroup(ts) {
+  const t = Number(ts);
+  if (!ts || !isFinite(t)) return '更早';
+  const d = new Date(t), now = new Date();
+  const sameDay = (a, b) => a.getFullYear() === b.getFullYear() &&
+    a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+  if (sameDay(d, now)) return '今天';
+  const y = new Date(Date.now() - 86400000);
+  if (sameDay(d, y)) return '昨天';
+  return '更早';
 }
 function formatTime(ts) {
   // 修复 建议㉲（三轮）：undefined/非时间戳不再显示 Invalid Date/NaN

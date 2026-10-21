@@ -88,7 +88,7 @@ function softwarePanelInit() {
       '<button type="button" class="modal-btn" id="swProbeBtn">↻ 重新探测</button>' +
       '<button type="button" class="modal-btn" id="swCustomBtn">＋ 自定义软件</button>' +
       '<span class="sw-light" id="swPanelLight"></span>' +
-      '<span id="swPanelText" style="font-size:12px;color:var(--text-2);">读取中…</span>' +
+      '<span id="swPanelText" style="font-size:12px;color:var(--text-2);"><span class="load-dot"></span>读取中…</span>' +
     '</div>' +
     '<div class="sw-list" id="swList"></div>' +
     '<div class="sw-wizard" id="swWizard" style="display:none;margin-top:10px;">' +
