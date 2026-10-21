@@ -224,7 +224,10 @@ function softwarePanelRenderList(items) {
       '<span class="sw-status">' + (SW_STATUS_TEXT[it.status] || it.status) +
         (it.version ? ' · ' + swEsc(it.version) : '') + '</span>' +
       '<span class="sw-src">' + (it.source === 'preset' ? '预设' : '自定义') + '</span>' +
-      '<button type="button" class="modal-btn sw-test-btn" data-name="' + swEsc(it.name) + '">测试调用</button>';
+      '<button type="button" class="modal-btn sw-test-btn" data-name="' + swEsc(it.name) + '">测试调用</button>' +
+      (it.source === 'custom'
+        ? '<button type="button" class="modal-btn sw-del-btn" data-name="' + swEsc(it.name) + '" title="删除自定义软件条目">删除</button>'
+        : '');
     box.appendChild(row);
   });
   box.querySelectorAll('.sw-test-btn').forEach(btn => {
@@ -232,6 +235,24 @@ function softwarePanelRenderList(items) {
       const name = btn.getAttribute('data-name');
       const item = (swLastList || []).find(x => x.name === name);
       softwarePanelOpenTest(name, item);
+    });
+  });
+  // 2026-10-21 补：自定义软件删除入口（后端 _software_remove 现成，经 rpc 暴露；预设不可删）
+  box.querySelectorAll('.sw-del-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const name = btn.getAttribute('data-name');
+      const r = await uiConfirm({ title: '删除自定义软件',
+        body: '确定删除自定义条目「' + name + '」？不影响已安装的本体程序。',
+        danger: true, okText: '删除' });
+      if (!r || !r.ok) return;
+      try {
+        const raw = await swCallApi('rpc', ['_software_remove', JSON.stringify({ name: name })], SW_LIST_TIMEOUT_MS);
+        const d = JSON.parse(raw || '{}');
+        if (d && d.ok) { if (typeof toast === 'function') toast('已删除 ' + name, 'ok'); softwarePanelRefresh(); }
+        else if (typeof toast === 'function') toast((d && d.error) || '删除失败', 'err');
+      } catch (e) {
+        if (typeof toast === 'function') toast('删除失败：' + (e.message || e), 'err');
+      }
     });
   });
 }

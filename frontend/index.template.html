@@ -2028,6 +2028,32 @@ body.fx-off .history-dir-mask,body.fx-off .history-dir-panel,
 body.fx-off .hd-msg.ok,body.fx-off .hd-msg.err{animation:none}
 body.theming .history-dir-panel,body.theming .hd-btn,body.theming .hd-input,body.theming .history-dir-btn{
   transition-property:background-color,color,border-color,box-shadow}
+
+/* ============================================================
+   交接缺口补齐样式（2026-10-21）：readiness 评分清单（rd-*）+
+   自定义软件删除钮
+   ============================================================ */
+.rd-list{display:flex;flex-direction:column;gap:5px;margin-top:8px;
+  animation:v4LineIn var(--dur-comp) var(--ease-anticipate)}
+.rd-row{display:flex;align-items:center;gap:8px;padding:6px 10px;border-radius:var(--radius-md);
+  background:var(--surface-2);border:1px solid var(--border);
+  animation:v4LineIn var(--dur-comp) var(--ease-out-soft) both}
+.rd-row:nth-child(2){animation-delay:var(--stagger-xs)}
+.rd-row:nth-child(3){animation-delay:calc(var(--stagger-xs) * 2)}
+.rd-row:nth-child(n+4){animation-delay:var(--stagger-max)}
+.rd-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0}
+.rd-dot.ok{background:var(--ok)}
+.rd-dot.miss{background:transparent;border:1.5px solid var(--text-3)}
+.rd-name{font-size:var(--fs-caption);color:var(--text);font-weight:550;flex-shrink:0;min-width:96px}
+.rd-score{font-size:var(--fs-micro);color:var(--text-3);font-family:var(--font-mono);flex-shrink:0}
+.rd-detail{flex:1;min-width:0;font-size:var(--fs-micro);color:var(--text-3);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rd-sug{font-size:var(--fs-caption);color:var(--warn);line-height:1.6;padding:6px 2px 0}
+body.fx-off .rd-list,body.fx-off .rd-row{animation:none}
+body.theming .rd-row{transition-property:background-color,color,border-color}
+.sw-del-btn{flex-shrink:0;height:26px;padding:0 10px;font-size:11.5px}
+.sw-del-btn:hover{color:var(--err);border-color:var(--err);background:var(--err-bg)}
+.sw-del-btn:active{transform:scale(.97);transition:transform var(--dur-press) var(--ease-out-soft)}
 </style>
 </head>
 <body>

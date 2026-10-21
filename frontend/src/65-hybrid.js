@@ -108,7 +108,13 @@ function hybridInit() {
         '<div class="provider-row" style="margin-top:8px;">' +
           '<span class="hy-light" id="hyStatusLight"></span>' +
           '<span id="hyStatusText" style="font-size:12px;color:var(--text-2);"><span class="load-dot"></span>读取中…</span>' +
-        '</div>';
+        '</div>' +
+        '<div class="provider-row" style="margin-top:8px;align-items:center;gap:8px;">' +
+          '<button type="button" class="modal-btn" id="hyReadinessBtn">检测本地模型就绪度</button>' +
+          '<span class="hy-light" id="hyRdLight" style="display:none;"></span>' +
+          '<span id="hyRdVerdict" style="font-size:12px;color:var(--text-2);"></span>' +
+        '</div>' +
+        '<div class="rd-list" id="hyRdList" style="display:none;"></div>';
       grid.appendChild(block);
       hybridWire();
     }
@@ -129,6 +135,8 @@ function hybridInit() {
   return true;
 }
 function hybridWire() {
+  const rdBtn = hyEl('hyReadinessBtn');
+  if (rdBtn) rdBtn.addEventListener('click', () => hybridReadinessRun());
   const strategy = hyEl('hyStrategy');
   if (strategy) strategy.addEventListener('change', () => {
     hybridSave({ strategy: strategy.value });
@@ -311,4 +319,46 @@ function hyCountUpChip(chip, lt, ct, saved) {
 function hybridResetSplit() {
   hybridSplit = { local_tokens: 0, cloud_tokens: 0 };
   hybridRenderSplit();
+}
+
+
+/* ---------- W2 就绪度检测（2026-10-21 补前端面板；后端 local_readiness 现成） ----------
+ * 8 项评分 + verdict（full 本地可跑/partial 部分阶段交云端/cloud 全云端）+ 低分建议。 */
+function hyRdEl(id) { return document.getElementById(id); }
+async function hybridReadinessRun() {
+  const btn = hyRdEl('hyReadinessBtn');
+  const list = hyRdEl('hyRdList');
+  const vd = hyRdEl('hyRdVerdict');
+  const light = hyRdEl('hyRdLight');
+  if (!btn || !list) return;
+  const baseInp = document.getElementById('localBaseUrl') || document.getElementById('providerBase');
+  const modelInp = document.getElementById('localModelSelect') || document.getElementById('providerModel');
+  const base = ((baseInp && baseInp.value) || '').trim();
+  const model = ((modelInp && modelInp.value) || '').trim();
+  if (!base) { if (typeof toast === 'function') toast('请先在「连接」中填写端点地址', 'warn'); return; }
+  btn.disabled = true; btn.textContent = '检测中…';
+  list.style.display = 'none'; vd.textContent = '';
+  if (light) light.style.display = 'none';
+  try {
+    const raw = await callApi('local_readiness', [base, model], 45000);
+    const r = JSON.parse(raw || '{}');
+    if (!r || !r.ok) { if (typeof toast === 'function') toast('检测失败', 'err'); return; }
+    const VD = { full: ['ok', '可全本地'], partial: ['warn', '部分阶段交云端'], cloud: ['err', '建议全云端'] };
+    const v = VD[r.verdict] || VD.cloud;
+    vd.textContent = '就绪度 ' + r.score + '/' + r.max + ' · ' + v[1];
+    if (light) { light.className = 'hy-light ' + v[0]; light.style.display = ''; }
+    const esc = (t) => (typeof escapeHtml === 'function' ? escapeHtml(String(t)) : String(t));
+    list.innerHTML = (r.items || []).map(it =>
+      '<div class="rd-row"><span class="rd-dot ' + (it.ok ? 'ok' : 'miss') + '"></span>' +
+      '<span class="rd-name">' + esc(it.name || '') + '</span>' +
+      '<span class="rd-score">' + it.score + '/' + it.max + '</span>' +
+      '<span class="rd-detail">' + esc(it.detail || '') + '</span></div>'
+    ).join('') + ((r.suggestions || []).length
+      ? '<div class="rd-sug">建议：' + esc(r.suggestions.join('；')) + '</div>' : '');
+    list.style.display = '';
+  } catch (e) {
+    if (typeof toast === 'function') toast('检测失败：' + ((e && e.message) || e), 'err');
+  } finally {
+    btn.disabled = false; btn.textContent = '检测本地模型就绪度';
+  }
 }

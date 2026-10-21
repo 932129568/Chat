@@ -201,14 +201,29 @@ function exportSessionMd(id, e) {
       (usage.prompt_tokens_details?.cached_tokens ? ' · 缓存命中 ' + usage.prompt_tokens_details.cached_tokens : '') +
       ' · 工具调用 ' + toolCount + ' 次', '');
   }
-  const blob = new Blob([lines.join('\n')], { type: 'text/markdown;charset=utf-8' });
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = (s.title || 'chat').replace(/[\\/:*?"<>|]/g, '_').slice(0, 40) +
+  const fname = (s.title || 'chat').replace(/[\\/:*?"<>|]/g, '_').slice(0, 40) +
     '-' + new Date().toISOString().slice(0, 10) + '.md';
-  a.click();
-  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
-  toast('已导出 Markdown', 'ok');
+  const content = lines.join('\n');
+  // 2026-10-21 补：原生「另存为」对话框优先（后端 pick_save_path + save_export_file 现成），
+  // 旧 exe/取消/失败回落浏览器 Blob 下载
+  const blobFallback = () => {
+    const blob = new Blob([content], { type: 'text/markdown;charset=utf-8' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = fname;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+    toast('已导出 Markdown', 'ok');
+  };
+  (async () => {
+    try {
+      const pr = JSON.parse(await callApi('pick_save_path', [fname], 120000) || '{}');
+      if (!pr || !pr.ok || !pr.path) { blobFallback(); return; }   // 取消或旧后端
+      const wr = JSON.parse(await callApi('save_export_file', [pr.path, content], 60000) || '{}');
+      if (wr && wr.ok) toast('已导出到 ' + pr.path, 'ok');
+      else blobFallback();
+    } catch (e) { blobFallback(); }
+  })();
 }
 
 async function deleteSession(id, e) {
