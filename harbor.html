@@ -941,6 +941,8 @@ body.fx-off .panel,body.fx-off .message,body.fx-off .settings-panel.show{animati
 .modal-btns{display:flex;justify-content:flex-end;gap:8px;margin-top:14px;}
 .modal-btn{padding:7px 14px;border-radius:var(--radius-sm);border:1px solid var(--border);background:var(--card-bg);color:var(--text);font-size:12.5px;cursor:pointer;
   transition:background-color var(--dur-micro) var(--ease-out-soft),color var(--dur-micro) var(--ease-out-soft),border-color var(--dur-micro) var(--ease-out-soft),box-shadow var(--dur-micro) var(--ease-out-soft);}
+.modal-btn:hover{border-color:var(--primary);color:var(--primary);background:var(--primary-soft)}
+.modal-btn:active{transform:scale(.97)}
 .modal-btn.primary{background:var(--primary);border-color:var(--primary);color:#fff;}
 .modal-btn.primary:hover{background:var(--primary-hover);}
 .modal-btn.danger{background:var(--err);border-color:var(--err);color:#fff;}

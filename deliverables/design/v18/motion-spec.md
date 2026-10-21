@@ -250,3 +250,13 @@ body.fx-off .sp-take-guide{animation:none}   /* 引导 pulse */
 | fx-off 对 infinite 显式停 | §4.3 停列对照 §4.5 循环总清单 | 通过（10/10 覆盖，含既有 5 项点名） |
 | 零新增动效令牌 | 对照 v4 令牌表 | 通过（仅引用既有 `--dur-*`/`--ease-*`/`--shift-*`/`--stagger-*`） |
 | 四律标注完整 | §1 表格 + §2 编排逐条核对 | 通过（每条规范带【同】【层】【向】【顶】标签） |
+
+
+## 补充登记（2026-10-21 巡检补录）
+
+| 项 | 值 | 说明 |
+|---|---|---|
+| `.search-hit-flash` | .8s × 3 = 2.4s | 会话搜索命中高亮闪烁（v1.4 遗留，JS 2400ms 与 CSS 同步）|
+| `gg-ring .fg` | stroke-dashoffset 1s/跳 | 授权 TTL 倒计时环（时钟语义，布局属性例外登记）|
+| `typing-dots` | bounce 1.2s + delay .15s 阶梯 | 流式输入三点（v4 既有）|
+| 行内 `code` 语义色 | 亮 #c0392b / 暗 #f87171 | markdown 行内代码（恒暗代码块高亮 palette 为设计内例外）|
