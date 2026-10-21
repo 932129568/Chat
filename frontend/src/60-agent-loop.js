@@ -618,7 +618,10 @@ async function runAgentLoop(s, apiKey) {
             setTimeout(() => favBtn.textContent = '☆ 收藏', 1500);
           };
           acts.appendChild(favBtn);
-          aiContent.appendChild(acts);
+          // v4 修复：操作条移到气泡外（.message 下独立行）——原来 append 进
+          // .content 使按钮显示在气泡内部底部（用户反馈「按钮在气泡里很怪」）
+          const aiMsg = (aiContent.closest && aiContent.closest('.message')) || null;
+          if (aiMsg) aiMsg.appendChild(acts); else aiContent.appendChild(acts);
         }
         if (finishReason === 'length') {
           // 修复 建议㉔（二轮）：length 且带 tool_calls 时参数可能被截断（正则猜参

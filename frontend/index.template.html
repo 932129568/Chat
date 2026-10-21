@@ -559,21 +559,26 @@ body.fx-off .settings-panel input:focus,body.fx-off .settings-panel textarea:foc
   width:100%;margin:0 auto;min-height:0;
   transition:opacity var(--dur-comp) var(--ease-out-soft);}
 .chat-container.swapping{opacity:0;transition:opacity var(--dur-comp-out) var(--ease-in-soft);}
-.message{margin-bottom:20px;display:flex;gap:11px;animation:v4MsgIn var(--dur-narr) var(--ease-out-soft);}
+.message{margin-bottom:20px;display:flex;flex-wrap:wrap;gap:11px;animation:v4MsgIn var(--dur-narr) var(--ease-out-soft);}
+/* v4 修复：user 消息右对齐（原缺 row-reverse——尾角语言本就为右侧设计但对齐漏了） */
+.message.user{flex-direction:row-reverse;}
 @keyframes v4MsgIn{from{opacity:0;transform:translateY(var(--shift-msg))}to{opacity:1;transform:none}}
 .chat-container.batch .message,.chat-container.batch .empty-state{animation:none;}
-.message .avatar{width:32px;height:32px;border-radius:var(--radius-md);flex-shrink:0;
-  display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600;color:#fff;}
+.message .avatar{width:32px;height:32px;border-radius:var(--radius-full);flex-shrink:0;
+  display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600;color:#fff;
+  box-shadow:var(--shadow-sm);user-select:none;}
 .message.user .avatar{background:var(--primary);}
-.message.assistant .avatar{background:var(--ok);}
+.message.assistant .avatar{background:var(--brand-gradient);}
 .message .content{padding:11px 15px;border-radius:var(--radius-lg);max-width:72%;
   line-height:1.65;font-size:14px;word-break:break-word;}
 .message.user .content{background:var(--user-bubble);color:var(--user-bubble-text);
-  border-bottom-right-radius:var(--radius-xs);
+  box-shadow:var(--shadow-sm);
+  border-bottom-right-radius:var(--radius-xs);border-top-right-radius:var(--radius-xs);
   /* 修复 建议㊲（二轮）：用户消息保留换行（原 HTML 默认折叠，多行输入变一堵） */
   white-space:pre-wrap;}
 .message.assistant .content{background:var(--ai-bubble);border:1px solid var(--border);
-  border-bottom-left-radius:var(--radius-xs);box-shadow:var(--shadow-sm);}
+  border-bottom-left-radius:var(--radius-xs);border-top-left-radius:var(--radius-xs);
+  box-shadow:var(--shadow-sm);}
 .message .content.error{background:var(--card-bg);color:var(--text-2);border:1px solid var(--border);border-left:3px solid var(--err);}
 .message .content.error .err-title{color:var(--err);font-weight:600;}
 .msg-images{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;}
@@ -631,8 +636,12 @@ body.dark .md-body :not(pre)>code{background:var(--chip-bg);color:#f87171;}
   transition:background-color var(--dur-micro) var(--ease-out-soft),color var(--dur-micro) var(--ease-out-soft),border-color var(--dur-micro) var(--ease-out-soft),box-shadow var(--dur-micro) var(--ease-out-soft);}
 .copy-btn:hover{color:var(--primary);border-color:var(--primary);background:var(--primary-soft);}
 /* ===== v4 消息操作条：悬停对话框时下方弹出（opacity+translateY pop，不占布局）===== */
-.msg-actions{margin-top:8px;display:flex;gap:6px;opacity:0;transform:translateY(4px);
+/* v4：操作条独立成行（flex-wrap 换行）——user 右对齐/AI 左对齐，
+   padding 让条与气泡缘对齐（头像 32 + gap 11 = 43px）；悬停/聚焦/触屏点按显现 */
+.msg-actions{width:100%;margin-top:2px;display:flex;gap:6px;opacity:0;transform:translateY(4px);
   transition:opacity var(--dur-micro) var(--ease-out-soft),transform var(--dur-micro) var(--ease-out-soft);}
+.message.user .msg-actions{justify-content:flex-end;padding-right:43px;}
+.message.assistant .msg-actions{justify-content:flex-start;padding-left:43px;}
 .message:hover .msg-actions,.message:focus-within .msg-actions{opacity:1;transform:none;}
 /* 触屏/窄屏无悬停：点消息也能唤出（JS 打 .acting 类） */
 .message.acting .msg-actions{opacity:1;transform:none;}

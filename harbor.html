@@ -559,21 +559,26 @@ body.fx-off .settings-panel input:focus,body.fx-off .settings-panel textarea:foc
   width:100%;margin:0 auto;min-height:0;
   transition:opacity var(--dur-comp) var(--ease-out-soft);}
 .chat-container.swapping{opacity:0;transition:opacity var(--dur-comp-out) var(--ease-in-soft);}
-.message{margin-bottom:20px;display:flex;gap:11px;animation:v4MsgIn var(--dur-narr) var(--ease-out-soft);}
+.message{margin-bottom:20px;display:flex;flex-wrap:wrap;gap:11px;animation:v4MsgIn var(--dur-narr) var(--ease-out-soft);}
+/* v4 修复：user 消息右对齐（原缺 row-reverse——尾角语言本就为右侧设计但对齐漏了） */
+.message.user{flex-direction:row-reverse;}
 @keyframes v4MsgIn{from{opacity:0;transform:translateY(var(--shift-msg))}to{opacity:1;transform:none}}
 .chat-container.batch .message,.chat-container.batch .empty-state{animation:none;}
-.message .avatar{width:32px;height:32px;border-radius:var(--radius-md);flex-shrink:0;
-  display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600;color:#fff;}
+.message .avatar{width:32px;height:32px;border-radius:var(--radius-full);flex-shrink:0;
+  display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600;color:#fff;
+  box-shadow:var(--shadow-sm);user-select:none;}
 .message.user .avatar{background:var(--primary);}
-.message.assistant .avatar{background:var(--ok);}
+.message.assistant .avatar{background:var(--brand-gradient);}
 .message .content{padding:11px 15px;border-radius:var(--radius-lg);max-width:72%;
   line-height:1.65;font-size:14px;word-break:break-word;}
 .message.user .content{background:var(--user-bubble);color:var(--user-bubble-text);
-  border-bottom-right-radius:var(--radius-xs);
+  box-shadow:var(--shadow-sm);
+  border-bottom-right-radius:var(--radius-xs);border-top-right-radius:var(--radius-xs);
   /* 修复 建议㊲（二轮）：用户消息保留换行（原 HTML 默认折叠，多行输入变一堵） */
   white-space:pre-wrap;}
 .message.assistant .content{background:var(--ai-bubble);border:1px solid var(--border);
-  border-bottom-left-radius:var(--radius-xs);box-shadow:var(--shadow-sm);}
+  border-bottom-left-radius:var(--radius-xs);border-top-left-radius:var(--radius-xs);
+  box-shadow:var(--shadow-sm);}
 .message .content.error{background:var(--card-bg);color:var(--text-2);border:1px solid var(--border);border-left:3px solid var(--err);}
 .message .content.error .err-title{color:var(--err);font-weight:600;}
 .msg-images{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;}
@@ -631,8 +636,12 @@ body.dark .md-body :not(pre)>code{background:var(--chip-bg);color:#f87171;}
   transition:background-color var(--dur-micro) var(--ease-out-soft),color var(--dur-micro) var(--ease-out-soft),border-color var(--dur-micro) var(--ease-out-soft),box-shadow var(--dur-micro) var(--ease-out-soft);}
 .copy-btn:hover{color:var(--primary);border-color:var(--primary);background:var(--primary-soft);}
 /* ===== v4 消息操作条：悬停对话框时下方弹出（opacity+translateY pop，不占布局）===== */
-.msg-actions{margin-top:8px;display:flex;gap:6px;opacity:0;transform:translateY(4px);
+/* v4：操作条独立成行（flex-wrap 换行）——user 右对齐/AI 左对齐，
+   padding 让条与气泡缘对齐（头像 32 + gap 11 = 43px）；悬停/聚焦/触屏点按显现 */
+.msg-actions{width:100%;margin-top:2px;display:flex;gap:6px;opacity:0;transform:translateY(4px);
   transition:opacity var(--dur-micro) var(--ease-out-soft),transform var(--dur-micro) var(--ease-out-soft);}
+.message.user .msg-actions{justify-content:flex-end;padding-right:43px;}
+.message.assistant .msg-actions{justify-content:flex-start;padding-left:43px;}
 .message:hover .msg-actions,.message:focus-within .msg-actions{opacity:1;transform:none;}
 /* 触屏/窄屏无悬停：点消息也能唤出（JS 打 .acting 类） */
 .message.acting .msg-actions{opacity:1;transform:none;}
@@ -7917,7 +7926,10 @@ async function runAgentLoop(s, apiKey) {
             setTimeout(() => favBtn.textContent = '☆ 收藏', 1500);
           };
           acts.appendChild(favBtn);
-          aiContent.appendChild(acts);
+          // v4 修复：操作条移到气泡外（.message 下独立行）——原来 append 进
+          // .content 使按钮显示在气泡内部底部（用户反馈「按钮在气泡里很怪」）
+          const aiMsg = (aiContent.closest && aiContent.closest('.message')) || null;
+          if (aiMsg) aiMsg.appendChild(acts); else aiContent.appendChild(acts);
         }
         if (finishReason === 'length') {
           // 修复 建议㉔（二轮）：length 且带 tool_calls 时参数可能被截断（正则猜参
@@ -11263,7 +11275,12 @@ function chatCompletionsOf(base) {
 /** 端点地址解析：45-request-debounce / 97-compact 的 fetch 目标。
  *  本地系预设 → 本地 CORS 代理（CORS 头由后端补齐；真实目标经
  *    localProxyHeaders() 的 X-Harbor-Target 头传递）；代理不可用 → 回落直连；
- *  其余 → providerState.base_url；都空 → 官方 API_URL。 */
+ *  **GLM 官方端点 → 也走代理**（2026-10-21 P0）：EdgeWebView 的 fetch 读系统
+ *    代理栈（Clash/IE 代理），用户机器挂代理时直连 open.bigmodel.cn 会被拦成
+ *    Failed to fetch，而浏览器 fetch 无法禁代理；后端 opener 已禁系统代理直连，
+ *    前端只 fetch 127.0.0.1 必然绕开，且代理补 CORS 头让 4xx 真因不再被吞；
+ *  其余云端（自定义端点）→ providerState.base_url 直连（行为不劣化）；
+ *  都空 → 官方 API_URL。 */
 function resolveApiEndpoint() {
   if (localModeActive()) {
     const proxied = chatCompletionsOf(localProxyBase());
@@ -11272,15 +11289,26 @@ function resolveApiEndpoint() {
     if (local) return local;                        // 回落：代理不可用时直连（行为不劣化）
   }
   const base = chatCompletionsOf((providerState && providerState.base_url) || '');
+  // GLM 官方端点且代理可用 → 经代理转发（绕开 EdgeWebView 系统代理栈）
+  if (base && isGlmEndpoint() && localProxyBase()) {
+    return chatCompletionsOf(localProxyBase());
+  }
   if (base) return base;
   return API_URL;
 }
 
-/** 代理模式附加请求头：X-Harbor-Target = 真实本地 base_url（后端代理据此转发，
- *  且仅放行回环目标）。非代理模式 / 无目标返回 {}——调用处 Object.assign 合并。 */
+/** 代理模式附加请求头：X-Harbor-Target = 真实目标 base_url（本地或 GLM 云端；
+ * 后端代理据此转发，仅放行回环 + 云端白名单目标）。非代理模式 / 无目标
+ * 返回 {}——调用处 Object.assign 合并。 */
 function localProxyHeaders() {
-  if (!localModeActive() || !localProxyBase()) return {};
-  const target = String((localState && localState.base_url) || '').trim();
+  if (!localProxyBase()) return {};
+  let target = '';
+  if (localModeActive()) {
+    target = String((localState && localState.base_url) || '').trim();
+  } else if (isGlmEndpoint()) {
+    // GLM 云端：目标 = 用户配置的 base_url（缺省 API_URL 官方地址）
+    target = String((providerState && providerState.base_url) || API_URL || '').trim();
+  }
   return target ? { 'X-Harbor-Target': target } : {};
 }
 
