@@ -30,10 +30,14 @@ const PRESETS = {
   deepseek: {
     name: 'DeepSeek', base_url: 'https://api.deepseek.com/v1',
     key_required: true, glm_capable: false, local: false,
-    prices: { in: 2, out: 8, cache: 0.4 },
+    // R20 校准（2026-10-21 api-docs.deepseek.com 实测）：价格单位 $/1M tok
+    // 高峰口径；flash 非高峰半价（cache hit 0.003/miss 0.15/out 0.6），
+    // v4-pro（hit 0.006/miss 0.3/out 1.2）。ctx 1M / max out 384K。
+    // 旧名 deepseek-v4.1-*/v4-flash 已退役（由 V4.1-Flash-1017 服务）。
+    prices: { in: 0.15, out: 0.6, cache: 0.003 },
     models: [
-      { id: 'deepseek-v4.1-256k', text: 'deepseek-v4.1-256k（256k 上下文）' },
-      { id: 'deepseek-v4.1', text: 'deepseek-v4.1（均衡）' }
+      { id: 'deepseek-flash', text: 'deepseek-flash（1M 上下文·低价）' },
+      { id: 'deepseek-v4-pro', text: 'deepseek-v4-pro（旗舰推理）' }
     ]
   },
   moonshot: {
@@ -141,8 +145,8 @@ const PROVIDER_HOT_MODELS = [
     { id: 'glm-4.5-air', text: 'glm-4.5-air（轻量）' }
   ] },
   { host: 'deepseek.com', models: [
-    { id: 'deepseek-v4.1-256k', text: 'deepseek-v4.1-256k（256k 上下文）' },
-    { id: 'deepseek-v4.1', text: 'deepseek-v4.1（均衡）' }
+    { id: 'deepseek-flash', text: 'deepseek-flash（1M 上下文·低价）' },
+    { id: 'deepseek-v4-pro', text: 'deepseek-v4-pro（旗舰推理）' }
   ] },
   { host: 'moonshot.cn', models: [
     { id: 'kimi-k2', text: 'kimi-k2' },

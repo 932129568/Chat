@@ -143,3 +143,8 @@
 - [x] 敏感信息扫描干净（无 API Key / 无个人 MCP 配置 / 无 DPAPI 密文）
 - [x] VERSION = 1.5.0，exe 内嵌版本一致
 - [x] 窗口标题显示应用版本（v1.5.0）而非契约版本
+
+### 19. 【已校准】R20 DeepSeek preset 模型名/价格 + R21 GLM web_search 结构化结论（2026-10-21）
+- **R20**（官网实测 `api-docs.deepseek.com/quick_start/pricing`）：现行模型名为 `deepseek-flash` / `deepseek-v4-pro`（ctx 1M / max out 384K / 高峰价 flash \$0.15+0.6、pro \$0.3+1.2 每 1M tok，非高峰半价）；preset 原 `deepseek-v4.1-256k`/`deepseek-v4.1` 已退役（旧名仍接受、由 V4.1-Flash-1017 服务）。36-connect.js preset 与 host 模型表已校准
+- **R21**（GLM web_search 升级结构化 API）：GLM 内置 web_search 无公开结构化参数文档（模型黑盒触发）；本版自有 `browser_search` 通道（联调规范 §3.1）已覆盖「Harbor 侧构造检索参数」的同一目标，且双通道按端点自动选（R11 裁决口径）——R21 判定为与自有通道重复，不再单独投入；后续如 GLM 开放结构化 web_search 参数面再评估
+- **处理状态**：🟢 R20 已校准（preset+host 表+价格注释）；🟢 R21 结论记录（不重复建设）

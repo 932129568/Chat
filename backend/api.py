@@ -97,6 +97,7 @@ _V12_EXTRA = frozenset({
     # 不静默夹逼；get_api_info 零漂移同款隐身）
     'memory_delete', 'prompt_get', 'trace_new', 'local_readiness',
     'history_dir_get', 'history_dir_set', 'session_purge',
+    'pick_save_path', 'save_export_file',
 })
 
 
@@ -178,6 +179,50 @@ class Api:
     # 注：历史目录选择复用 legacy 契约方法 pick_folder(sid)（下方原定义，
     # 工作区与历史目录对话框共用；无窗口环境返回 {ok:False, err:'no window'}，
     # 前端回落手动输入）——不重复定义（同类名后定义覆盖，曾误加死方法）。
+
+    def pick_save_path(self, default_name='export.md'):
+        """弹出系统「另存为」对话框（SAVE_DIALOG，带默认文件名）→ {ok, path}。
+
+        导出专用（修复 2026-10-21 P1：blob + a.click() 下载在 WebView2 里弹
+        模态下载 UI 阻塞页面消息循环——导出后界面卡死只能重开）。改用保存
+        对话框 + 后端 save_export_file 写盘，零下载 UI。无窗口环境 →
+        {ok: False, err}（前端 toast 回落）。
+        """
+        win = getattr(self._runtime, 'win', None)
+        if win is None:
+            return err('当前环境不支持保存对话框')
+        try:
+            # pywebview SAVE_DIALOG = 30（FOLDER=10/OPEN=20/SAVE=30；字面量避免
+            # api.py 顶层 import webview——无 GUI 环境 import 亦可失败）
+            result = win.create_file_dialog(30, directory='', save_filename=default_name)
+            if result and len(result) > 0:
+                return ok({'ok': True, 'path': result[0]})
+            return ok({'ok': False, 'path': ''})     # 用户取消
+        except Exception as e:
+            return err('保存对话框失败: %s' % e)
+
+    def save_export_file(self, path, content):
+        """把导出内容写盘（UTF-8）→ {ok, path, bytes}。
+
+        路径校验：非空 + 父目录存在（防 dialog 异常返回）；内容上限 8MB
+        （导出是会话 markdown，防病态大串写爆）。写失败 → err 人话。
+        """
+        p = str(path or '').strip()
+        if not p:
+            return err('保存路径为空')
+        text = str(content if content is not None else '')
+        if len(text.encode('utf-8')) > 8 * 1024 * 1024:
+            return err('导出内容超过 8MB 上限')
+        parent = os.path.dirname(os.path.abspath(p))
+        if not os.path.isdir(parent):
+            return err('目标目录不存在: %s' % parent)
+        try:
+            with open(p, 'w', encoding='utf-8', newline='\n') as f:
+                f.write(text)
+            return ok({'ok': True, 'path': p,
+                       'bytes': len(text.encode('utf-8'))})
+        except Exception as e:
+            return err('写入失败: %s' % e)
 
     def session_purge(self, sid, task_ids_json='[]'):
         """真删一条会话的全部痕迹：sessions.json 条目 + session_ws 绑定 +
