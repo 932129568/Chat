@@ -1505,6 +1505,50 @@ body.theming .gg-ind,body.theming .gg-light,body.theming .gg-rule-row,body.themi
 .tm-empty code{background:var(--chip-bg);border-radius:var(--radius-xs);padding:1px 5px;font-family:var(--font-mono);font-size:11px}
 body.fx-off .tm-row{animation:none}
 body.theming .tm-row{transition-property:background-color,color,border-color,box-shadow}
+
+/* ============================================================
+   v1.8.0 · 快捷键帮助（72-shortcuts.js，sc-* 纯新增）
+   ============================================================ */
+.sc-card{width:min(480px,92vw)}
+.sc-sec{font-size:11px;font-weight:600;color:var(--text-3);letter-spacing:.05em;
+  text-transform:uppercase;margin:14px 0 6px}
+.sc-sec:first-of-type{margin-top:10px}
+.sc-row{display:flex;align-items:center;gap:12px;padding:6px 0;border-bottom:1px solid var(--border);
+  animation:v4LineIn var(--dur-comp) var(--ease-out-soft) both}
+.sc-row:last-of-type{border-bottom:none}
+.sc-keys{flex-shrink:0;min-width:110px;display:flex;align-items:center;gap:3px}
+.sc-kbd{display:inline-block;min-width:22px;padding:2px 7px;text-align:center;font-family:var(--font-mono);
+  font-size:11px;color:var(--text);background:var(--surface-2);
+  border:1px solid var(--border-strong);border-bottom-width:2px;border-radius:var(--radius-xs)}
+.sc-plus{color:var(--text-3);font-size:10px}
+.sc-cmd{font-family:var(--font-mono);font-size:11px;background:var(--primary-soft);color:var(--primary);
+  border-radius:var(--radius-xs);padding:2px 7px}
+.sc-desc{font-size:12.5px;color:var(--text-2);line-height:1.55}
+.sc-desc.only{padding:4px 0}
+body.fx-off .sc-row{animation:none}
+body.theming .sc-row,body.theming .sc-kbd{transition-property:background-color,color,border-color}
+
+/* ============================================================
+   v1.8.0 · 快捷键帮助（72-shortcuts.js，sc-* 纯新增）
+   ============================================================ */
+.sc-card{width:min(480px,92vw)}
+.sc-sec{font-size:11px;font-weight:600;color:var(--text-3);letter-spacing:.05em;
+  text-transform:uppercase;margin:14px 0 6px}
+.sc-sec:first-of-type{margin-top:10px}
+.sc-row{display:flex;align-items:center;gap:12px;padding:6px 0;border-bottom:1px solid var(--border);
+  animation:v4LineIn var(--dur-comp) var(--ease-out-soft) both}
+.sc-row:last-of-type{border-bottom:none}
+.sc-keys{flex-shrink:0;min-width:110px;display:flex;align-items:center;gap:3px}
+.sc-kbd{display:inline-block;min-width:22px;padding:2px 7px;text-align:center;font-family:var(--font-mono);
+  font-size:11px;color:var(--text);background:var(--surface-2);
+  border:1px solid var(--border-strong);border-bottom-width:2px;border-radius:var(--radius-xs)}
+.sc-plus{color:var(--text-3);font-size:10px}
+.sc-cmd{font-family:var(--font-mono);font-size:11px;background:var(--primary-soft);color:var(--primary);
+  border-radius:var(--radius-xs);padding:2px 7px}
+.sc-desc{font-size:12.5px;color:var(--text-2);line-height:1.55}
+.sc-desc.only{padding:4px 0}
+body.fx-off .sc-row{animation:none}
+body.theming .sc-row,body.theming .sc-kbd{transition-property:background-color,color,border-color}
 </style>
 </head>
 <body>
@@ -1583,6 +1627,12 @@ body.theming .tm-row{transition-property:background-color,color,border-color,box
       <div class="header-badge">多模态 Agent</div>
     </div>
     <div class="header-right">
+      <button class="icon-btn" id="shortcutsBtn" title="快捷键与命令（?）" onclick="scOpen()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M9.2 9a2.9 2.9 0 0 1 5.6 0c0 1.9-2.8 2.2-2.8 4"/><path d="M12 17.5h.01"/></svg>
+      </button>
+      <button class="icon-btn" id="shortcutsBtn" title="快捷键与命令（?）" onclick="scOpen()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M9.2 9a2.9 2.9 0 0 1 5.6 0c0 1.9-2.8 2.2-2.8 4"/><path d="M12 17.5h.01"/></svg>
+      </button>
       <button class="icon-btn" id="searchPanelBtn" title="浏览器搜索（Agent 受控检索）" onclick="spManualOpen()">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.35-4.35"/></svg>
       </button>
@@ -11299,6 +11349,83 @@ function updateBrandModel() {
   if (typeof navUpdateEmptyGuide === 'function') navUpdateEmptyGuide();
 }
 
+/* ===== 72-shortcuts.js ===== */
+/* ================= v1.8.0 · 快捷键与命令帮助（72-shortcuts.js） =================
+ * 入口：header 帮助钮（?）+ 键盘 ?（Shift+/，输入框聚焦时不触发）。
+ * 内容：键盘快捷键 + 斜杠命令 + 流式控制，全部实接（非宣传文案）。
+ * sc-* 纯新增类；浮层复用 v4 模态动效；Esc/点遮罩/× 三路关闭。
+ */
+
+const SC_SHORTCUTS = [
+  { keys: ['Enter'], desc: '发送消息' },
+  { keys: ['Shift', 'Enter'], desc: '输入框内换行' },
+  { keys: ['Esc'], desc: '关闭浮层（设置 / 搜索面板 / 模态 / 图片查看）' },
+  { keys: ['Ctrl', 'N'], desc: '新建会话（macOS 为 ⌘N）' },
+  { keys: ['?'], desc: '打开本帮助' }
+];
+const SC_COMMANDS = [
+  { cmd: '/plan <任务>', desc: '计划模式：先生成计划卡，批准后执行（自动建检查点）' },
+  { cmd: '/compact', desc: '压缩当前会话历史为纪要（省 token）' }
+];
+const SC_MOUSE = [
+  { desc: '生成中点发送钮（■）停止' },
+  { desc: '点 header 放大镜打开浏览器搜索面板（可折叠）' },
+  { desc: '搜索结果点击标题看原文预览浮层' }
+];
+
+function scOpen() {
+  if (typeof document === 'undefined') return;
+  scClose();
+  const mask = document.createElement('div');
+  mask.className = 'modal-mask sc-mask';
+  const card = document.createElement('div');
+  card.className = 'modal-card sc-card';
+  card.setAttribute('role', 'dialog');
+  card.setAttribute('aria-modal', 'true');
+  const kbd = ks => ks.map(k => '<kbd class="sc-kbd">' + String(k).replace(/</g, '&lt;') + '</kbd>').join('<span class="sc-plus">+</span>');
+  card.innerHTML =
+    '<h3>快捷键与命令</h3>' +
+    '<div class="sub">键盘、斜杠命令与流式控制（全部实接）</div>' +
+    '<div class="sc-sec">键盘</div>' +
+    SC_SHORTCUTS.map(x =>
+      '<div class="sc-row"><span class="sc-keys">' + kbd(x.keys) + '</span>' +
+      '<span class="sc-desc">' + x.desc + '</span></div>').join('') +
+    '<div class="sc-sec">斜杠命令（输入框输入）</div>' +
+    SC_COMMANDS.map(x =>
+      '<div class="sc-row"><span class="sc-keys"><code class="sc-cmd">' + x.cmd + '</code></span>' +
+      '<span class="sc-desc">' + x.desc + '</span></div>').join('') +
+    '<div class="sc-sec">鼠标操作</div>' +
+    SC_MOUSE.map(x => '<div class="sc-row"><span class="sc-desc only">· ' + x.desc + '</span></div>').join('') +
+    '<div class="modal-acts"><button class="modal-btn primary sc-ok">知道了</button></div>';
+  mask.appendChild(card);
+  document.body.appendChild(mask);
+  mask.addEventListener('click', e => { if (e.target === mask) scClose(); });
+  card.querySelector('.sc-ok').onclick = scClose;
+  document.addEventListener('keydown', scEsc);
+  setTimeout(() => { const b = card.querySelector('.sc-ok'); if (b) b.focus(); }, 60);
+}
+function scEsc(e) {
+  if (e.key === 'Escape') { e.stopPropagation(); scClose(); }
+}
+function scClose() {
+  const mask = document.querySelector('.sc-mask');
+  if (mask) mask.remove();
+  document.removeEventListener('keydown', scEsc);
+}
+
+/** ? 键打开（输入框/文本区聚焦时不抢键；与 Ctrl+N 不冲突）。 */
+function shortcutsInit() {
+  if (typeof document === 'undefined') return false;
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== '?') return;
+    const tag = (e.target && e.target.tagName) || '';
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || e.ctrlKey || e.metaKey || e.altKey) return;
+    e.preventDefault();
+    scOpen();
+  });
+  return true;
+}
+
 /* ===== 75-token-stat.js ===== */
 /* ================= Token 统计 ================= */
 const MODEL_PRICE = {
@@ -13250,6 +13377,10 @@ async function loadAll() {
   try { onboardingInit(); } catch (e) { console.warn('引导向导初始化失败', e); }
   /* v1.8.0：任务历史与回滚管理（设置区块动态注入；plan_list UI 入口） */
   try { checkpointMgrInit(); } catch (e) { console.warn('任务历史面板初始化失败', e); }
+  /* v1.8.0：快捷键与命令帮助（? 键 + header 帮助钮） */
+  try { shortcutsInit(); } catch (e) { console.warn('快捷键帮助初始化失败', e); }
+  /* v1.8.0：快捷键与命令帮助（? 键 + header 帮助钮） */
+  try { shortcutsInit(); } catch (e) { console.warn('快捷键帮助初始化失败', e); }
   /* v1.8.0 S 域·外部软件 + H 域·混合路由 + v1.8.5 A 域·任务授权/白名单
    * （纯新增 #softwareBlock / #hybridBlock / #grantIndicator / #grantRulesBlock；
    * 各自 Init 内部幂等 + typeof 守卫，失败不阻塞启动） */
