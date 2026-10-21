@@ -234,7 +234,13 @@ function toolValidateResult(name, result) {
       return _v1Verdict(true, 'ok', Math.min(1, c.length / 4000), '正文有效（' + c.length + ' 字符）', false, '');
     }
     if (d.ok === false || d.error) {
-      return _v1Verdict(false, 'failed', 0, '工具报告错误：' + String(d.error || '未知').slice(0, 80), false, '');
+      // 修复（2026-10-21）：error 为对象（{code,message}）时取人话字段，
+      // 防 String(obj) 渲染成 [object Object]
+      const _e = d.error;
+      const _em = (typeof _e === 'string') ? _e
+        : (_e && typeof _e === 'object') ? String(_e.message || _e.code || JSON.stringify(_e))
+        : String(_e || '未知');
+      return _v1Verdict(false, 'failed', 0, '工具报告错误：' + _em.slice(0, 80), false, '');
     }
     if (!Object.keys(d).length) return _v1Verdict(true, 'thin', 0.4, '结果为空对象', false, '');
     return _v1Verdict(true, 'ok', 0.7, '结果结构有效', false, '');

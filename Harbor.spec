@@ -5,7 +5,9 @@ a = Analysis(
     ['main.py'],
     pathex=[],
     binaries=[],
-    datas=[('harbor.html', '.'), ('libs', 'libs'), ('VERSION', '.')],
+    datas=[('harbor.html', '.'), ('libs', 'libs'), ('VERSION', '.'),
+           # W0 R19：版本化提示词目录（prompt_loader 经 ../prompts 定位，frozen 同口径）
+           ('backend/prompts', 'backend/prompts')],
     # 修复 W2：懒加载依赖显式声明（原 frozen 包中 send2trash/PIL 静默缺失，
     # delete_path 回收站模式与 take_screenshot 在打包版失效）
     hiddenimports=['send2trash', 'PIL.ImageGrab'],

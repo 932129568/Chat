@@ -137,13 +137,21 @@ async function compactNow(s, apiKey, opts = {}) {
     // 并剥离 GLM 专属字段（thinking）；此前硬编码 API_URL + thinking 会导致自定义端点压缩必失败。
     const _glm = isGlmEndpoint();
     const _cmpModel = _glm ? 'glm-5.3-flash' : (providerState.model || 'glm-5.3-flash');
+    // W0 R19：压缩提示词改读 prompts/compact.md（版本化）；失败回落内置串
+    // （与 prompts 文件渲染值逐字节一致，回落零行为差异）
+    let _cmpPrompt = '把以下人机协作历史压缩成 ≤200 字工作纪要，必须保留: 任务目标、涉及文件路径、已做改动、未完成事项、关键结论、工具调用序列(工具名与关键参数摘要)。直接输出: \n\n';
+    try {
+      const _cmpRaw = await callApi('prompt_get', ['compact']);
+      const _cmp = JSON.parse(_cmpRaw || '{}');
+      if (_cmp && _cmp.ok && _cmp.text) _cmpPrompt = _cmp.text;
+    } catch (e) { /* 回落内置 */ }
     const _cmpBody = {
       model: _cmpModel, max_tokens: 600,
       // 修复 HF-1（v1.6）排查记录：压缩请求当前只发一条 user（无 system），
       // 形态上不可能触发 Qwen 模板的 500；归一化在下方以 typeof 守卫接线（未来防呆）。
       // 实现 v1.6 T5③：压缩提示词增「保留工具调用序列」要求（原只保留文件路径，
       // 恢复后续跑时丢失「调过什么工具、参数是什么」的脉络）
-      messages: [{ role: 'user', content: '把以下人机协作历史压缩成 ≤200 字工作纪要，必须保留: 任务目标、涉及文件路径、已做改动、未完成事项、关键结论、工具调用序列(工具名与关键参数摘要)。直接输出: \n\n' + dump }]
+      messages: [{ role: 'user', content: _cmpPrompt + dump }]
     };
     // 修复 HF-1（v1.6 收口，QA 复验建议）：未来防呆——若压缩提示词哪天改成
     // [system 摘要规范, user 历史]，本地 Ollama/Qwen 会立刻 500（system 必须在最前且只一条）。

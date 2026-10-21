@@ -95,3 +95,44 @@ class TestFloorRules:
         out = svc.tool_schemas()
         assert len(out) == 50
         assert svc._floor_stats['truncated_desc'] == 50
+
+
+class TestDangerFloorRule:
+    """W10 楼层规则真意（deep-research #126）：危险工具名/描述 → always 档。"""
+
+    def test_delete_prefix_always(self):
+        from backend.services.mcp_service import McpService
+        assert McpService.derive_tier({}, 'delete_file', '删除文件') == 'always'
+        assert McpService.derive_tier({}, 'drop_table', '') == 'always'
+        assert McpService.derive_tier({}, 'purge_cache', '') == 'always'
+        assert McpService.derive_tier({}, 'wipe_disk', '') == 'always'
+
+    def test_readonly_annotation_still_session(self):
+        from backend.services.mcp_service import McpService
+        assert McpService.derive_tier({'readOnlyHint': True}, 'get_status', '查询') == 'session'
+
+    def test_danger_desc_even_if_name_innocent(self):
+        from backend.services.mcp_service import McpService
+        # 名字无害但描述含破坏性表述 → 楼层规则捕获
+        assert McpService.derive_tier({}, 'run_action', '此操作会 delete 所有记录') == 'always'
+
+    def test_no_annotation_default_always(self):
+        from backend.services.mcp_service import McpService
+        assert McpService.derive_tier({}, 'do_stuff', '做点事') == 'always'
+
+    def test_resolve_tier_floor_source(self, fresh_home):
+        from backend.services.mcp_service import McpService
+        from backend.services.guard_service import GuardService
+        from backend.services.mcp_config_service import McpConfigService
+        from backend.services.toolcache_service import ToolcacheService
+        svc = McpService(McpConfigService(), GuardService(),
+                         ToolcacheService(do_cleanup=False))
+        svc._cfg.save_server('srv', {'enabled': True, 'command': 'x'})
+        with svc._lock:
+            svc._rt['srv'] = {'status': 'ok', 'tools': [
+                {'name': 'delete_all', 'description': '清空数据'},
+                {'name': 'get_data', 'description': '读取数据'}]}
+        tier, source = svc.resolve_tier('srv', 'delete_all')
+        assert tier == 'always' and source == 'floor-rule'
+        tier2, source2 = svc.resolve_tier('srv', 'get_data')
+        assert tier2 == 'always' and source2 == 'default'

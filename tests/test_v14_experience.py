@@ -197,7 +197,7 @@ async function __main() {
   // 全量扫描基准（estTokensExact 口径）
   const exact = (s) => { let a = 0;
     for (let i = 0; i < s.length; i++) if (s.charCodeAt(i) < 128) a++;
-    return Math.ceil(a / 3.5 + (s.length - a) / 1.8); };
+    return Math.ceil(a / 3.5 + (s.length - a) / (ctx.CJK_PER_TOK || 3.2)); };
   const e1 = ctx.estTokens(mixed), b1 = exact(mixed);
   const e2 = ctx.estTokens(pureZh), b2 = exact(pureZh);
   const e3 = ctx.estTokens(pureCode), b3 = exact(pureCode);

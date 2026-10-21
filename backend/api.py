@@ -93,7 +93,7 @@ _V12_EXTRA = frozenset({
     'clarify_collect',
     # v1.8.0 W11 域·记忆 UI（1 个；删 memory.json 第 index 条，边界校验
     # 不静默夹逼；get_api_info 零漂移同款隐身）
-    'memory_delete',
+    'memory_delete', 'prompt_get',
 })
 
 
@@ -523,6 +523,10 @@ class Api:
         # 实现 v1.6 T5①：沙箱边界告知段（防 Agent 误判「沙箱=绝对安全」）。
         # 注：本方法在契约 INTENTIONAL_DELTAS 白名单内（v1.1.1 省 token 先例 +
         # v1.6 T5 沙箱段增量），允许与 legacy 不同；单独断言结构而非逐字节。
+        # W0 R19（2026-10-21）：静态段改读 backend/prompts/（版本化+sha256 可追溯），
+        # 渲染输出与迁移前逐字节一致（文件内容即原文抽取）；动态段（ws_enabled/
+        # local/沙箱尾注）保持代码注入。
+        from .services import prompt_loader
         sandbox_notice = ''
         try:
             sandbox_notice = self._sandbox.prompt_notice() or ''
@@ -530,6 +534,9 @@ class Api:
             sandbox_notice = ''
         tail = ('\n' + sandbox_notice) if sandbox_notice else ''
         if not self._runtime.ws_enabled_for(sid, True):
+            text, _ = prompt_loader.render('system-ws-off')
+            if text:
+                return ok(text + tail)
             return ok(
                 '你是 Harbor 内置编程助手。当前**未启用工作区**：不要假设或猜测任何工作区路径，'
                 '不要主动列出/创建/修改文件或文件夹；用户要求文件/文件夹操作时，'
@@ -540,12 +547,26 @@ class Api:
                 '3. 超长命令输出会截断并给缓存 id, 需要全文用 read_more 分段取。' + tail)
         root = self._workspace.effective_root(sid)
         # v1.1.1 省 token：删掉与工具 description 重复的「系统能力」段（每轮省 ~130 字）
+        text, _ = prompt_loader.render('system-base', ws_root=root)
+        if text:
+            return ok(text + tail)
         return ok(
             '你是 Harbor 内置编程助手。当前工作区: ' + root + '\n'
             '硬规则:\n'
             '1. 文件操作只用工具, 禁止用 Get-Content/Set-Content(后端已强制 UTF-8)。\n'
             '2. 写文件串行: 一次一个 write_file/append_file/search_replace, 等返回成功再写下一个。\n'
             '3. 超长命令输出会截断并给缓存 id, 需要全文用 read_more 分段取。' + tail)
+
+    def prompt_get(self, prompt_id):
+        """W0 R19：前端读版本化提示词（efficiency/compact/plan-generate 等）。
+
+        返回 {id, version, text}；未知 id → err（调用方回落内置默认）。
+        """
+        from .services import prompt_loader
+        text, version = prompt_loader.load(str(prompt_id or ''))
+        if not text:
+            return err('未知提示词 id: %s' % str(prompt_id or '')[:40])
+        return ok({'ok': True, 'id': str(prompt_id), 'version': version, 'text': text})
 
     # ============ 工具 schema（唯一数据源 tools_schema.py）============
     def build_tools(self, role='full', include_mcp=False, include_agent=False,
