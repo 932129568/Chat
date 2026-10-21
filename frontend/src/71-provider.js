@@ -42,12 +42,12 @@ function chatCompletionsOf(base) {
 /** 端点地址解析：45-request-debounce / 97-compact 的 fetch 目标。
  *  本地系预设 → 本地 CORS 代理（CORS 头由后端补齐；真实目标经
  *    localProxyHeaders() 的 X-Harbor-Target 头传递）；代理不可用 → 回落直连；
- *  **GLM 官方端点 → 也走代理**（2026-10-21 P0）：EdgeWebView 的 fetch 读系统
- *    代理栈（Clash/IE 代理），用户机器挂代理时直连 open.bigmodel.cn 会被拦成
- *    Failed to fetch，而浏览器 fetch 无法禁代理；后端 opener 已禁系统代理直连，
- *    前端只 fetch 127.0.0.1 必然绕开，且代理补 CORS 头让 4xx 真因不再被吞；
- *  其余云端（自定义端点）→ providerState.base_url 直连（行为不劣化）；
- *  都空 → 官方 API_URL。 */
+ *  **所有云端端点 → 也走代理**（2026-10-21 P0，不止 GLM）：EdgeWebView 的
+ *    fetch 读系统代理栈（Clash/IE 代理），用户机器挂代理时直连任何云端 API
+ *    （GLM/DeepSeek/Moonshot/Qwen/GitHub/自定义）都会被拦成 Failed to fetch，
+ *    而浏览器 fetch 无法禁代理；后端 opener 已禁系统代理直连，前端只 fetch
+ *    127.0.0.1 必然绕开，且代理补 CORS 头让 4xx 真因不再被吞。代理不可用
+ *    → 回落直连（行为不劣化）；都空 → 官方 API_URL。 */
 function resolveApiEndpoint() {
   if (localModeActive()) {
     const proxied = chatCompletionsOf(localProxyBase());
@@ -56,24 +56,25 @@ function resolveApiEndpoint() {
     if (local) return local;                        // 回落：代理不可用时直连（行为不劣化）
   }
   const base = chatCompletionsOf((providerState && providerState.base_url) || '');
-  // GLM 官方端点且代理可用 → 经代理转发（绕开 EdgeWebView 系统代理栈）
-  if (base && isGlmEndpoint() && localProxyBase()) {
+  // 云端端点且代理可用 → 经代理转发（绕开 EdgeWebView 系统代理栈；后端域名
+  // 白名单兜底安全：内置主流 API 域名 + 用户配置的 base_url 动态放行）
+  if (base && localProxyBase()) {
     return chatCompletionsOf(localProxyBase());
   }
   if (base) return base;
   return API_URL;
 }
 
-/** 代理模式附加请求头：X-Harbor-Target = 真实目标 base_url（本地或 GLM 云端；
- * 后端代理据此转发，仅放行回环 + 云端白名单目标）。非代理模式 / 无目标
+/** 代理模式附加请求头：X-Harbor-Target = 真实目标 base_url（本地或云端；
+ * 后端代理据此转发，仅放行回环 + 白名单/用户配置目标）。非代理模式 / 无目标
  * 返回 {}——调用处 Object.assign 合并。 */
 function localProxyHeaders() {
   if (!localProxyBase()) return {};
   let target = '';
   if (localModeActive()) {
     target = String((localState && localState.base_url) || '').trim();
-  } else if (isGlmEndpoint()) {
-    // GLM 云端：目标 = 用户配置的 base_url（缺省 API_URL 官方地址）
+  } else {
+    // 云端：目标 = 用户配置的 base_url（缺省 API_URL 官方地址）
     target = String((providerState && providerState.base_url) || API_URL || '').trim();
   }
   return target ? { 'X-Harbor-Target': target } : {};

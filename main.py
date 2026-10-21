@@ -134,6 +134,25 @@ def main():
 
         window.events.loaded += lambda: _enable_context_menu(window)
 
+        # 修复（2026-10-21 用户实测 P1）：关窗后进程永驻。pywebview 的
+        # webview.start() 要等**所有**窗口关闭才返回——「Harbor 搜索」次窗
+        # （hidden=True，CAPTCHA 接管时置顶）用户永远关不掉，start() 于是
+        # 永不返回，两个 Harbor 进程（onefile 父子）全部残留。
+        # 实测复现：关主窗 6s 后 [24556,12132] 仍在；窗口枚举可见
+        # 「Harbor 搜索」真窗口（hidden 只是初始不可见）。
+        # 修法：主窗 closing 时显式 destroy 其余窗口，start() 随即返回，
+        # atexit（mcp_shutdown 等）正常跑完，进程树干净退出。
+        def _on_main_closing():
+            try:
+                for w in list(webview.windows):
+                    if w is not window:
+                        w.destroy()
+                        log.info('关窗时销毁次窗: %s', getattr(w, 'title', '?'))
+            except Exception as e:
+                log.warning('关窗销毁次窗失败: %r', e)
+            return True     # 允许主窗继续关闭
+        window.events.closing += _on_main_closing
+
         # 真机测试 CDP 开关（2026-10-17）：GLM_CDP_PORT 环境变量设置时才开启
         # remote-debugging 端口（默认不设=生产零行为差异；pywebview 的
         # AdditionalBrowserArguments 硬编码会覆盖 WEBVIEW2_* 环境变量，只能走
