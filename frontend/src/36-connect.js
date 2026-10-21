@@ -912,4 +912,68 @@ function connectInit() {
     on(id, 'change', () => { connectSyncState(); if (typeof queueSaveConfig === 'function') queueSaveConfig(); });
   });
   connectUpdateAdvanced();
+  connectPresetGridInit();   /* v1.8.0：预设可视化卡网格 */
+}
+
+
+/* ---------- v1.8.0 预设可视化卡网格（2026-10-21 用户实测：设置区以预设为主） ----------
+ * select#providerPreset 契约保留（CSS 隐藏），卡网格驱动其 value +
+ * onProviderPresetChange；卡从 options 动态生成（防 DOM 漂移）。 */
+function connectPresetGridInit() {
+  const slot = document.querySelector('.cm-preset-slot');
+  const sel = document.getElementById('providerPreset');
+  if (!slot || !sel || document.getElementById('cmPresetGrid')) return;
+  const grid = document.createElement('div');
+  grid.id = 'cmPresetGrid';
+  grid.className = 'cm-preset-grid';
+  const esc = (t) => (typeof escapeHtml === 'function' ? escapeHtml(String(t)) : String(t));
+  grid.innerHTML = [...sel.options].map(o =>
+    '<button type="button" class="cm-preset-card' + (o.value === sel.value ? ' on' : '') +
+      '" data-val="' + esc(o.value) + '">' +
+    '<span class="cpc-ic">' + esc((o.textContent || '?').trim().charAt(0)) + '</span>' +
+    '<span class="cpc-name">' + esc(o.textContent) + '</span>' +
+    (o.value === sel.value ? '<span class="cpc-check">✓</span>' : '') +
+    '</button>').join('');
+  slot.appendChild(grid);
+  const sync = () => {
+    grid.querySelectorAll('.cm-preset-card').forEach(c => {
+      const on = c.getAttribute('data-val') === sel.value;
+      c.classList.toggle('on', on);
+      const chk = c.querySelector('.cpc-check');
+      if (on && !chk) { const s2 = document.createElement('span'); s2.className = 'cpc-check'; s2.textContent = '✓'; c.appendChild(s2); }
+      else if (!on && chk) chk.remove();
+    });
+  };
+  grid.querySelectorAll('.cm-preset-card').forEach(card => {
+    card.addEventListener('click', () => {
+      const v = card.getAttribute('data-val');
+      if (v === sel.value) return;
+      sel.value = v;
+      if (typeof onProviderPresetChange === 'function') onProviderPresetChange(v);
+      sync();
+    });
+  });
+  // select 被其他路径修改（恢复默认/载入配置）时同步卡态
+  sel.addEventListener('change', sync);
+}
+
+
+/* v1.8.0：保存并测试——保存（queueSaveConfig 写 config.json）+ 跑测试连接，
+ * 成功 toast 明示「对话正在使用」。保存与测试解耦：保存必达，测试结果异步回报。 */
+async function connectSaveAndTest() {
+  const btn = document.getElementById('cmSaveBtn');
+  try {
+    if (typeof connectSyncState === 'function') connectSyncState();
+    if (typeof queueSaveConfig === 'function') queueSaveConfig();
+    if (typeof toast === 'function') toast('已保存，对话正在使用该端点', 'ok');
+  } catch (e) {
+    if (typeof toast === 'function') toast('保存失败：' + (e.message || e), 'err');
+    return;
+  }
+  if (btn) { btn.disabled = true; btn.textContent = '保存成功，测试中…'; }
+  try {
+    if (typeof connectTestNow === 'function') await connectTestNow();
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '保存并测试连接'; }
+  }
 }
