@@ -45,18 +45,18 @@ async function loadAll() {
   /* v1.8.0 B 域：搜索面板挂载（纯新增 #searchPanel；功能分级开关默认开，
    * 关闭时 searchPanelInit 内部短路——try/catch 防单模块异常拖垮启动） */
   try { searchPanelInit(); } catch (e) { console.warn('搜索面板初始化失败', e); }
-  /* v1.8.0 W10：首次使用引导向导（无 Key+无会话时展示；localStorage 记住） */
-  try { onboardingInit(); } catch (e) { console.warn('引导向导初始化失败', e); }
   /* v1.8.0：任务历史与回滚管理（设置区块动态注入；plan_list UI 入口） */
   try { checkpointMgrInit(); } catch (e) { console.warn('任务历史面板初始化失败', e); }
   /* v1.8.0：快捷键与命令帮助（? 键 + header 帮助钮） */
   try { shortcutsInit(); } catch (e) { console.warn('快捷键帮助初始化失败', e); }
-  /* v1.8.0：快捷键与命令帮助（? 键 + header 帮助钮） */
-  try { shortcutsInit(); } catch (e) { console.warn('快捷键帮助初始化失败', e); }
+  /* v1.8.0：长对话导航（输入区把手 → 最近消息浮层） */
+  try { chatNavInit(); } catch (e) { console.warn('长对话导航初始化失败', e); }
   /* v1.8.0 S 域·外部软件 + H 域·混合路由 + v1.8.5 A 域·任务授权/白名单
    * （纯新增 #softwareBlock / #hybridBlock / #grantIndicator / #grantRulesBlock；
    * 各自 Init 内部幂等 + typeof 守卫，失败不阻塞启动） */
   try { softwarePanelInit(); } catch (e) { console.warn('外部软件面板初始化失败', e); }
+  /* v1.8.0 W10：记忆面板挂载（softwarePanelInit 之后；内部幂等 + typeof 守卫） */
+  try { memoryPanelInit(); } catch (e) { console.warn('记忆面板初始化失败', e); }
   try { hybridInit(); } catch (e) { console.warn('混合路由初始化失败', e); }
   try { guardGrantInit(); } catch (e) { console.warn('任务授权面板初始化失败', e); }
   document.getElementById('enableSearch').addEventListener('change', function () {
@@ -163,6 +163,10 @@ async function loadAll() {
   try { await loadSandboxPanel(); } catch (e) {}
   // 实现 v1.6 T11/T13：左侧主导航引导 + 空态引导 + 头部状态区 + 通知中心 + DND 回填
   try { loadDndSetting(); } catch (e) {}
+  /* v1.8.0 W10：首次使用引导向导（无 Key+无会话时展示；localStorage 记住）
+   * 修复：原在启动最前执行——彼时 sessions 未加载、Key 未回填，obShouldShow
+   * 恒判「无会话+无 Key」误弹引导。移到 loadSessions 与 connectLoadFromConfig 之后。 */
+  try { onboardingInit(); } catch (e) { console.warn('引导向导初始化失败', e); }
   try { navInit(); } catch (e) {}
   document.getElementById('searchEngineWrap').style.display = cfg.enable_search ? 'flex' : 'none';
   updateLabels();

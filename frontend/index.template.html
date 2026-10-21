@@ -925,9 +925,9 @@ body.theming .plan-card,body.theming .plan-step,body.theming .dev-bar,body.themi
 body.fx-off{
   --dur-press:1ms; --dur-micro:1ms; --dur-micro-out:1ms;
   --dur-comp:1ms; --dur-comp-out:1ms;
-  --dur-panel:1ms; --dur-panel-out:1ms; --dur-narr:1ms; --dur-theme:1ms;
+  --dur-panel:1ms; --dur-panel-out:1ms; --dur-panel-lg:1ms; --dur-narr:1ms; --dur-theme:1ms;
   --dur-count:1ms; --dur-chart:1ms;
-  --stagger-xs:0ms; --stagger-sm:0ms;
+  --stagger-xs:0ms; --stagger-sm:0ms; --stagger-max:0ms;
 }
 /* 无限循环动画必须显式停（变量覆盖对 infinite 无效） */
 body.fx-off #auroraBg .au,
@@ -935,6 +935,7 @@ body.fx-off .tool-call-item,
 body.fx-off .tool-call-item::after{animation:none;}
 body.fx-off .stream-bar{box-shadow:none;}   /* 流式条循环保留（功能条），仅去微光 */
 body.fx-off .panel,body.fx-off .message,body.fx-off .settings-panel.show{animation:none;}
+body.fx-off .set-window,body.fx-off .modal-card{animation:none}   /* v4 设置窗口/模态卡入场停（变量覆盖对 animation 简写无效） */
 /* prefers-reduced-motion（无条件停掉所有装饰动效；E10 去发光保留功能） */
 @media (prefers-reduced-motion: reduce){
   *,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;
@@ -1580,28 +1581,6 @@ body.fx-off .sc-row{animation:none}
 body.theming .sc-row,body.theming .sc-kbd{transition-property:background-color,color,border-color}
 
 /* ============================================================
-   v1.8.0 · 快捷键帮助（72-shortcuts.js，sc-* 纯新增）
-   ============================================================ */
-.sc-card{width:min(480px,92vw)}
-.sc-sec{font-size:11px;font-weight:600;color:var(--text-3);letter-spacing:.05em;
-  text-transform:uppercase;margin:14px 0 6px}
-.sc-sec:first-of-type{margin-top:10px}
-.sc-row{display:flex;align-items:center;gap:12px;padding:6px 0;border-bottom:1px solid var(--border);
-  animation:v4LineIn var(--dur-comp) var(--ease-out-soft) both}
-.sc-row:last-of-type{border-bottom:none}
-.sc-keys{flex-shrink:0;min-width:110px;display:flex;align-items:center;gap:3px}
-.sc-kbd{display:inline-block;min-width:22px;padding:2px 7px;text-align:center;font-family:var(--font-mono);
-  font-size:11px;color:var(--text);background:var(--surface-2);
-  border:1px solid var(--border-strong);border-bottom-width:2px;border-radius:var(--radius-xs)}
-.sc-plus{color:var(--text-3);font-size:10px}
-.sc-cmd{font-family:var(--font-mono);font-size:11px;background:var(--primary-soft);color:var(--primary);
-  border-radius:var(--radius-xs);padding:2px 7px}
-.sc-desc{font-size:12.5px;color:var(--text-2);line-height:1.55}
-.sc-desc.only{padding:4px 0}
-body.fx-off .sc-row{animation:none}
-body.theming .sc-row,body.theming .sc-kbd{transition-property:background-color,color,border-color}
-
-/* ============================================================
    v4 整体 UI 深化（2026-10-21）：高感知细节四件套
    ① rail 选中指示条弹入 ② 空态图标呼吸氛围 ③ 设置卡片可触摸
    ④ 空态引导卡 hover。全部走四层令牌 + fx-off 显式停列。
@@ -1668,76 +1647,6 @@ body.fx-off .think-body.open{animation:none}
   align-self:auto;font-size:10.5px;color:var(--text-3);font-family:var(--font-mono);user-select:none}
 
 /* ============================================================
-   v4 极简二段（2026-10-21）：① 思考折叠行 ② 工具调用 timeline 化
-   ③ 时间戳移到气泡外侧同行（用户实测：时间在气泡下方占位）
-   ============================================================ */
-/* ① 思考折叠行（WorkBuddy 范式：单行摘要不占正文，点击展开） */
-.think-line{display:flex;align-items:center;gap:7px;padding:5px 2px;cursor:pointer;user-select:none;
-  font-size:11.5px;color:var(--text-3);
-  transition:color var(--dur-micro) var(--ease-out-soft)}
-.think-line:hover{color:var(--text-2)}
-.think-line .tl-ic{color:var(--primary);font-size:12px;flex-shrink:0;
-  transition:transform var(--dur-comp) var(--ease-out-soft)}
-.think-line .tl-label{font-weight:600;flex-shrink:0}
-.think-line .tl-preview{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
-  font-family:var(--font-mono);font-size:11px;opacity:.85}
-.think-line .tl-caret{flex-shrink:0;font-size:9px;
-  transition:transform var(--dur-comp) var(--ease-out-soft)}
-.think-line.open .tl-caret{transform:rotate(90deg)}
-.think-line.open .tl-ic{transform:rotate(180deg)}
-.think-body{display:none;padding:8px 11px;margin:2px 0 6px;border-radius:var(--radius-sm);
-  background:var(--surface-2);border:1px solid var(--border);
-  font-size:12px;color:var(--text-2);line-height:1.7;white-space:pre-wrap;word-break:break-word}
-.think-body.open{display:block;animation:v4LineIn var(--dur-comp) var(--ease-out-soft)}
-body.fx-off .think-body.open{animation:none}
-/* ② 工具调用 timeline 化：去卡片底/边框，紧凑小灰行（三态色点保留） */
-.tool-call-item{background:transparent;border:none;border-left:none;
-  padding:5px 2px;font-size:11.5px;color:var(--text-3);
-  animation:none;transition:color var(--dur-comp) var(--ease-out-soft)}
-.tool-call-item:hover{color:var(--text-2)}
-.tool-call-item.done{color:var(--text-3)}
-.tool-call-item.fail{color:var(--err)}
-/* ③ 时间戳外移：与气泡同行（user 左侧/AI 右侧），不再独占第二行 */
-.msg-time{align-self:center;margin:0 4px;padding:0 2px;order:9}
-.message.user .msg-time{order:-1;margin-left:0}
-.message.assistant .msg-time{margin-right:0}
-
-/* ============================================================
-   v4 UI 欠缺补缺（2026-10-21 三轮审计）：① 按压反馈家族
-   ② 全局 focus-visible 环（键盘可达性）③ notify 入场 stagger
-   ============================================================ */
-/* ① 按压反馈：可交互元素 :active 统一 scale(.97)（v4-h 口径 press 96ms）——
-   此前只补了 hover transition，按压无体感是「廉价手感」主要来源 */
-.cs-opt:active,.session-item:active,.ctx-menu-item:active,.sp-fold:active,.sp-close:active,
-.mcp-tab:active,.wsq-main:active,.wsq-opt:active,.cm-back:active,.mn-btn:active,
-.plan-rollback:active,.sp-item-title:active,.mm-del:active,.sw-test-btn:active,
-.gg-rule-del:active,.tm-rb:active,.set-win-close:active,.search-hit:active,
-.sp-btn-primary:active,.cs-trigger:active,.clr-opt:active,.ob-card:active,.sc-ok:active{
-  transform:scale(.97);transition:transform var(--dur-press) var(--ease-out-soft)}
-body.fx-off .cs-opt:active,body.fx-off .session-item:active,body.fx-off .ctx-menu-item:active,
-body.fx-off .sp-fold:active,body.fx-off .sp-close:active,body.fx-off .mcp-tab:active,
-body.fx-off .wsq-main:active,body.fx-off .wsq-opt:active,body.fx-off .cm-back:active,
-body.fx-off .mn-btn:active,body.fx-off .plan-rollback:active,body.fx-off .sp-item-title:active,
-body.fx-off .mm-del:active,body.fx-off .sw-test-btn:active,body.fx-off .gg-rule-del:active,
-body.fx-off .tm-rb:active,body.fx-off .set-win-close:active,body.fx-off .search-hit:active,
-body.fx-off .sp-btn-primary:active,body.fx-off .cs-trigger:active,body.fx-off .clr-opt:active,
-body.fx-off .ob-card:active,body.fx-off .sc-ok:active{transform:none}
-/* ② 全局 focus-visible 环（WCAG 2.4.7：键盘用户必须看见焦点）——
-   覆盖全部现存与未来可交互元素；静态环无需 fx-off 降级 */
-button:focus-visible,a:focus-visible,[tabindex]:focus-visible,summary:focus-visible,
-.notify-item:focus-visible,.think-line:focus-visible{
-  outline:2px solid var(--primary);outline-offset:1px;border-radius:var(--radius-sm)}
-input:focus-visible,textarea:focus-visible,select:focus-visible{
-  outline:2px solid var(--primary);outline-offset:1px}
-/* ③ notify 入场 stagger（40ms 阶梯，5 项封顶 160ms——v4 §编排） */
-.notify-item{animation:v4LineIn var(--dur-comp) var(--ease-out-soft) both}
-.notify-item:nth-child(2){animation-delay:var(--stagger-xs)}
-.notify-item:nth-child(3){animation-delay:calc(var(--stagger-xs) * 2)}
-.notify-item:nth-child(4){animation-delay:calc(var(--stagger-xs) * 3)}
-.notify-item:nth-child(5){animation-delay:var(--stagger-max)}
-body.fx-off .notify-item{animation:none}
-
-/* ============================================================
    v4 UI 欠缺补缺（2026-10-21 三轮审计）：① 按压反馈家族
    ② 全局 focus-visible 环（键盘可达性）③ notify 入场 stagger
    ============================================================ */
@@ -1789,14 +1698,6 @@ body.fx-off .notify-item{animation:none}
 .chart-tip span{font-size:10.5px;color:var(--text-3)}
 body.fx-off .chart-tip{transition:none}
 body.theming .chart-tip{transition-property:background-color,color,border-color,opacity}
-
-/* ---- v4 sessions 日期分组头（2026-10-21 深化） ---- */
-.session-group{font-size:10.5px;font-weight:600;color:var(--text-3);letter-spacing:.06em;
-  padding:12px 4px 5px;text-transform:uppercase;user-select:none;
-  animation:v4LineIn var(--dur-comp) var(--ease-out-soft) both}
-.session-group:first-child{padding-top:2px}
-body.fx-off .session-group{animation:none}
-body.theming .session-group{transition-property:color}
 
 /* ---- v4 sessions 日期分组头（2026-10-21 深化） ---- */
 .session-group{font-size:10.5px;font-weight:600;color:var(--text-3);letter-spacing:.06em;
@@ -2054,6 +1955,56 @@ body.theming .rd-row{transition-property:background-color,color,border-color}
 .sw-del-btn{flex-shrink:0;height:26px;padding:0 10px;font-size:11.5px}
 .sw-del-btn:hover{color:var(--err);border-color:var(--err);background:var(--err-bg)}
 .sw-del-btn:active{transform:scale(.97);transition:transform var(--dur-press) var(--ease-out-soft)}
+
+/* ============================================================
+   v1.8.0 长对话导航（73-chat-nav.js，WorkBuddy 同款）
+   把手（输入区右上细把手）+ 最近消息浮层 + 当前消息高亮 + 跳转 flash
+   ============================================================ */
+.cn-handle{position:absolute;top:-13px;right:14px;width:46px;height:16px;border:none;
+  background:transparent;cursor:pointer;padding:0;display:flex;align-items:center;justify-content:center;
+  border-radius:var(--radius-full);z-index:5}
+.cn-grip{display:block;width:34px;height:4px;border-radius:var(--radius-full);
+  background:var(--border-strong);
+  transition:background-color var(--dur-micro) var(--ease-out-soft),transform var(--dur-comp) var(--ease-spring)}
+.cn-handle:hover .cn-grip{background:var(--primary);transform:scaleX(1.15)}
+.cn-handle:active .cn-grip{transform:scaleX(.9)}
+.cn-pop{position:absolute;bottom:calc(100% + 10px);left:50%;transform:translateX(-50%) translateY(6px);
+  width:min(520px,92vw);max-height:min(380px,52vh);display:none;flex-direction:column;
+  background:var(--glass-bg-2);border:1px solid var(--glass-border);
+  backdrop-filter:blur(var(--glass-blur));-webkit-backdrop-filter:blur(var(--glass-blur));
+  border-radius:var(--radius-lg);box-shadow:var(--shadow-lg),var(--edge-hi);z-index:60;overflow:hidden}
+.cn-pop.on{display:flex;animation:v4CnPop var(--dur-panel-lg) var(--ease-emphasized)}
+@keyframes v4CnPop{from{opacity:0;transform:translateX(-50%) translateY(14px) scale(.98)}
+to{opacity:1;transform:translateX(-50%) translateY(0) scale(1)}}
+body.fx-off .cn-pop.on{animation:none}
+.cn-pop-head{font-size:var(--fs-caption);font-weight:650;color:var(--text-2);
+  padding:10px 14px 8px;border-bottom:1px solid var(--border);flex-shrink:0;letter-spacing:.02em}
+.cn-list{overflow-y:auto;padding:6px;display:flex;flex-direction:column;gap:2px}
+.cn-row{display:flex;align-items:center;gap:8px;padding:7px 9px;border-radius:var(--radius-md);
+  cursor:pointer;user-select:none;
+  transition:background-color var(--dur-micro) var(--ease-out-soft)}
+.cn-row:hover{background:var(--hover)}
+.cn-row:active{transform:scale(.99);transition:transform var(--dur-press) var(--ease-out-soft)}
+.cn-row.cur{background:var(--primary-soft)}
+.cn-row.cur .cn-text{color:var(--primary);font-weight:600}
+.cn-who{flex-shrink:0;width:22px;height:22px;border-radius:var(--radius-full);font-size:10px;
+  font-weight:700;display:flex;align-items:center;justify-content:center;color:#fff}
+.cn-who.user{background:var(--primary)}
+.cn-who.ai{background:var(--brand-gradient)}
+.cn-text{flex:1;min-width:0;font-size:var(--fs-caption);color:var(--text-2);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cn-cont{flex-shrink:0;border:none;background:transparent;color:var(--text-3);font-size:11px;
+  cursor:pointer;padding:2px 7px;border-radius:var(--radius-full);
+  transition:color var(--dur-micro) var(--ease-out-soft),background-color var(--dur-micro) var(--ease-out-soft)}
+.cn-cont:hover{color:var(--primary);background:var(--card-bg)}
+.cn-empty{padding:18px;text-align:center;font-size:var(--fs-caption);color:var(--text-3)}
+/* 跳转目标一次性高亮（outline flash——不新增常驻动画宿主） */
+.message.cn-flash .content{animation:v4CnFlash 1.2s var(--ease-out-soft)}
+@keyframes v4CnFlash{0%{box-shadow:0 0 0 2px var(--primary),0 0 18px -4px var(--glow-color)}
+100%{box-shadow:0 0 0 2px transparent,0 0 0 transparent}}
+body.fx-off .message.cn-flash .content{animation:none;outline:2px solid var(--primary);outline-offset:2px}
+body.theming .cn-pop,body.theming .cn-row,body.theming .cn-handle{
+  transition-property:background-color,color,border-color,box-shadow,transform}
 </style>
 </head>
 <body>
@@ -2132,9 +2083,6 @@ body.theming .rd-row{transition-property:background-color,color,border-color}
       <div class="header-badge">多模态 Agent</div>
     </div>
     <div class="header-right">
-      <button class="icon-btn" id="shortcutsBtn" title="快捷键与命令（?）" onclick="scOpen()">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M9.2 9a2.9 2.9 0 0 1 5.6 0c0 1.9-2.8 2.2-2.8 4"/><path d="M12 17.5h.01"/></svg>
-      </button>
       <button class="icon-btn" id="shortcutsBtn" title="快捷键与命令（?）" onclick="scOpen()">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M9.2 9a2.9 2.9 0 0 1 5.6 0c0 1.9-2.8 2.2-2.8 4"/><path d="M12 17.5h.01"/></svg>
       </button>
