@@ -110,7 +110,7 @@
 
 ### 17. 沙箱的已知能力边界（诚实缺口，文档化接受）
 - **网络隔离不可达**：零依赖 + 无管理员前提下，Job Object 不含网络控制；沙箱内进程可外联。缓解：guard 审计可见 + 「netsh 封禁助手」脚本（需用户 UAC，opt-in）
-- **剪贴板/截屏隔离不可达**：Job 无剪贴板 UI 限制；沙箱内进程可绕过应用层直接调 Win32 API。由 guard 三档确认兜底（应用层）
+- **剪贴板/截屏隔离不可达**（2026-10-21 R23 实测修订）：Job Object 的 JOB_OBJECT_UILIMIT_READCLIPBOARD（0x2）/ WRITECLIPBOARD（0x4）Flag **实测无效**——Win32 探针（父进程建 Job 设 Flag + AssignProcessToJobObject 收编子进程）三组对照（无 Job / READCLIP / READ+WRITE）子进程 OpenClipboard 全部成功（tests/test_r23_clipboard_flag.py 固化；Windows 交互桌面口径）。故 sandbox strict 档**不加**剪贴板 Flag（加了是安慰剂）。沙箱内进程仍可绕过应用层直接调 Win32 API，由 guard 三档确认兜底（应用层）
 - **文件系统越界仅为应用层校验**：未做 ACL/AppContainer（与零依赖单文件约束冲突）；沙箱内进程直接调 API 写工作区外路径理论上可行，威胁模型主要为提示注入驱动的外联（R5/R6 同源）
 - **处理状态**：🟡 文档化接受（sandbox-architecture §5 R4/R5/R6）；根治需重新评估定位（AppContainer 或独立低权限用户，涉及打包与启动链）
 

@@ -106,6 +106,11 @@ _UI_LEVELS = {
     'basic': JOB_OBJECT_UILIMIT_DESKTOP | JOB_OBJECT_UILIMIT_EXITWINDOWS,
     'strict': (JOB_OBJECT_UILIMIT_DESKTOP | JOB_OBJECT_UILIMIT_EXITWINDOWS
                | JOB_OBJECT_UILIMIT_GLOBALATOMS | JOB_OBJECT_UILIMIT_HANDLES),
+    # R23 实测结论（2026-10-21，tests/test_r23_clipboard_flag.py）：
+    # JOB_OBJECT_UILIMIT_READCLIPBOARD/WRITECLIPBOARD 在 Win11 交互桌面实测
+    # **无效**（子进程 OpenClipboard 全部成功）——strict 档刻意不加剪贴板
+    # Flag（加了是安慰剂，还给人「已隔离」的虚假安全感）。剪贴板隔离缺口
+    # 由 guard 应用层兜底，记录见 KNOWN_ISSUES §17。
 }
 
 

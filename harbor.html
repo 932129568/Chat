@@ -165,7 +165,8 @@ body.dark{
 
   /* ===== v4 极光（深色同色相）===== */
   --aurora-1:#22d3ee; --aurora-2:#6b84ff; --aurora-3:#8b5cf6; --aurora-4:#ec4899;
-  --aurora-opacity:.12; --aurora-bg-opacity:.55; --aurora-blur:64px;
+  /* 夜态沉浸（2026-10-21）：暗背景上光斑需更高存在感，同比亮色加幅约 25% */
+  --aurora-opacity:.15; --aurora-bg-opacity:.62; --aurora-blur:64px;
 
   /* ===== v4 发光（深色）===== */
   --glow-color:rgba(107,132,255,.55);
@@ -1918,7 +1919,7 @@ body.fx-off .toast{animation:none}
   background:linear-gradient(180deg,var(--primary-soft) 0%,transparent 100%);
   opacity:.5;pointer-events:none;z-index:0}
 #chatContainer > *{position:relative;z-index:1}
-body.dark #chatContainer::before{opacity:.28}
+body.dark #chatContainer::before{opacity:.34}
 body.fx-off #chatContainer::before{display:none}
 /* ---- ⑥ 品牌光呼吸（4s 极慢——氛围而非干扰）---- */
 .brand-logo{animation:v4BrandBreathe 4s var(--ease-out-soft) infinite}
