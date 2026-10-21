@@ -1963,6 +1963,26 @@ body.theming .input-row{transition-property:box-shadow,background-color,border-c
 #emptyState.leaving{animation:v4EmptyOut var(--dur-comp-out) var(--ease-in-soft) forwards}
 @keyframes v4EmptyOut{to{opacity:0;transform:translateY(6px) scale(.98)}}
 body.fx-off #emptyState.leaving{animation:none;opacity:0}
+
+/* ============================================================
+   v4 首屏入场编排（2026-10-21）：三段阶梯——侧栏 → 主区（header+对话）
+   → 输入区。60ms 阶梯 / emphasized 大位移曲线（视觉重量从左到右、
+   自上而下落定，输入区最后落=操作焦点）。一次性 both 填充自动结束，
+   内容层（消息/会话项）不参与——避免与既有入场叠加。fx-off 停列。
+   ============================================================ */
+.sidebar{animation:v4BootRail var(--dur-panel-lg) var(--ease-emphasized) both}
+.main{animation:v4BootMain var(--dur-panel-lg) var(--ease-emphasized) both;
+  animation-delay:var(--stagger-sm)}
+.input-area{animation:v4BootInput var(--dur-panel-lg) var(--ease-emphasized) both;
+  animation-delay:var(--stagger-max)}
+@keyframes v4BootRail{from{opacity:0;transform:translateX(-10px)}to{opacity:1;transform:none}}
+@keyframes v4BootMain{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+@keyframes v4BootInput{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+/* fx-off / reduced-motion：骨架直显（首屏内容优先于演出） */
+@media (prefers-reduced-motion: reduce){
+  .sidebar,.main,.input-area{animation:none}}
+body.fx-off .sidebar,body.fx-off .main,body.fx-off .input-area{animation:none}
+/* 切换面板不重播（animation 只在初始渲染播一次——panel 切换走 16-panel-fx 交叉淡化，互不干扰） */
 </style>
 </head>
 <body>
