@@ -705,14 +705,29 @@ class Api:
         return ok(get_proxy().info())
 
     # ============ v1.8.0 B 域·浏览器搜索（_V12_EXTRA 隐身）============
-    def browser_search(self, params=None):
+    def browser_search(self, params=None, token=None):
         """B1：浏览器搜索——检索式构造 → 缓存层（TTL 30min）→ 双通道取数
         （次窗优先/urllib 兜底）→ 解析提取 → 校验缓存 → 审计（op=web_search）。
 
         请求字段/成功响应/错误码见联调规范 §3.1；检出验证页 fail-fast 返回
         CAPTCHA_REQUIRED（error.takeover_id 交前端 63-search-panel 接管 UI，
         流程 2）。params 可为 dict 或 JSON 字符串（service 层归一）。
+
+        v1.8.0 §3.3 护栏挂载（2026-10-21）：web_search 默认 session 档——
+        后端 enforce_exec 前置校验（deny/allow_rules/task_grant 先于档位；
+        session 档需一次性 confirm token 或会话信任）。token 由前端
+        agentGuardCheck 确认框换取（guard_confirm_token）。
         """
+        p = params if isinstance(params, dict) else (json.loads(params) if isinstance(params, str) and params.strip() else {})
+        if not isinstance(p, dict): p = {}
+        reason = self._guard.enforce_exec(
+            'web_search', {'query': str((p or {}).get('query') or '')[:120]}, token)
+        if reason:
+            self._guard.audit('web_search', {'query': str((p or {}).get('query') or '')[:120]},
+                              'block', reason)
+            return ok({'ok': False,
+                       'error': {'code': 'CONFIRM_REQUIRED', 'message': reason,
+                                 'op': 'web_search'}})
         return ok(self._search.browser_search(params))
 
     def browser_open(self, params=None):
@@ -751,11 +766,29 @@ class Api:
         审计 op=software_probe。"""
         return ok(self._software.software_probe(name))
 
-    def software_call(self, params=None):
+    def software_call(self, params=None, token=None):
         """S3：外部软件调用三形态（CLI 沙箱执行 / GUI 标题核验 / URI 协议）。
         参数按 action.arg_schema 硬校验（SCHEMA_INVALID + violations/example
         自校正回显）；exit_code≠0 仍走成功形状。审计 op=software_call。
-        params 可为 dict 或 JSON 字符串（service 层归一）。"""
+        params 可为 dict 或 JSON 字符串（service 层归一）。
+
+        v1.8.0 §4.4 护栏挂载（2026-10-21）：software_call 默认 session 档
+        （read/mutate 会话首次确认）；**dangerous action 由 preset risk 标注，
+        在调用点强制 always 档**（高危动作每次确认——§4.3 异常矩阵）。"""
+        p = params if isinstance(params, dict) else (json.loads(params) if isinstance(params, str) and params.strip() else {})
+        if not isinstance(p, dict): p = {}
+        _sw = str((p or {}).get('software') or '')[:60]
+        _act = str((p or {}).get('action') or '')[:40]
+        # §4.4：dangerous 动作强制每次确认（force_always 无视 op 档与信任态）
+        _risk = self._software.action_risk(_sw, _act)
+        detail = {'software': _sw, 'action': _act,
+                  'force_always': _risk == 'dangerous'}
+        reason = self._guard.enforce_exec('software_call', detail, token)
+        if reason:
+            self._guard.audit('software_call', detail, 'block', reason)
+            return ok({'ok': False,
+                       'error': {'code': 'CONFIRM_REQUIRED', 'message': reason,
+                                 'op': 'software_call'}})
         return ok(self._software.software_call(params))
 
     def _software_save(self, name, entry=None):

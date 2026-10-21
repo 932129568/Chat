@@ -366,11 +366,49 @@ class HybridRouter:
     @staticmethod
     def _decision(channel, category, confidence, strategy, budget, degraded,
                   escalated, reason):
-        """决策记录组装（单一出口，字段齐全）。"""
-        return {'ok': True, 'channel': channel, 'category': category,
-                'confidence': round(confidence, 2), 'strategy': strategy,
-                'budget_s': budget, 'degraded': degraded,
-                'escalated': escalated, 'reason': reason}
+        """决策记录组装（单一出口，字段齐全）+ **路由日志**（§5.3 可观测）。
+
+        W10/H2 路由日志（deep-research #126 + iteration-plan §5.3）：每个决策
+        追加写 ``~/.glm-chat/logs/hybrid-route.jsonl``（ts/channel/category/
+        confidence/strategy/degraded/escalated/reason）——「哪个阶段走了哪端、
+        为何降级」可追溯；写失败不阻塞决策（try 包裹）。
+        """
+        d = {'ok': True, 'channel': channel, 'category': category,
+            'confidence': round(confidence, 2), 'strategy': strategy,
+            'budget_s': budget, 'degraded': degraded,
+            'escalated': escalated, 'reason': reason}
+        try:
+            from .. import paths as _paths
+            log_path = os.path.join(_paths.LOG_DIR, 'hybrid-route.jsonl')
+            os.makedirs(_paths.LOG_DIR, exist_ok=True)
+            rec = dict(d)
+            rec['ts'] = datetime.datetime.now().isoformat(timespec='seconds')
+            with open(log_path, 'a', encoding='utf-8') as f:
+                f.write(json.dumps(rec, ensure_ascii=False) + '\n')
+        except Exception:
+            pass          # 路由日志失败不阻塞决策主流程
+        return d
+
+    # 本地阶段请求组包口径（§5.3 时延优化）：理解/校验小请求控量 + Ollama 常驻
+    STAGE_MAX_TOKENS = {'understand': 256, 'validate': 256}
+
+    @staticmethod
+    def stage_request(category, messages, base_url='', model=''):
+        """本地阶段请求组包（§5.3）：max_tokens 128-256 控量 + keep_alive 常驻。
+
+        Ollama 语义 keep_alive='30m' 防冷启；其他本地端点（OpenAI 兼容）忽略
+        未知字段无害。云端路径不适用（云端终稿不需要控量）。
+        """
+        body = {
+            'model': str(model or ''),
+            'messages': messages,
+            'max_tokens': HybridRouter.STAGE_MAX_TOKENS.get(
+                str(category or ''), 256),
+            'stream': False,
+        }
+        if 'ollama' in str(base_url or '').lower() or ':11434' in str(base_url or ''):
+            body['keep_alive'] = '30m'
+        return body
 
     def check_budget(self, category, elapsed_s):
         """硬预算在途判定：本地 understand 5s / validate 3s 超即降级。

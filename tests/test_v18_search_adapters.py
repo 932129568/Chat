@@ -136,8 +136,8 @@ class TestParseBing:
 
     def test_count_and_positions(self):
         results = sa.parse_results('bing', _fx('bing_results.html'))
-        assert len(results) == 8
-        assert [r['position'] for r in results] == list(range(1, 9))
+        assert len(results) == 10          # B1 验收：fixture >=10 条
+        assert [r['position'] for r in results] == list(range(1, 11))
 
     def test_result_shape_keys(self):
         results = sa.parse_results('bing', _fx('bing_results.html'))
@@ -156,7 +156,7 @@ class TestParseBing:
         results = sa.parse_results('bing', _fx('bing_results.html'))
         dates = [r['date'] for r in results]
         assert dates[2] == '2026-10-01'      # 有形态（第 3 条 b_date）
-        assert dates.count(None) == 7        # 无形态（其余 7 条）
+        assert dates.count(None) == 9        # 无形态（其余 9 条，fixture 共 10 条）
 
     def test_url_falls_back_to_href_without_cite(self):
         results = sa.parse_results('bing', _fx('bing_results.html'))
@@ -251,7 +251,7 @@ class TestParseGeneric:
 
     def test_generic_on_bing_fixture(self):
         results = sa.parse_results('yahoo', _fx('bing_results.html'))
-        assert len(results) == 8
+        assert len(results) == 10
         r = results[0]
         assert r['title'] == 'Python 3 官方教程（简体中文）'
         assert r['url'] == 'https://docs.python.org/zh-cn/3/tutorial/index.html'

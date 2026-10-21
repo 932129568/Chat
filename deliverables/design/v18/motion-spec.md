@@ -260,3 +260,36 @@ body.fx-off .sp-take-guide{animation:none}   /* 引导 pulse */
 | `gg-ring .fg` | stroke-dashoffset 1s/跳 | 授权 TTL 倒计时环（时钟语义，布局属性例外登记）|
 | `typing-dots` | bounce 1.2s + delay .15s 阶梯 | 流式输入三点（v4 既有）|
 | 行内 `code` 语义色 | 亮 #c0392b / 暗 #f87171 | markdown 行内代码（恒暗代码块高亮 palette 为设计内例外）|
+
+
+## 视觉系统升级登记（2026-10-21，audit_ui5.js 18/18 验收）
+
+### 新增令牌
+| 令牌 | 值 | 语义 |
+|---|---|---|
+| `--ease-emphasized` | cubic-bezier(.2,0,0,1) | 大位移入场（设置窗/模态/向导——前段蓄力后段缓收） |
+| `--ease-anticipate` | cubic-bezier(.34,1.45,.64,1) | pop 出现（徽标/chip/tip——回弹 4.5% 不过冲） |
+| `--dur-tap` | 150ms | 点击后状态切换 |
+| `--dur-panel-lg` | 320ms | 大窗口入场（原 240 太赶） |
+| `--stagger-max` | 160ms | 阶梯封顶（第 5 项起统一，防尾部堆积） |
+| `--shadow-sm/md/lg` | 双 Layer（contact+ambient） | 近实远虚——真实感来源；暗色镜像同构 |
+| `--edge-hi` / `--edge-hi-soft` | inset 0 1px 0 rgba(255,255,255,.65/.45) | 卡片顶边受光（暗色 6%/4% 反向） |
+| `--glow-inset` | inset 0 1px 0 rgba(255,255,255,.35) | 输入 focus 内高光（玻璃受光） |
+
+### 曲线分配铁律
+emphasized=大位移入场 · anticipate=pop · out-soft=常规过渡 · in-soft=退场 · spring=弹性位移。
+sweep/pop/breathe 三家族曲线唯一来源（令牌），禁场景私造。
+
+### 氛围层
+- 聊天区天光纱（`#chatContainer::before` 顶部 88px 品牌渐变，opacity .5/.28 暗色）
+- 品牌光呼吸（brand-logo 4s 极慢 box-shadow 循环）
+- L1 卡「浮起受光」三合一（shadow-sm + edge-hi-soft + translateY(-1px)）
+
+### 性能
+will-change:transform,opacity 仅授予 16 个 infinite/频繁动画宿主（审计 ⑥ 门禁）；
+fx-off 下 will-change:auto 复位；backdrop-filter 不叠加（玻璃层单点使用）。
+
+### 验收标准（audit_ui5.js 18 门）
+① 动效令牌化率 100%（登记例外 15 项）② 新曲线/时长令牌定义+应用 ③ 明暗双 Layer 阴影
+④ 受光边/内发光令牌+应用 ⑤ 天光纱+品牌呼吸 ⑥ will-change 覆盖全部 infinite 宿主
+⑦ fx-off 停列覆盖新宿主（brand-logo/天光纱/will-change 复位）⑧ 降级三件套在位。

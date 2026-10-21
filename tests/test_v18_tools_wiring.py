@@ -224,6 +224,9 @@ async function guardCheckTool(name, args) { return { blocked: null, token: null 
 async function mcpGuardCheck(name, args) {
   return { blocked: null, decision: 'allow', token: null };
 }
+// v1.8.0 §3.3/§4.4：护栏预置走数据层（__resp）——模块内 agentGuardCheck
+// 真身会覆盖同名 stub（函数声明后置赢），必须让 guard_check 返回 allow
+__resp['guard_check'] = { action: 'allow' };
 // ---- module under test ----
 __PANEL__
 // ---- test body ----
@@ -239,7 +242,8 @@ __PANEL__
   const bsCall = __calls.filter(c => c.name === 'browser_search').pop();
   ok('browser_search_dispatch', r.ok === true
      && bsCall && bsCall.timeoutMs === 90000
-     && bsCall.args[0].query === 'python' && bsCall.args[0].engine === 'bing');
+     && bsCall.args[0].query === 'python' && bsCall.args[0].engine === 'bing'
+     && bsCall.args.length === 2);   // [params, token] 护栏链透传
 
   // 2) browser_open 分发：timeoutMs=60000
   __resp['browser_open'] = { ok: true, url: 'https://x', title: 't',
@@ -259,7 +263,8 @@ __PANEL__
   const swCall = __calls.filter(c => c.name === 'software_call').pop();
   ok('software_call_dispatch', r.ok === true && swCall
      && swCall.timeoutMs === 150000
-     && swCall.args[0].software === 'git' && swCall.args[0].timeout === 120);
+     && swCall.args[0].software === 'git' && swCall.args[0].timeout === 120
+     && swCall.args.length === 2);   // [params, token] 护栏链透传
   // 缺省 timeout=60 → 90000（后端夹逼 5-600，前端缓冲口径一致）
   await executeToolRaw('software_call', { software: 'git', action: 'status' });
   ok('software_call_default_timeout',
