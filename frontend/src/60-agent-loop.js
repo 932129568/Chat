@@ -452,7 +452,31 @@ async function runAgentLoop(s, apiKey) {
       let _lastTcBucket = '0';   // 修复 S4（三轮）：无 index 端点（Ollama 等）按 name 分桶的"当前桶"追踪
       let usage = null;
       let pending = '';
-      const reasonHtml = (rr) => rr ? `<div style="color:var(--text-2);font-style:italic;font-size:13px;margin-bottom:10px;padding:8px;background:var(--hover);border-radius:6px;border-left:3px solid var(--border);">思考中: ${escapeHtml(rr)}</div>` : '';
+      // v4 极简（WorkBuddy 范式）：思考过程折叠为单行摘要——不占正文位置，
+      // 点击展开全文（流式中预览实时更新；展开态在流式重渲染期保持由用户掌控）
+      const reasonHtml = (rr) => {
+        if (!rr) return '';
+        const t = String(rr);
+        const flat = t.replace(/\s+/g, ' ').trim();
+        const preview = flat.length > 48 ? flat.slice(0, 48) + '…' : flat;
+        return '<div class="think-line" data-role="think-toggle" title="点击展开/收起思考过程">' +
+            '<span class="tl-ic">◐</span><span class="tl-label">深度思考</span>' +
+            '<span class="tl-preview">' + escapeHtml(preview) + '</span>' +
+            '<span class="tl-caret">▸</span>' +
+          '</div>' +
+          '<div class="think-body" data-role="think-body">' + escapeHtml(t) + '</div>';
+      };
+      // 思考折叠：事件委托（innerHTML 流式重渲染不丢绑定）
+      if (mdBody && !mdBody.__thinkBound) {
+        mdBody.__thinkBound = true;
+        mdBody.addEventListener('click', (e) => {
+          const line = e.target.closest && e.target.closest('[data-role="think-toggle"]');
+          if (!line) return;
+          line.classList.toggle('open');
+          const body = line.nextElementSibling;
+          if (body && body.dataset.role === 'think-body') body.classList.toggle('open');
+        });
+      }
       const handleSseLine = (line) => {
         if (!line.startsWith('data: ')) return;
         const data = line.slice(6).trim();
