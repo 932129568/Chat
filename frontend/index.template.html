@@ -821,7 +821,10 @@ body.fx-off .input-row:focus-within{box-shadow:0 0 0 3px var(--primary-soft);}
 .empty-icon{width:56px;height:56px;margin:0 auto 16px;background:var(--brand-gradient);
   border-radius:var(--radius-xl);display:flex;align-items:center;justify-content:center;
   font-size:26px;color:#fff;}
-.empty-state h2{font-size:18px;margin-bottom:8px;color:var(--text);font-weight:600;letter-spacing:-.2px;}
+.empty-state h2{font-size:19px;margin-bottom:8px;color:var(--text);font-weight:600;letter-spacing:-.2px;
+  /* 品牌渐变文字（memory point：首屏唯一彩色文字=品牌色心智） */
+  background:var(--brand-gradient);-webkit-background-clip:text;background-clip:text;
+  -webkit-text-fill-color:transparent;color:var(--primary);}
 .empty-state p{font-size:13px;}
 /* ===== C.3 · 数据图表（纯手写 SVG，零新依赖）===== */
 .stat-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:var(--panel-gap);}
@@ -1571,6 +1574,34 @@ body.theming .sc-row,body.theming .sc-kbd{transition-property:background-color,c
 .sc-desc.only{padding:4px 0}
 body.fx-off .sc-row{animation:none}
 body.theming .sc-row,body.theming .sc-kbd{transition-property:background-color,color,border-color}
+
+/* ============================================================
+   v4 整体 UI 深化（2026-10-21）：高感知细节四件套
+   ① rail 选中指示条弹入 ② 空态图标呼吸氛围 ③ 设置卡片可触摸
+   ④ 空态引导卡 hover。全部走四层令牌 + fx-off 显式停列。
+   ============================================================ */
+/* ① rail 指示条：切面板时 spring 弹入（原静态直接出现——切换无生命感） */
+.rail-btn.on::before{animation:v4RailPop var(--dur-comp) var(--ease-spring)}
+@keyframes v4RailPop{from{transform:translateY(-50%) scaleY(0);opacity:0}
+to{transform:translateY(-50%) scaleY(1);opacity:1}}
+/* ② 空态图标：3s 呼吸（scale+glow 循环）+ ✦ 微浮动——第一印象氛围 */
+.empty-icon{animation:v4EmptyBreathe 3s var(--ease-out-soft) infinite}
+.empty-icon .glyph{display:inline-block;animation:v4GlyphFloat 3s var(--ease-out-soft) infinite}
+@keyframes v4EmptyBreathe{0%,100%{transform:scale(1);box-shadow:0 0 18px -6px var(--glow-color)}
+50%{transform:scale(1.035);box-shadow:0 0 26px -4px var(--glow-color)}}
+@keyframes v4GlyphFloat{0%,100%{transform:translateY(0) rotate(0)}50%{transform:translateY(-1.5px) rotate(8deg)}}
+/* ③ 设置卡片可触摸：hover 微提升 + 阴影升档（静态卡片=死板感来源） */
+.set-content .set-block{transition:transform var(--dur-comp) var(--ease-out-soft),box-shadow var(--dur-comp) var(--ease-out-soft)}
+.set-content .set-block:hover{transform:translateY(-1px);box-shadow:var(--shadow-md)}
+/* ④ 空态引导卡 hover：边框点亮 + 微提升（eg-step 原有入场保留） */
+.eg-step{transition:border-color var(--dur-comp) var(--ease-out-soft),transform var(--dur-comp) var(--ease-out-soft),background-color var(--dur-comp) var(--ease-out-soft)}
+.eg-step:hover{border-color:var(--primary);transform:translateY(-1px);background:var(--primary-soft)}
+/* fx-off 停列扩充（新增 infinite/循环宿主） */
+body.fx-off .empty-icon,body.fx-off .empty-icon .glyph{animation:none}
+body.fx-off .set-content .set-block:hover,body.fx-off .eg-step:hover{transform:none}
+/* theming 白名单补 set-block */
+body.theming .set-content .set-block,body.theming .eg-step{
+  transition-property:transform,box-shadow,background-color,border-color}
 </style>
 </head>
 <body>
@@ -2042,7 +2073,7 @@ body.theming .sc-row,body.theming .sc-kbd{transition-property:background-color,c
 
       <div class="chat-container" id="chatContainer">
         <div class="empty-state" id="emptyState">
-          <div class="empty-icon">✦</div>
+          <div class="empty-icon"><span class="glyph">✦</span></div>
           <h2>开始和 Harbor 聊天</h2>
           <p>支持文字、图片、视频、文本文件 · 历史记录自动保存</p>
           <!-- 实现 v1.6 T11：未配 Key 时的三步空态引导（纯新增；按钮跳导航对应位） -->
