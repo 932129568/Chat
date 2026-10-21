@@ -96,7 +96,7 @@ _V12_EXTRA = frozenset({
     # v1.8.0 W11 域·记忆 UI（1 个；删 memory.json 第 index 条，边界校验
     # 不静默夹逼；get_api_info 零漂移同款隐身）
     'memory_delete', 'prompt_get', 'trace_new', 'local_readiness',
-    'history_dir_get', 'history_dir_set', 'session_purge',
+    'history_dir_get', 'history_dir_set', 'session_purge', 'memory_retrieve',
     'pick_save_path', 'save_export_file',
 })
 
@@ -620,7 +620,10 @@ class Api:
         return self._toolcache.read_more(cache_id, offset, limit)
 
     # ============ system prompt ============
-    def build_system_prompt(self):
+    def build_system_prompt(self, query=''):
+        """query 可选（v1.8.0 W11 记忆注入）：传入当前用户消息 → 注入段按相关度
+        补充；缺省 ''=只注入常驻的 rule/preference（显式约束）。默认参数向后
+        兼容（契约方法名不变，legacy 调用零差异）。"""
         sid = self._runtime.get_current_sid()
         # 修复（2026-10-18）：工作区关闭时不得注入路径/宣称文件能力——原先无条件注入
         # effective_root，导致快捷条显示「未启用工作区」但 AI 仍答「当前工作区: C:\...」
@@ -638,6 +641,10 @@ class Api:
         except Exception:
             sandbox_notice = ''
         tail = ('\n' + sandbox_notice) if sandbox_notice else ''
+        # W11 记忆注入（INTENTIONAL_DELTAS 白名单增量段）：rule/preference 常驻
+        # （≤3，用户显式约束优先于一切）+ query 相关 top2 补充；无记忆不加段
+        # （输出与 legacy 逐字节一致——契约断言只查结构不查内容的前提）。
+        tail += self._memory_inject(str(query or ''))
         if not self._runtime.ws_enabled_for(sid, True):
             text, _ = prompt_loader.render('system-ws-off')
             if text:
@@ -661,6 +668,31 @@ class Api:
             '1. 文件操作只用工具, 禁止用 Get-Content/Set-Content(后端已强制 UTF-8)。\n'
             '2. 写文件串行: 一次一个 write_file/append_file/search_replace, 等返回成功再写下一个。\n'
             '3. 超长命令输出会截断并给缓存 id, 需要全文用 read_more 分段取。' + tail)
+
+    def _memory_inject(self, query):
+        """W11：系统提示词记忆注入段（'' = 无记忆/异常——不影响主流程）。"""
+        try:
+            from .services.memory_service import (KINDS, inject_block,
+                                                  retrieve)
+            items = self._config._memory().list()
+            if not items:
+                return ''
+            standing = [x for x in items
+                        if x.get('kind') in ('rule', 'preference')][-3:]
+            picked = list(standing)
+            if query:
+                rel = retrieve(query, items, 2)
+                picked += [x for x in rel if x not in picked]
+            return ('\n\n' + inject_block(picked)) if picked else ''
+        except Exception:
+            return ''          # 记忆注入失败不阻塞主提示词
+
+    def memory_retrieve(self, query, limit=5):
+        """W11：关键词检索 js_api（前端探活/测试用；items 带 kind）。"""
+        r = self._config.memory_retrieve(query, limit)
+        if 'error' in r:
+            return err(r['error'])
+        return ok(r)
 
     def prompt_get(self, prompt_id):
         """W0 R19：前端读版本化提示词（efficiency/compact/plan-generate 等）。

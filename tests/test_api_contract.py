@@ -203,7 +203,23 @@ def test_contract_legacy_vs_new(stubs):
 
 
 # v1.1.1 有意变更：省 token 相关（不参与逐字节比对，单独断言）
-INTENTIONAL_DELTAS = {'build_system_prompt'}
+INTENTIONAL_DELTAS = {'build_system_prompt', 'append_memory', 'get_memory',
+                     'get_memory2'}
+
+
+def test_memory_structured_delta():
+    """W11 结构化三类：append/get 输出带 kind（刻意增量，结构断言替代逐字节）。"""
+    import json
+    a = legacy.Api()
+    b = NewApi()
+    ra = json.loads(a.append_memory('{"text":"以后都先写测试"}'))
+    rb = json.loads(b.append_memory('{"text":"以后都先写测试"}'))
+    assert ra.get('ok') and rb.get('ok')
+    assert rb.get('kind') == 'rule' and 'total' in rb      # 新增结构字段
+    ga = json.loads(a.get_memory())
+    gb = json.loads(b.get_memory())
+    assert len(ga) == len(gb)                              # 条数一致
+    assert all('kind' in x for x in gb)                    # 新输出全带分类
 
 
 def test_system_prompt_intentional_trim():

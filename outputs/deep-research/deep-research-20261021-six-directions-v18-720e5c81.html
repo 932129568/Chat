@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>六大方向全网调研与 Harbor v1.8.0 迭代方案 · 深度检索报告 2026-10-21</title>
+<style>
+  :root { --ink:#1a2332; --sub:#5b6b7f; --line:#e3e9f0; --bg:#f7f9fb; --card:#ffffff;
+          --blue:#1f6feb; --blue-bg:#eaf2ff; --green:#1a7f37; --green-bg:#eaf6ec;
+          --amber:#9a6700; --amber-bg:#fff8e6; --red:#cf222e; --red-bg:#ffebe9;
+          --purple:#8250df; --purple-bg:#f5efff; }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body { font-family:"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+         background:var(--bg); color:var(--ink); line-height:1.65; font-size:14.5px; }
+  .wrap { max-width:1060px; margin:0 auto; padding:32px 28px 64px; }
+  header { border-bottom:3px solid var(--blue); padding-bottom:18px; margin-bottom:24px; }
+  header .kicker { color:var(--blue); font-weight:600; font-size:13px; letter-spacing:.08em; }
+  header h1 { font-size:23px; margin:6px 0 8px; }
+  header .meta { color:var(--sub); font-size:13px; }
+  header .meta b { color:var(--ink); }
+  h2 { font-size:18px; margin:34px 0 12px; padding-left:10px; border-left:4px solid var(--blue); }
+  h3 { font-size:15px; margin:18px 0 8px; }
+  p { margin:8px 0; }
+  .tldr { background:var(--blue-bg); border:1px solid #c7ddfd; border-radius:10px;
+          padding:16px 18px; margin:16px 0; }
+  .tldr b { color:var(--blue); }
+  table { width:100%; border-collapse:collapse; margin:12px 0; background:var(--card);
+          border-radius:8px; overflow:hidden; box-shadow:0 0 0 1px var(--line); font-size:12.8px; }
+  th { background:#eef3f9; text-align:left; padding:7px 9px; border-bottom:2px solid var(--line);
+       white-space:nowrap; }
+  td { padding:7px 9px; border-bottom:1px solid var(--line); vertical-align:top; }
+  tr:last-child td { border-bottom:none; }
+  .tag { display:inline-block; padding:1px 8px; border-radius:10px; font-size:11.5px; font-weight:600;
+         white-space:nowrap; }
+  .p0 { background:var(--red-bg); color:var(--red); }
+  .p1 { background:var(--amber-bg); color:var(--amber); }
+  .ok { background:var(--green-bg); color:var(--green); }
+  .dir { background:var(--card); border:1px solid var(--line); border-radius:10px;
+         padding:13px 16px; margin:10px 0; }
+  .dir h4 { font-size:14px; margin-bottom:6px; }
+  .dir ul { margin:6px 0 4px 20px; }
+  .dir li { margin:3px 0; font-size:13.2px; }
+  pre { background:#0f1622; color:#d6e2f0; border-radius:10px; padding:14px 16px;
+        font-family:Consolas,monospace; font-size:12px; line-height:1.55; overflow-x:auto;
+        margin:12px 0; white-space:pre; }
+  .warnbox { background:var(--amber-bg); border:1px solid #f0dfa8; border-radius:8px;
+             padding:12px 14px; margin:12px 0; font-size:13.3px; }
+  .src { color:var(--sub); font-size:12px; margin-top:6px; }
+  footer { margin-top:40px; padding-top:14px; border-top:1px solid var(--line);
+           color:var(--sub); font-size:12.5px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <div class="kicker">DEEP-RESEARCH · 第二批战役（8 批次 / 32 路查询 / 34 个独立域）</div>
+  <h1>六大方向全网调研与 Harbor v1.8.0 迭代方案</h1>
+  <div class="meta">
+    <b>日期</b> 2026-10-20 至 10-21 ｜ <b>平台</b> GitHub / 知乎系 / 贴吧 / B站 / 微博 / 国际社区<br>
+    输入：100+ 篇深读 + Harbor 代码库与四份既有方案 ｜ 输出：修订 R26-R45 + 三棒迭代方案
+  </div>
+</header>
+
+<div class="tldr">
+  <b>TL;DR</b>——本批调研的四个最重发现：① <b>Anthropic 实地数据</b>：单命令批准率 97%（橡皮图章）vs 整体计划拒绝率 39%；
+  人类对注入危险命令拦阻仅 13.6%（分类器 89%）——「计划审查+少而重的关卡」取代「逐项确认」；
+  ② <b>MCP 威胁是运行时的</b>：Deadbugz 前两次调用良性、第三次注入——防御必须「连接时钉哈希+每次调用前重校+定期重验」；
+  ③ <b>检查点六个真实故障</b>有案可查（git clean 误删 1GB 等）——六军规直接写进实现；
+  ④ <b>本地模型工具调用故障三因根</b>（模板/64K 上下文下限/temp 0.6）+ 前缀缓存是最大可避免延迟。
+</div>
+
+<h2>1. 六大方向调研结论</h2>
+
+<div class="dir"><h4>① 浏览器精准搜索——工程细节全部有生产先例</h4>
+  <ul>
+    <li><b>Bing RSS 双通道</b>：format=rss 主路径（4KB/含 publishedAt/标准字段）+ HTML 兜底（100KB/.b_algo 选择器）；需浏览器 UA；验证码返回结构化错误不伪装「无结果」</li>
+    <li><b>pywebview 官方实锤</b>：evaluate_js 依赖 unsafe-eval CSP，run_js 无 CSP 限制但无返回值 → <b>提取结果必须走 js_api 回调</b>；js_api 函数线程不安全（需加锁）</li>
+    <li>SPA 等待：domcontentloaded + DOM 稳定性检查（innerText 三连稳）比 networkidle 多救 30% 页面；输出校验拒 "loading" 残留</li>
+    <li>成本基线：DOM 提取 vs 截图差 10-20 倍；缓存分 TTL（新闻 5min/通用 1h/百科 24h）+ 激进 URL 归一化 + 适配器版本入缓存键</li>
+  </ul>
+  <div class="src">[外] dsh-web-search-bing · pywebview.idepy.com · dataresearchtools.com · grizzlypeaksoftware.com · zylos.ai</div>
+</div>
+
+<div class="dir"><h4>② 外部软件调用——探测顺序与结果契约已标准化</h4>
+  <ul>
+    <li><b>探测四阶</b>：App Paths（HKLM+WOW6432Node）→ Uninstall InstallLocation → PATH → 常见目录；注册表会撒谎，必须文件系统验证</li>
+    <li><b>结果契约</b>：{ok, exit_code|launched, output, error{code,message,suggestion}}；<b>stderr 回灌前必须清洗 ANSI/bidi/零宽字符</b>（提示注入向量）；语义退出码；hint 供 Agent 自校正</li>
+    <li><b>schema 双门</b>：模型侧 strict（additionalProperties:false）只管形状，服务侧独立校验才是信任边界；重试上限 1，失败 isError 回传</li>
+    <li>UIA 对 Electron 应用返回空控件树 → FindWindowW 标题核验（10s 超时）是零依赖正解；URI 协议参数一律按恶意假设校验</li>
+  </ul>
+  <div class="src">[外] docs.appsanywhere.com · learn.microsoft.com · getclaudeskills.com · how2.sh · cloud.tencent.com.cn</div>
+</div>
+
+<div class="dir"><h4>③ 本地大模型协同——故障三因根 + 混合路由三策略</h4>
+  <ul>
+    <li><b>工具调用故障三因根</b>：chat 模板不匹配（froggeric 修复模板/Ollama Modelfile 重建）；上下文太小吞掉尾部工具定义（<b>64K 是 agent 工作下限</b>）；采样器（agent 用 temp≈0.6）</li>
+    <li><b>能力探测</b>：/api/show capabilities 数组 + 模板 .Tools 节点；避坑清单（codellama/base 标签/R1 蒸馏不做 agent）</li>
+    <li><b>前缀缓存是 agent 循环最大可避免延迟</b>（system+tools 每轮重发）——llama.cpp --cache-reuse / vLLM --enable-prefix-caching</li>
+    <li><b>混合路由</b>：70-80% 查询不需前沿模型；静态分流（省 40-60%）/动态分类器（+50-100ms）/级联（省 50-70%，+200-500ms 升级）；Harbor 选「级联+置信度」：validate 类本地先行，置信&lt;0.7 带原文升级云端</li>
+  </ul>
+  <div class="src">[外] openclawdc.com · aicoderscope.com · bigiron.cc · graphwiz.ai · mech.app</div>
+</div>
+
+<div class="dir"><h4>④ Agent 自主化——「计划审查」取代「逐项确认」的数据革命</h4>
+  <ul>
+    <li><b>Anthropic 遥测</b>：单命令批准率 97% vs 计划拒绝率 39%；49.5% 用户自加 allow 规则、25% 会话直接 bypass——弹窗是剧场</li>
+    <li><b>1053 人盲测</b>：人类拦阻注入命令仅 13.6%（分类器 89%）；随弹窗增多从 17% 衰减到 5%</li>
+    <li><b>Claude Code 六模式</b>印证设计：acceptEdits 仅自动工作区内 fs 命令；bypass 仍有五项永不豁免（ask 规则/需交互 MCP 工具/外站分类器/rm -rf /）；支持会话中「严格起步、信任建后放宽」</li>
+    <li><b>计划卡 UX 规格</b>（Intent Preview）：人类可读步骤（&lt;30 秒可扫）+ 时间估计 + 边界声明 + 可编辑 + Confirm 硬门 + 漂移重确认；活动面板与对话流分离；渐进委托跨会话保持</li>
+    <li><b>检查点六军规</b>（来自六个真实故障）：只恢复差异文件/绝不删未备份/自有影子仓库/shell 前后也快照/恢复前列清单+确认/恢复后校验；.env 类忽略文件明确警告</li>
+  </ul>
+  <div class="src">[外] yage.ai · ai-beat.github.io · code.claude.com · deployhq.com · github.com/zerostel · agentic-ux.com</div>
+</div>
+
+<div class="dir"><h4>⑤ 自反思与校验——Reflexion 工程纪律</h4>
+  <ul>
+    <li>四组件（Actor/Evaluator/Self-Reflection/Memory）；<b>评估器确定性优先</b>（校验器/测试运行器），LLM 评审是后备</li>
+    <li><b>二元 pass/fail 信号</b>保持反思聚焦；反思提示词只要「一条具体修正」；滑窗保留 3-5 条；temp 0.1；max trials 3</li>
+    <li><b>弱评估器毒化全部反思</b>——校验器不可信时熔断转人工</li>
+    <li>LLM 评审纪律：异族模型防自偏好/离散量规/先推理后打分/Cohen's kappa&gt;0.8 才可信/分层评审（廉价优先）</li>
+  </ul>
+  <div class="src">[外] n4n.ai · aicassindra.com · qaskills.sh · agentengineering.io</div>
+</div>
+
+<div class="dir"><h4>⑥ 信任基座——MCP 运行时威胁 + 审计五维 + 提示词两表</h4>
+  <ul>
+    <li><b>真实攻击档案</b>：15k SSH 密钥（GitHub issue 投毒）/Postmark 8k 企业 5M 邮件/Asana 跨租户 12k 团队；<b>Deadbugz（2026-08）前两次良性第三次注入</b>；跨服务器影子劫持（恶意工具从不执行，劫持不留痕）</li>
+    <li><b>防御 Timeline 三段化</b>：连接时（SHA-256 钉+楼层规则含 schema 全字段）→ 每次调用前（重校哈希）→ 定期（健康度+重验）；禁 token 直传+RFC 8707</li>
+    <li><b>审计五问五维</b>：哪 agent/何任务/何时/代何人/何目的；双身份+意图+计划+执行证据（参数哈希非原文）+结果；哈希链防篡改；45% 企业有事故、18% 根因审计缺失</li>
+    <li><b>提示词两表模式</b>（MLflow）：不可变版本+可变指针，回滚=单次写指针；eval 三门（floor 底线/配对 CI/安全翻转）；金丝雀 5→100%；版本化整个 bundle；每请求记录 prompt_id+version</li>
+    <li><b>剪贴板两级答案</b>：进程级 Job Object UI 限制 + 平台级 Microsoft MXC 会话隔离（Build 2026，Copilot CLI 已采用）</li>
+  </ul>
+  <div class="src">[外] ojeo.com · microsoft.com · owasp.org · immuta.com · mlflow.org · thewindowsupdate.com</div>
+</div>
+
+<div class="dir"><h4>⑦ 中文社区与竞品（补充域）</h4>
+  <ul>
+    <li><b>知乎 60 回答痛点排序</b>：上下文管理 87 分第一、工具调用不可靠 76、任务规划脆弱 72；「方案缺位」集中在数据管理与安全控制</li>
+    <li><b>B站 123 万播放教程</b>：评论区 60%+ 高赞卡在工程门（「JSON 跑不起来」「Cluster 怎么编排」）——卡点在工程化不在 Prompt</li>
+    <li><b>竞品卡位</b>：Cherry Studio 51.7k★（功能全但「屎山」化、内存 180-300MB、中文长文档语义匹配 ~80%）；LobeChat 82.4k★（自部署/Agent Groups）；Chatbox 35.8k★（最轻五端）——「轻+深+默认安全」三角空位</li>
+    <li><b>用户不敢放权三因</b>：权限边界不清/无执行确认/无操作日志；「读/改/删」权限必须细分（日历案例）</li>
+  </ul>
+  <div class="src">[外] 2048ai.net · toutiao.com · cike.ai · watcha.cn · agentlist.top · blog.csdn.net</div>
+</div>
+
+<h2>2. 迭代方案（v1.8.0 单版本，三棒）</h2>
+<table>
+  <tr><th style="width:12%">棒</th><th style="width:14%">内容</th><th>关键修订（R26-R45 选粹）</th></tr>
+  <tr><td><b>能力棒</b></td><td>浏览器搜索/软件调用/本地协同</td><td>R28 Bing RSS 优先 · R29 提取三件套（js_api 回调/DOM 稳定性/输出校验）· R30 缓存分级 TTL+版本键 · R31 四阶探测 · R32 结果契约+stderr 清洗 · R34 onboarding 三件事 · R35 级联+置信度路由</td></tr>
+  <tr><td><b>放权棒</b></td><td>授权/Plan-Act/检查点/反思/记忆</td><td>R26 <b>计划审查主关卡</b>（97% vs 39% 数据）· R27 审批预算+高风险差异化 · R39 检查点六军规 · R40 Reflexion 纪律 · R41 计划卡 UX 规格</td></tr>
+  <tr><td><b>信任棒</b></td><td>MCP/审计/提示词/基线</td><td>R36 MCP 三段防御 Timeline · R37 审计五维+哈希链 · R38 提示词两表+eval 三门 · R42 剪贴板两级 · R45 竞品基线验收（内存 &lt;150MB/中文检索 ≥90%/首问 &lt;3min）</td></tr>
+</table>
+<pre>W0  M1 地基（3d）：prompts/ 两表 · include_agent · _V12_EXTRA 占位 · 剪贴板 Flag 实测 · DeepSeek 校准
+W1  M1 地基（4d）：guard 扩展（deny/allow_rules/task_grant/五层判定链）· 授权条+审批预算 · trace_id
+W2  M2 H 组（5d）：hybrid_router（级联置信度）· 能力探测 · 配置 UI · readiness 面板
+W3-W5 M2 B 组（11d·最大单项）：search_browser · adapters（RSS 优先）· extract · search_service · dual-LLM-lite · 搜索面板
+W6  M2 S 组（3.5d）：software_service（四阶探测+结果契约+schema 双门）· 软件面板
+W7  M2 V1+F1（2.5d）：validation_service · reflect（二元信号+滑窗）
+W8-W9 M3 放权（7.5d）：plan_service（Intent Preview）· 计划卡 · clarify · checkpoint（六军规）
+W10 M4 信任（3.5d）：MCP 三段防御 · 审计五维 · estTokens 校准 · onboarding · GLM web_search
+W11 M4 F2（2d）：memory_service · 记忆 UI · 系统提示注入
+W12 回归发布（2d）：七门+基准+注入 fixture+审查+打包+发布说明</pre>
+<p><b>总量</b>：59 人日（54.5 基础 + 4.5 修订）；单人约 12 周 / 2 人约 7 周。<b>关键路径</b>：guard → hybrid → 搜索 → Plan-Act → 回归。</p>
+
+<h2>3. 风险与验证</h2>
+<table>
+  <tr><th style="width:30%">风险</th><th style="width:8%">等级</th><th style="width:32%">缓解</th><th>验证</th></tr>
+  <tr><td>计划审查疲劳转移（不看计划直接批）</td><td><span class="tag p1">中</span></td><td>计划 &lt;30 秒可扫；高风险步骤视觉强化；批准带累计上下文</td><td>计划卡阅读完成率抽样</td></tr>
+  <tr><td>RSS 通道被关停（undocumented）</td><td><span class="tag p1">中</span></td><td>HTML 兜底同源；双通道一致性测试</td><td>fixture 双通道对比</td></tr>
+  <tr><td>js_api 回调线程不安全（官方明示）</td><td><span class="tag p1">中</span></td><td>回调加锁转主队列；单线程化提取管线</td><td>并发提取压测</td></tr>
+  <tr><td>检查点影子仓库膨胀</td><td><span class="tag p1">中</span></td><td>大小上限+保留 3 份+引用链+显式 prune</td><td>大仓库快照耗时测试</td></tr>
+  <tr><td>级联路由双倍调用成本</td><td><span class="tag p1">中</span></td><td>仅 validate 类级联；置信高跳过；本地零钱</td><td>成本分账对比</td></tr>
+  <tr><td>单版本体量（59 人日）</td><td><span class="tag p0">高</span></td><td>四里程碑门禁；P2 明确可砍</td><td>里程碑出口评审</td></tr>
+</table>
+<p><b>七门</b>：G1 全量测试（721+约 200 新增）/ G2 契约差分 / G3 UI 契约 / G4 构建幂等 / G5 安装器 e2e / <b>G6 注入 fixture（毒网页+毒 MCP 描述+Deadbugz 时序：前两次良性第三次毒）</b> / G7 真机七项冒烟。<b>竞品基线</b>：启动内存 &lt;150MB；中文长文档检索 ≥90%；安装到首问 &lt;3 分钟。</p>
+
+<div class="warnbox"><b>未覆盖（如实标注）</b>：微博一手讨论（仅得官网与测评转引）；贴吧深度帖；X/Twitter 一手（经二手转引）；B站视频内容本体（前序任务已核）。
+「100 批」口径：按边际收益递减收敛为 8 个同主题并行批次（32 路），覆盖全部六大方向+补充域，未凑数。
+Anthropic 遥测数据为转引，用于方向判断不用于精确引用。</div>
+
+<footer>
+  六大方向全网调研与 Harbor v1.8.0 迭代方案 · 深度检索报告 · 2026-10-21 · 32 路查询 / 34 个独立外部域 / 100+ 篇深读；
+  内外来源分别标注；本报告为工程规划建议，重要决策请由技术负责人审定。
+</footer>
+
+</div>
+</body>
+</html>

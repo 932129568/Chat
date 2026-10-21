@@ -276,6 +276,65 @@ class ToolValidator:
             return ''
         return '%s：%s' % (tool or '工具', s)
 
+    @classmethod
+    def reflect_loop(cls, tool, params, exec_fn, context=None,
+                     max_attempts=2, on_attempt=None):
+        """F1 自反思补做循环（deep-research W7 reflect + 交接文档 F1 项）。
+
+        管线：exec_fn(params) → validate → verdict.ok？返回 → 否则
+        reformulate（on_attempt 回调改写 params；不提供则原参重试一次）→
+        重试，硬上限 max_attempts（默认 2——W7「补做循环 ≤2」）。**不自动
+        改参数**（参数改写策略归调用方 on_attempt——安全边界：后端不臆造
+        用户意图）；超限返回最后一次 verdict（retryable=False 供上层止损）。
+
+        Args:
+            tool: 工具名（validate 分发用）。
+            params: 初始参数（dict）。
+            exec_fn: 执行函数 (params) -> result dict（注入式，可测）。
+            context: validate 上下文（如 {'query': ...}）。
+            max_attempts: 最大执行次数（含首次；≥1）。
+            on_attempt: 可选回调 (attempt, params, verdict) -> 新 params
+                （返回 None/相同 = 原参重试）。
+
+        Returns:
+            dict: {ok, result, verdict, attempts, history:[{attempt,
+            verdict, hint}]}——ok=True 时 result/verdict 为成功态。
+        """
+        attempts = 0
+        history = []
+        cur = dict(params) if isinstance(params, dict) else {}
+        limit = max(1, int(max_attempts or 1))
+        v = cls()
+        while attempts < limit:
+            attempts += 1
+            try:
+                result = exec_fn(cur)
+            except Exception as e:
+                verdict = _verdict(False, 'exec_error', 0.0,
+                                   '执行异常: %s' % str(e)[:120], False, '')
+                history.append({'attempt': attempts, 'verdict': verdict,
+                                'hint': cls.reformulate_hint(tool, cur, verdict)})
+                return {'ok': False, 'result': None, 'verdict': verdict,
+                        'attempts': attempts, 'history': history}
+            verdict = v.validate(tool, result, context)
+            history.append({'attempt': attempts, 'verdict': verdict,
+                            'hint': cls.reformulate_hint(tool, cur, verdict)})
+            if verdict.get('ok'):
+                return {'ok': True, 'result': result, 'verdict': verdict,
+                        'attempts': attempts, 'history': history}
+            if attempts >= limit:
+                break
+            if on_attempt is not None:
+                try:
+                    nxt = on_attempt(attempts, cur, verdict)
+                    if isinstance(nxt, dict) and nxt:
+                        cur = nxt
+                except Exception:
+                    break          # 回调异常：停止补做，交上层
+        last = history[-1]['verdict'] if history else _verdict(False, 'unknown', 0, '', False, '')
+        return {'ok': False, 'result': None, 'verdict': last,
+                'attempts': attempts, 'history': history}
+
 
 # 进程级单例（search_service 及后续工具面复用；无状态可安全共享）
 _VALIDATOR = None

@@ -5,7 +5,7 @@
 > - **契约面**：`get_api_info` 列出的方法（与 v1.0.0 legacy 逐字节一致，`tests/test_api_contract.py` 门禁）
 > - **隐身面**：`_V12_EXTRA` 登记的新方法（自省不列出，防契约漂移；前端经 pywebview 桥直接调用）
 
-**方法总数**：契约面 51 + 隐身面 70 = 121
+**方法总数**：契约面 51 + 隐身面 71 = 122
 
 ## 契约面 · get_api_info 列名（v1.0.0 起逐字节锁定）
 
@@ -14,7 +14,7 @@
 | `append_file` | `(path, content)` | （v1.0.0 legacy 契约方法） |
 | `append_memory` | `(entry_json)` | （v1.0.0 legacy 契约方法） |
 | `append_worklog` | `(text)` | （v1.0.0 legacy 契约方法） |
-| `build_system_prompt` | `()` | （v1.0.0 legacy 契约方法） |
+| `build_system_prompt` | `(query='')` | query 可选（v1.8.0 W11 记忆注入）：传入当前用户消息 → 注入段按相关度 |
 | `build_tools` | `(role='full', include_mcp=False, include_agent=False, is_glm_endpoint=False)` | v1.3：include_mcp=True 且 role='full' 时尾部追加 MCP 工具定义； |
 | `cache_tool_output` | `(content)` | （v1.0.0 legacy 契约方法） |
 | `copy_into_ws` | `(src, name)` | （v1.0.0 legacy 契约方法） |
@@ -111,6 +111,7 @@
 | `mcp_shutdown` | `()` | 关停全部 MCP 传输（main.py atexit 注册 + 测试用）。 |
 | `mcp_test_server` | `(name)` | （v1.0.0 legacy 契约方法） |
 | `memory_delete` | `(index)` | 实现 v1.8.0 W11：删除 memory.json 数组第 index 条（记忆面板「删除」按钮）。 |
+| `memory_retrieve` | `(query, limit=5)` | W11：关键词检索 js_api（前端探活/测试用；items 带 kind）。 |
 | `pick_save_path` | `(default_name='export.md')` | 弹出系统「另存为」对话框（SAVE_DIALOG，带默认文件名）→ {ok, path}。 |
 | `plan_create` | `(title, steps, task_id='')` | M3-B1：创建计划。steps: [{'text','risk'}] 或 [str]。 |
 | `plan_get` | `(task_id)` | M3-B1：读计划（前端刷新/断线重连用）。 |
