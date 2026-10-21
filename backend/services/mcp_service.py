@@ -267,12 +267,44 @@ class McpService:
         return out
 
     # ============ 档位 ============
+    # W10 楼层规则（deep-research #126）：危险动作工具名/描述特征 → always 档。
+    # 注解不可信（服务器可撒谎），工具名与描述里的破坏性动词是第二判据——
+    # 与 destructiveHint 并列，任一命中即 always（防「只读注解的删除工具」）。
+    _DANGER_PATTERNS = ('delete_', 'drop_', 'purge_', 'wipe_', 'remove_',
+                       'destroy_', 'erase_', 'truncate_', 'format_')
+
     @staticmethod
-    def derive_tier(annotations: dict) -> str:
-        """注解推导默认档位（注解不可信：最宽 session，永不放宽 off）。"""
+    def _is_danger_tool(tool_name: str = '', description: str = '') -> bool:
+        """W10 楼层规则特征判断：工具名危险动词开头或描述含同类破坏性表述。
+
+        独立于 derive_tier 的兜底语义——resolve_tier 用它区分
+        「危险特征命中（floor-rule）」与「无注解兜底（default）」两种 always。
+        """
+        name = str(tool_name or '').lower()
+        desc = str(description or '').lower()
+        for pat in McpService._DANGER_PATTERNS:
+            if name.startswith(pat) or (' ' + pat.rstrip('_')) in desc \
+                    or pat.rstrip('_') + ' ' in desc:
+                return True
+        return False
+
+    @staticmethod
+    def derive_tier(annotations: dict, tool_name: str = '', description: str = '') -> str:
+        """注解 + 楼层规则推导默认档位（注解不可信：最宽 session，永不放宽 off）。
+
+        W10 楼层规则：工具名以下划线危险动词开头（delete_/drop_/purge_/wipe_/
+        remove_/destroy_/erase_/truncate_/format_）或描述含同类破坏性表述 →
+        always 档（无论注解如何标注——服务器注解可伪造，名字撒谎成本高）。
+        """
         a = annotations or {}
         if a.get('destructiveHint') is True:
             return 'always'
+        name = str(tool_name or '').lower()
+        desc = str(description or '').lower()
+        for pat in McpService._DANGER_PATTERNS:
+            if name.startswith(pat) or (' ' + pat.rstrip('_')) in desc \
+                    or pat.rstrip('_') + ' ' in desc:
+                return 'always'
         if a.get('readOnlyHint') is True:
             return 'session'
         return 'always'      # 无注解 → 保守每次确认
@@ -311,7 +343,12 @@ class McpService:
         return real_server, real_tool
 
     def resolve_tier(self, server: str, tool: str):
-        """(tier, source)：tierOverrides > 注解推导 > 兜底 always（工具未缓存）。"""
+        """(tier, source)：tierOverrides > 注解+楼层规则推导 > 兜底 always。
+
+        W10 楼层规则（deep-research #126）：无注解或注解不可信时，工具名/
+        描述的危险动词特征仍可推导 always——delete_/drop_/purge_/wipe_ 等
+        开头或描述含同类破坏性表述，一律 always（名字撒谎成本 > 注解）。
+        """
         cfg = self._cfg.get_server(server) or {}
         override = (cfg.get('tierOverrides') or {}).get(tool)
         if override in ('always', 'session', 'off'):
@@ -322,6 +359,9 @@ class McpService:
                 annotations = t.get('annotations')
                 if annotations:
                     return self.derive_tier(annotations), 'annotation'
+                # 无注解：危险特征 → floor-rule；无特征兜底 always → default
+                if self._is_danger_tool(t.get('name', ''), t.get('description', '')):
+                    return 'always', 'floor-rule'
                 break
         return 'always', 'default'
 

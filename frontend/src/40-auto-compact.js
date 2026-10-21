@@ -138,6 +138,18 @@ function estTokensCalibrate(real, est) {
       ? raw
       : _estCalib.ratio * 0.7 + raw * 0.3;
     _estCalib.ratio = Math.min(1.8, Math.max(0.6, _estCalib.ratio));
+    // W10 对账告警（deep-research #6）：本地估算与服务端 usage 偏差 >5% 且样本
+    // 足够时告警——系数可能又漂了（模型换版/语言构成变化），提醒复查
+    if (_estCalib.n >= 3 && Math.abs(raw - 1) > 0.05) {
+      _estCalib.last_deviation = raw;
+      _estCalib.warned = true;
+      try {
+        if (typeof console !== 'undefined' && console.warn) {
+          console.warn('[estTokens] 估算偏差 %.0f%%（服务端 %d vs 本地 %d）——系数可能需复查',
+                       (raw - 1) * 100, r, e);
+        }
+      } catch (e4) { /* 日志不阻塞 */ }
+    }
     if (_estCalib.n >= 3) {
       try {
         localStorage.setItem(EST_CALIB_KEY,

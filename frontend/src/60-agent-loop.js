@@ -319,7 +319,15 @@ async function runAgentLoop(s, apiKey) {
       let effTools = effectiveTools;
       try {
         const beSys = await callApi('build_system_prompt', []);
-        sysContent = EFFICIENCY_PROMPT + '\n\n' + (beSys ? JSON.parse(beSys) : '') + (sysPrompt ? '\n\n用户附加: ' + sysPrompt : '');
+        // W0 R19：执行铁律改读 prompts/efficiency.md（版本化）；失败回落前端
+        // 内置常量（内容与 prompts 文件逐字节一致，回落零行为差异）
+        let effText = EFFICIENCY_PROMPT;
+        try {
+          const effRaw = await callApi('prompt_get', ['efficiency']);
+          const eff = JSON.parse(effRaw || '{}');
+          if (eff && eff.ok && eff.text) effText = eff.text;
+        } catch (e2) { /* 回落内置 */ }
+        sysContent = effText + '\n\n' + (beSys ? JSON.parse(beSys) : '') + (sysPrompt ? '\n\n用户附加: ' + sysPrompt : '');
       } catch (e) { /* 系统提示词失败用前端默认 */ }
       // 实现 v1.6 T5④：本地模式段——「上下文有限」提示（本地模型窗口小，
       // 防长程任务里模型误判可无限重读/堆叠上下文）
@@ -835,8 +843,20 @@ async function runAgentLoop(s, apiKey) {
           try {
             const r = JSON.parse(result);
             if (r && typeof r === 'object') {
-              if (r.error) tail = '✗ ' + String(r.error).slice(0, 80);
-              else if (r.skipped) tail = '⊘ ' + String(r.reason || r.info || '已拦截').slice(0, 60);
+              // 修复（2026-10-21 用户实测）：结构化错误 error 是对象
+              // （{code,message}——software_service/browser 等 err() 家族）时
+              // String(obj) 渲染成 "[object Object]"，用户看不到真因。统一取
+              // 人话字段（message 优先，回落 code/error 串）。
+              const _errText = (e) => {
+                if (!e) return '';
+                if (typeof e === 'string') return e;
+                if (typeof e === 'object') {
+                  return String(e.message || e.code || e.error || JSON.stringify(e));
+                }
+                return String(e);
+              };
+              if (r.error) tail = '✗ ' + _errText(r.error).slice(0, 80);
+              else if (r.skipped) tail = '⊘ ' + _errText(r.reason || r.info || '已拦截').slice(0, 60);
             }
           } catch (e) {}
         }

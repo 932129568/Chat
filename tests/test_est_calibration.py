@@ -103,6 +103,7 @@ _CASES = {
   `);
 """,
     'corrupt_storage_fallback': _LOAD + "\n  return __vmEval(`\n    localStorage.setItem('harbor_est_calib', '{bad json');\n    return { ratio: _estCalib.ratio, n: _estCalib.n };\n  `);\n",
+    'deviation_warn': _LOAD + "\n  return __vmEval(`\n    for (let i = 0; i < 3; i++) estTokensCalibrate(1300, 1000);\n    return { warned: _estCalib.warned, dev: _estCalib.last_deviation, n: _estCalib.n };\n  `);\n",
     'calibrated_product': _LOAD + r"""
   return __vmEval(`
     for (let i = 0; i < 4; i++) estTokensCalibrate(1800, 1000);
@@ -152,6 +153,10 @@ class TestEstCalibration:
         assert r['ratio'] > 1.5
         assert r['cal'] >= r['raw']
         assert r['ht'] == r['raw']          # 压缩口径不受校准影响
+
+    def test_deviation_warn(self):
+        r = _run(_CASES['deviation_warn'], 'devwarn')
+        assert r['warned'] is True and r['dev'] > 1.2 and r['n'] == 3
 
     def test_reload_persisted(self):
         r = _run(_CASES['reload_persisted'], 'reload')
