@@ -1,0 +1,218 @@
+/* ================= v1.8.0 W10 · 首次使用引导向导（68-onboarding.js） =================
+ * 触发：无任何会话 + 未配置 API Key（或本地模式未探测）→ 全屏引导层。
+ * 步骤（4 步，可跳过）：welcome（品牌+能力预览）→ source（选服务商预设卡片）
+ *   → key（填 Key + 测试连接）→ done（进入对话，localStorage 记住）。
+ * 设计：v4 玻璃卡 + 四层动效令牌；ob-* 纯新增类（UI 契约只增不改）。
+ * 与既有 emptyGuide（41-nav.js 空态三步引导）关系：向导是首启全屏版，
+ *   完成后空态引导继续承担「配 Key 前」的轻量提示——两层不重叠。
+ */
+
+const OB_DONE_KEY = 'glm_onboarding_done_v1';
+
+function obDone() {
+  try {
+    if (typeof localStorage === 'undefined') return true;
+    return localStorage.getItem(OB_DONE_KEY) === '1';
+  } catch (e) { return true; }
+}
+function obMarkDone() {
+  try { if (typeof localStorage !== 'undefined') localStorage.setItem(OB_DONE_KEY, '1'); } catch (e) {}
+}
+
+/** 是否应展示向导：未完成过 + 无 Key + 无历史会话。 */
+function obShouldShow() {
+  if (obDone()) return false;
+  if (typeof effectiveApiKey === 'function' && effectiveApiKey()) return false;
+  if (typeof localModeActive === 'function' && localModeActive()) return false;
+  if (typeof sessions !== 'undefined' && Array.isArray(sessions) && sessions.length) return false;
+  return true;
+}
+
+const OB_STEPS = [
+  { id: 'welcome', title: '欢迎使用 Harbor' },
+  { id: 'source', title: '选择模型服务' },
+  { id: 'key', title: '填入 API Key' },
+  { id: 'done', title: '准备就绪' }
+];
+
+let obStepIdx = 0;
+let obRoot = null;
+
+function obRender() {
+  if (typeof document === 'undefined') return;
+  const step = OB_STEPS[obStepIdx];
+  const body = obRoot.querySelector('.ob-body');
+  body.innerHTML = obStepHtml(step.id);
+  // 步骤切换动效：内容层重放（CSS animation 由 innerHTML 替换天然重触发）
+  const dots = obRoot.querySelectorAll('.ob-dot');
+  dots.forEach((d, i) => d.classList.toggle('on', i === obStepIdx));
+  const back = obRoot.querySelector('#obBack');
+  if (back) back.style.visibility = obStepIdx === 0 ? 'hidden' : 'visible';
+  const next = obRoot.querySelector('#obNext');
+  if (next) next.textContent = obStepIdx === OB_STEPS.length - 1 ? '开始对话 →' : '下一步 →';
+  // source 步骤：预设卡片选中态
+  obWireStep(step.id);
+}
+
+function obStepHtml(id) {
+  if (id === 'welcome') {
+    return '<div class="ob-hero">' +
+      '<div class="ob-logo">H</div>' +
+      '<h2>欢迎使用 Harbor</h2>' +
+      '<p>多模态本地 AI Agent：对话 · 工具调用 · 浏览器搜索 · 软件调用 · 计划执行</p>' +
+      '<div class="ob-feats">' +
+      ['🗨 多模态对话（文字/图片/视频/文件）', '🔍 受控浏览器搜索（自有 WebView2）',
+       '🧩 外部软件调用（CLI/GUI/URI）', '📋 Plan-Act 计划执行与检查点回滚']
+        .map((t, i) => '<div class="ob-feat" style="animation-delay:' + (i * 40) + 'ms">' + t + '</div>').join('') +
+      '</div></div>';
+  }
+  if (id === 'source') {
+    const presets = (typeof connectPresets === 'function') ? connectPresets() : [];
+    const list = presets.length ? presets : [
+      { id: 'glm', name: '智谱 GLM', desc: 'glm-5.3 系列 · 国内直连' },
+      { id: 'deepseek', name: 'DeepSeek', desc: 'OpenAI 兼容 · 高性价比' },
+      { id: 'ollama', name: 'Ollama（本地）', desc: '本机模型 · 免 Key' }
+    ];
+    return '<h2>选择模型服务</h2><p class="ob-sub">随时可在「设置 → 连接与模型」切换</p>' +
+      '<div class="ob-cards">' +
+      list.map((p, i) =>
+        '<button class="ob-card' + (p.id === 'glm' ? ' on' : '') + '" data-preset="' + obEsc(p.id) +
+        '" style="animation-delay:' + (i * 40) + 'ms">' +
+        '<span class="ob-card-n">' + obEsc(p.name || p.id) + '</span>' +
+        '<span class="ob-card-d">' + obEsc(p.desc || '') + '</span></button>').join('') +
+      '</div>';
+  }
+  if (id === 'key') {
+    return '<h2>填入 API Key</h2><p class="ob-sub">Key 仅存本机 config.json，不上传任何服务器</p>' +
+      '<div class="ob-keyrow">' +
+      '<input class="ob-input" id="obKey" type="password" placeholder="sk-…" maxlength="200">' +
+      '<button class="pill-btn" id="obTest">测试连接</button>' +
+      '</div>' +
+      '<div class="ob-keystat" id="obKeyStat"></div>' +
+      '<div class="ob-alt">使用本地模型（Ollama 等）？<a href="#" id="obLocal">跳过 Key，直接选本地服务 →</a></div>';
+  }
+  return '<div class="ob-hero"><div class="ob-logo ok">✓</div>' +
+    '<h2>准备就绪</h2><p>在下方输入框开始提问吧。输入 /plan 可让 Agent 先出计划再执行。</p>' +
+    '<div class="ob-tips">' +
+    ['Enter 发送 · Shift+Enter 换行', '支持拖入图片/文件', '随时点 header 放大镜试用浏览器搜索']
+      .map(t => '<div class="ob-tip">' + t + '</div>').join('') + '</div></div>';
+}
+
+function obWireStep(id) {
+  if (id === 'source') {
+    obRoot.querySelectorAll('.ob-card').forEach(c => {
+      c.onclick = () => {
+        obRoot.querySelectorAll('.ob-card').forEach(x => x.classList.remove('on'));
+        c.classList.add('on');
+        // 联动既有预设状态机（36-connect.js connectApplyPreset，存在则调）
+        if (typeof connectApplyPreset === 'function') {
+          try { connectApplyPreset(c.dataset.preset); } catch (e) {}
+        }
+      };
+    });
+  }
+  if (id === 'key') {
+    const test = obRoot.querySelector('#obTest');
+    if (test) test.onclick = () => obTestKey();
+    const local = obRoot.querySelector('#obLocal');
+    if (local) local.onclick = () => { obFinish(); };
+    const input = obRoot.querySelector('#obKey');
+    if (input) setTimeout(() => input.focus(), 80);
+  }
+}
+
+async function obTestKey() {
+  const input = obRoot.querySelector('#obKey');
+  const stat = obRoot.querySelector('#obKeyStat');
+  const key = input ? String(input.value || '').trim() : '';
+  if (!key) { if (stat) { stat.textContent = '请先填入 Key'; stat.className = 'ob-keystat err'; } return; }
+  if (stat) { stat.textContent = '正在测试连接…'; stat.className = 'ob-keystat'; }
+  // 写入既有 Key 字段（复用设置连接块的保存链）
+  const apiKeyEl = (typeof document !== 'undefined') ? document.getElementById('apiKey') : null;
+  if (apiKeyEl) apiKeyEl.value = key;
+  if (typeof queueSaveConfig === 'function') queueSaveConfig();
+  try {
+    if (typeof testProviderConnection === 'function') {
+      const r = await testProviderConnection();
+      const d = (typeof r === 'string') ? JSON.parse(r) : r;
+      if (d && d.ok) {
+        if (stat) { stat.textContent = '✓ 连接成功'; stat.className = 'ob-keystat ok'; }
+        if (typeof toast === 'function') toast('连接成功', 'ok');
+      } else {
+        if (stat) { stat.textContent = '✗ ' + ((d && d.error) || '连接失败'); stat.className = 'ob-keystat err'; }
+      }
+    } else {
+      if (stat) { stat.textContent = '✓ 已保存（测试连接入口不可用）'; stat.className = 'ob-keystat ok'; }
+    }
+  } catch (e) {
+    if (stat) { stat.textContent = '✗ ' + (e && e.message || e); stat.className = 'ob-keystat err'; }
+  }
+}
+
+function obNext() {
+  if (obStepIdx < OB_STEPS.length - 1) {
+    obStepIdx++;
+    obRender();
+  } else {
+    obFinish();
+  }
+}
+function obBack() {
+  if (obStepIdx > 0) { obStepIdx--; obRender(); }
+}
+function obSkip() {
+  obFinish();
+}
+function obFinish() {
+  obMarkDone();
+  if (!obRoot) return;
+  obRoot.classList.add('hiding');
+  const done = () => { if (obRoot) { obRoot.remove(); obRoot = null; } };
+  if (typeof MOTION !== 'undefined' && !MOTION.instant()) {
+    MOTION.onAnimEnd(obRoot, 'animationend', MOTION.compOut()).then(done);
+  } else done();
+  // 完成后刷新空态引导/头部状态（既有钩子）
+  if (typeof navRenderHeaderStatus === 'function') navRenderHeaderStatus();
+  if (typeof navUpdateEmptyGuide === 'function') navUpdateEmptyGuide();
+}
+
+/** 挂载引导层（幂等；110-boot loadAll 调用）。 */
+function onboardingInit() {
+  if (typeof document === 'undefined') return false;
+  if (obRoot) return true;               // 已挂载
+  if (!obShouldShow()) return false;     // 不需要引导
+  const root = document.createElement('div');
+  root.id = 'onboarding';
+  root.className = 'ob-root';
+  root.innerHTML =
+    '<div class="ob-win">' +
+      '<div class="ob-steps">' +
+        OB_STEPS.map((s, i) =>
+          '<button class="ob-dot' + (i === 0 ? ' on' : '') + '" data-i="' + i + '" title="' +
+          obEsc(s.title) + '"></button>').join('') +
+      '</div>' +
+      '<div class="ob-body"></div>' +
+      '<div class="ob-acts">' +
+        '<button class="ghost-btn" id="obSkip">跳过引导</button>' +
+        '<span style="flex:1"></span>' +
+        '<button class="ghost-btn" id="obBack">← 上一步</button>' +
+        '<button class="pill-btn primary" id="obNext">下一步 →</button>' +
+      '</div>' +
+    '</div>';
+  document.body.appendChild(root);
+  obRoot = root;
+  obStepIdx = 0;
+  obRender();
+  root.querySelector('#obNext').onclick = obNext;
+  root.querySelector('#obBack').onclick = obBack;
+  root.querySelector('#obSkip').onclick = obSkip;
+  root.querySelectorAll('.ob-dot').forEach(d => {
+    d.onclick = () => { obStepIdx = parseInt(d.dataset.i, 10) || 0; obRender(); };
+  });
+  return true;
+}
+
+function obEsc(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}

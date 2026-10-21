@@ -45,6 +45,8 @@ async function loadAll() {
   /* v1.8.0 B 域：搜索面板挂载（纯新增 #searchPanel；功能分级开关默认开，
    * 关闭时 searchPanelInit 内部短路——try/catch 防单模块异常拖垮启动） */
   try { searchPanelInit(); } catch (e) { console.warn('搜索面板初始化失败', e); }
+  /* v1.8.0 W10：首次使用引导向导（无 Key+无会话时展示；localStorage 记住） */
+  try { onboardingInit(); } catch (e) { console.warn('引导向导初始化失败', e); }
   /* v1.8.0 S 域·外部软件 + H 域·混合路由 + v1.8.5 A 域·任务授权/白名单
    * （纯新增 #softwareBlock / #hybridBlock / #grantIndicator / #grantRulesBlock；
    * 各自 Init 内部幂等 + typeof 守卫，失败不阻塞启动） */

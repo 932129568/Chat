@@ -1262,6 +1262,65 @@ body.fx-off .plan-step.doing .st,body.fx-off .ckpt-prog.indet .ckpt-fill,
 body.fx-off .wait-dot,body.fx-off .sw-light.probing,body.fx-off .gr-light,
 body.fx-off .wait-line::after,body.fx-off .wait-prog.indet .wait-prog-fill,
 body.fx-off .sp-take-guide,body.fx-off .wait-dots::after,body.fx-off #auroraBg div{animation:none}
+
+/* ============================================================
+   v1.8.0 W10 · 首次使用引导向导（68-onboarding.js，ob-* 纯新增）
+   玻璃居中窗 + 步骤点 + 四层动效；hiding 退场 + onAnimEnd 双兜底
+   ============================================================ */
+.ob-root{position:fixed;inset:0;z-index:600;display:flex;align-items:center;justify-content:center;
+  background:rgba(16,18,28,.42);backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px);
+  animation:v4MaskIn var(--dur-comp) var(--ease-out-soft)}
+.ob-root.hiding{animation:v4SetWinOut var(--dur-comp-out) var(--ease-in-soft) forwards}
+.ob-win{width:min(560px,92vw);max-height:88vh;overflow-y:auto;
+  background:linear-gradient(var(--glass-bg-2),var(--glass-bg-2)),var(--glass-fallback);
+  backdrop-filter:blur(var(--glass-blur));-webkit-backdrop-filter:blur(var(--glass-blur));
+  border:1px solid var(--glass-border);border-radius:var(--radius-xl);box-shadow:var(--shadow-lg);
+  padding:22px 24px;animation:v4SetWinIn var(--dur-panel) var(--ease-spring)}
+.ob-steps{display:flex;gap:7px;justify-content:center;margin-bottom:18px}
+.ob-dot{width:8px;height:8px;border-radius:var(--radius-full);border:none;padding:0;cursor:pointer;
+  background:var(--border-strong);
+  transition:background-color var(--dur-comp) var(--ease-out-soft),transform var(--dur-comp) var(--ease-spring)}
+.ob-dot.on{background:var(--primary);transform:scale(1.35)}
+.ob-body h2{font-size:19px;margin-bottom:4px;letter-spacing:-.01em}
+.ob-body .ob-sub{font-size:12px;color:var(--text-3);margin-bottom:14px}
+.ob-body p{font-size:13px;color:var(--text-2);line-height:1.65}
+.ob-hero{text-align:center;padding:8px 0}
+.ob-logo{width:52px;height:52px;margin:0 auto 14px;border-radius:var(--radius-lg);
+  background:var(--brand-gradient);color:#fff;font-size:24px;font-weight:700;
+  display:flex;align-items:center;justify-content:center}
+.ob-logo.ok{background:var(--ok)}
+.ob-feats{display:flex;flex-direction:column;gap:7px;margin-top:16px;text-align:left}
+.ob-feat{font-size:12.5px;color:var(--text-2);padding:8px 12px;border-radius:var(--radius-md);
+  background:var(--surface-2);border:1px solid var(--border);
+  animation:v4LineIn var(--dur-comp) var(--ease-out-soft) both}
+.ob-cards{display:flex;flex-direction:column;gap:8px}
+.ob-card{display:flex;flex-direction:column;gap:2px;padding:12px 14px;text-align:left;cursor:pointer;
+  border:1px solid var(--border);border-radius:var(--radius-md);background:var(--card-bg);font-family:inherit;
+  transition:border-color var(--dur-comp) var(--ease-out-soft),background-color var(--dur-comp) var(--ease-out-soft),transform var(--dur-press) var(--ease-out-soft);
+  animation:v4LineIn var(--dur-comp) var(--ease-out-soft) both}
+.ob-card:hover{border-color:var(--border-strong)}
+.ob-card:active{transform:scale(.98)}
+.ob-card.on{border-color:var(--primary);background:var(--primary-soft)}
+.ob-card-n{font-size:13px;font-weight:600;color:var(--text)}
+.ob-card.on .ob-card-n{color:var(--primary)}
+.ob-card-d{font-size:11px;color:var(--text-3)}
+.ob-keyrow{display:flex;gap:8px}
+.ob-input{flex:1;height:34px;padding:0 12px;font-size:13px;font-family:inherit;
+  border:1px solid var(--border);border-radius:var(--radius-md);background:var(--card-bg);color:var(--text);outline:none;
+  transition:border-color var(--dur-micro) var(--ease-out-soft),box-shadow var(--dur-micro) var(--ease-out-soft)}
+.ob-input:focus{border-color:var(--primary);box-shadow:var(--glow-focus)}
+.ob-keystat{margin-top:9px;font-size:12px;color:var(--text-2);min-height:18px}
+.ob-keystat.ok{color:var(--ok)}
+.ob-keystat.err{color:var(--err)}
+.ob-alt{margin-top:14px;font-size:12px;color:var(--text-3)}
+.ob-alt a{color:var(--primary);text-decoration:none}
+.ob-alt a:hover{text-decoration:underline}
+.ob-tips{display:flex;flex-direction:column;gap:6px;margin-top:16px;text-align:left}
+.ob-tip{font-size:12px;color:var(--text-3);padding:7px 12px;border-radius:var(--radius-md);background:var(--surface-2)}
+.ob-acts{display:flex;gap:8px;margin-top:20px;align-items:center}
+body.fx-off .ob-root,body.fx-off .ob-win,body.fx-off .ob-feat,body.fx-off .ob-card{animation:none}
+body.theming .ob-win,body.theming .ob-card,body.theming .ob-input,body.theming .ob-feat,body.theming .ob-tip,body.theming .ob-dot{
+  transition-property:background-color,color,border-color,box-shadow,fill,stroke}
 </style>
 </head>
 <body>
@@ -2734,7 +2793,16 @@ async function executeTool(name, args) {
   const ms = performance.now() - t0;
   try {
     const d = JSON.parse(result);
-    if (d && typeof d === 'object' && !d.__ms) { d.__ms = Math.round(ms); return JSON.stringify(d); }
+    if (d && typeof d === 'object' && !d.__ms) {
+      d.__ms = Math.round(ms);
+      // V1 前端孪生（v1.8.0 §6）：出口附 _validation verdict（只提示不拦截；
+      // 60-agent-loop 渲染「⚠ 校验存疑」徽标）。挂起态（suspended）不附——
+      // 接管流由 browserToolWrapCaptcha/harborTakeoverNotify 专责。
+      if (d.suspended !== true && typeof toolValidateResult === 'function') {
+        d._validation = toolValidateResult(name, d);
+      }
+      return JSON.stringify(d);
+    }
   } catch (e) { /* 非 JSON 返回：保持原样，图表侧按无耗时处理 */ }
   return result;
 }
@@ -2751,6 +2819,84 @@ function browserToolWrapCaptcha(raw) {
     }
   } catch (e) { /* 非 JSON：原样返回 */ }
   return raw;
+}
+
+/* ================= V1 结果校验框架·前端孪生（v1.8.0 迭代方案 §6 P1）=================
+ * 与后端 backend/services/tool_validator.py 同口径的轻量 verdict：工具结果出口
+ * （executeTool）统一附 _validation 字段，60-agent-loop 在工具条目渲染「⚠ 校验
+ * 存疑」徽标 + suggestion 文案。**只提示不拦截**——重试决策在 Agent/用户。
+ * 覆盖四类高频工具：search / open / command / generic（file/software 由后端
+ * validator 承载，前端孪生保底 generic 结构校验）。
+ */
+var V1_STOPWORDS = { 'the':1,'a':1,'an':1,'and':1,'or':1,'of':1,'to':1,'in':1,'on':1,'for':1,'with':1 };
+function _v1Tokens(text) {
+  const t = String(text || '').toLowerCase();
+  const words = (t.match(/[a-z0-9_\.\-\+]{2,}/g) || []).filter(w => !V1_STOPWORDS[w]);
+  const bigrams = [];
+  const cjk = t.match(/[\u4e00-\u9fff]{2,}/g) || [];
+  cjk.forEach(seg => { for (let i = 0; i < seg.length - 1; i++) bigrams.push(seg.slice(i, i + 2)); });
+  return words.concat(bigrams);
+}
+function _v1Relevance(query, texts) {
+  const q = _v1Tokens(query);
+  if (!q.length) return 0.5;
+  const corpus = new Set();
+  (texts || []).forEach(t => _v1Tokens(t).forEach(x => corpus.add(x)));
+  if (!corpus.size) return 0;
+  const hit = q.filter(x => corpus.has(x)).length;
+  return hit / q.length;
+}
+function _v1Verdict(ok, kind, confidence, reason, retryable, suggestion) {
+  return { ok: !!ok, kind: kind, confidence: Math.round(confidence * 1000) / 1000,
+           reason: reason, retryable: !!retryable, suggestion: suggestion || '' };
+}
+function toolValidateResult(name, result) {
+  try {
+    const tool = String(name || '').toLowerCase();
+    const d = (typeof result === 'string') ? JSON.parse(result || '{}') : (result || {});
+    if (tool === 'browser_search' || tool === 'web_search') {
+      const rs = d.results || [];
+      if (!rs.length) return _v1Verdict(false, 'empty', 0, '搜索结果为空', true, '换引擎或放宽检索条件重试');
+      const valid = rs.filter(x => x && x.title && x.url);
+      if (!valid.length) return _v1Verdict(false, 'malformed', 0.1, '结果缺少标题或链接', true, '更换引擎重试');
+      const rel = _v1Relevance(d.query || '', valid.map(x => String(x.title || '') + ' ' + String(x.snippet || '')));
+      if (rel >= 0.34) return _v1Verdict(true, 'ok', Math.min(1, 0.5 + rel), '结果有效且相关');
+      if (rel >= 0.12) return _v1Verdict(true, 'thin', rel, '相关度偏低（' + Math.round(rel * 100) + '%）', false, '可精简检索词重试');
+      return _v1Verdict(false, 'irrelevant', rel, '相关度不足（' + Math.round(rel * 100) + '%）', true, '精简检索词或换引擎重试');
+    }
+    if (tool === 'browser_open') {
+      const c = String(d.content || '');
+      if (d.ok === false) return _v1Verdict(false, 'failed', 0, '打开失败：' + (d.error || '未知'), false, '');
+      if (!c.trim()) return _v1Verdict(false, 'empty', 0, '未提取到正文', true, '换来源重试');
+      if (c.length < 120) return _v1Verdict(false, 'thin', c.length / 120, '正文过短（导航壳？）', true, '尝试其他结果链接');
+      return _v1Verdict(true, 'ok', Math.min(1, c.length / 4000), '正文有效（' + c.length + ' 字符）', false, '');
+    }
+    if (d.ok === false || d.error) {
+      return _v1Verdict(false, 'failed', 0, '工具报告错误：' + String(d.error || '未知').slice(0, 80), false, '');
+    }
+    if (!Object.keys(d).length) return _v1Verdict(true, 'thin', 0.4, '结果为空对象', false, '');
+    return _v1Verdict(true, 'ok', 0.7, '结果结构有效', false, '');
+  } catch (e) {
+    return _v1Verdict(true, 'thin', 0.3, '校验解析异常，按放行处理', false, '');
+  }
+}
+
+/* V1 渲染：verdict 存疑时在工具条目附「⚠ 校验存疑」徽标（只提示不拦截）。
+ * toolDiv 为 60-agent-loop 的 .tool-call-item；ok/thin-ok 不打扰（静默）。 */
+function harborRenderValidation(result, toolDiv) {
+  try {
+    const d = (typeof result === 'string') ? JSON.parse(result || '{}') : (result || {});
+    const v = d._validation;
+    if (!v || v.ok || !toolDiv) return;
+    const cls = v.kind === 'thin' ? 'warn' : 'fail';
+    toolDiv.classList.remove('done', 'fail', 'warn');
+    toolDiv.classList.add(cls);
+    const badge = document.createElement('span');
+    badge.className = 'tool-validation-badge';
+    badge.title = v.reason + (v.suggestion ? '；建议：' + v.suggestion : '');
+    badge.textContent = '⚠ ' + v.reason + (v.suggestion ? '（' + v.suggestion + '）' : '');
+    toolDiv.appendChild(badge);
+  } catch (e) { /* 渲染失败不影响主流程 */ }
 }
 
 /* ===== 26-guard.js ===== */
@@ -7587,6 +7733,7 @@ async function runAgentLoop(s, apiKey) {
           } else {
             readFileSet.add(fileKey);
             result = await executeTool(tc.name, args);
+            if (typeof harborRenderValidation === 'function') harborRenderValidation(result, toolDiv);
           }
         } else if (tc.name === 'read_file' && args.path) {
           // force=true 放行重读
@@ -7598,6 +7745,7 @@ async function runAgentLoop(s, apiKey) {
           } else {
             listDirsSet.add(dirKey);
             result = await executeTool(tc.name, args);
+            if (typeof harborRenderValidation === 'function') harborRenderValidation(result, toolDiv);
           }
         } else if (['run_command','run_powershell','run_admin_command','open_app'].includes(tc.name)) {
           // 修复 W9（三轮）：open_app 纳入前端去重（反复弹窗面的前端闸；后端 api.open_app 同步接入）
@@ -7614,6 +7762,7 @@ async function runAgentLoop(s, apiKey) {
             result = JSON.stringify({ info: dupTip, skipped: true });
           } else {
             result = await executeTool(tc.name, args);
+            if (typeof harborRenderValidation === 'function') harborRenderValidation(result, toolDiv);
             // 修复 W1（三轮）：执行失败/被护栏拒绝（error/skipped）回滚登记，合法重试不被误拦
             try { const d0 = JSON.parse(result); if (d0 && (d0.error || d0.skipped)) cmdDeduper.unmark(cmdKey); } catch (e) {}
             try { const d = JSON.parse(result); if (d.output) { d.output = compressCliOutput(d.output); result = JSON.stringify(d); } } catch (e) {}
@@ -10037,6 +10186,527 @@ function rbTwice(btn, taskId, box, files) {
   }, 3000);
 }
 
+/* ===== 68-onboarding.js ===== */
+/* ================= v1.8.0 W10 · 首次使用引导向导（68-onboarding.js） =================
+ * 触发：无任何会话 + 未配置 API Key（或本地模式未探测）→ 全屏引导层。
+ * 步骤（4 步，可跳过）：welcome（品牌+能力预览）→ source（选服务商预设卡片）
+ *   → key（填 Key + 测试连接）→ done（进入对话，localStorage 记住）。
+ * 设计：v4 玻璃卡 + 四层动效令牌；ob-* 纯新增类（UI 契约只增不改）。
+ * 与既有 emptyGuide（41-nav.js 空态三步引导）关系：向导是首启全屏版，
+ *   完成后空态引导继续承担「配 Key 前」的轻量提示——两层不重叠。
+ */
+
+const OB_DONE_KEY = 'glm_onboarding_done_v1';
+
+function obDone() {
+  try {
+    if (typeof localStorage === 'undefined') return true;
+    return localStorage.getItem(OB_DONE_KEY) === '1';
+  } catch (e) { return true; }
+}
+function obMarkDone() {
+  try { if (typeof localStorage !== 'undefined') localStorage.setItem(OB_DONE_KEY, '1'); } catch (e) {}
+}
+
+/** 是否应展示向导：未完成过 + 无 Key + 无历史会话。 */
+function obShouldShow() {
+  if (obDone()) return false;
+  if (typeof effectiveApiKey === 'function' && effectiveApiKey()) return false;
+  if (typeof localModeActive === 'function' && localModeActive()) return false;
+  if (typeof sessions !== 'undefined' && Array.isArray(sessions) && sessions.length) return false;
+  return true;
+}
+
+const OB_STEPS = [
+  { id: 'welcome', title: '欢迎使用 Harbor' },
+  { id: 'source', title: '选择模型服务' },
+  { id: 'key', title: '填入 API Key' },
+  { id: 'done', title: '准备就绪' }
+];
+
+let obStepIdx = 0;
+let obRoot = null;
+
+function obRender() {
+  if (typeof document === 'undefined') return;
+  const step = OB_STEPS[obStepIdx];
+  const body = obRoot.querySelector('.ob-body');
+  body.innerHTML = obStepHtml(step.id);
+  // 步骤切换动效：内容层重放（CSS animation 由 innerHTML 替换天然重触发）
+  const dots = obRoot.querySelectorAll('.ob-dot');
+  dots.forEach((d, i) => d.classList.toggle('on', i === obStepIdx));
+  const back = obRoot.querySelector('#obBack');
+  if (back) back.style.visibility = obStepIdx === 0 ? 'hidden' : 'visible';
+  const next = obRoot.querySelector('#obNext');
+  if (next) next.textContent = obStepIdx === OB_STEPS.length - 1 ? '开始对话 →' : '下一步 →';
+  // source 步骤：预设卡片选中态
+  obWireStep(step.id);
+}
+
+function obStepHtml(id) {
+  if (id === 'welcome') {
+    return '<div class="ob-hero">' +
+      '<div class="ob-logo">H</div>' +
+      '<h2>欢迎使用 Harbor</h2>' +
+      '<p>多模态本地 AI Agent：对话 · 工具调用 · 浏览器搜索 · 软件调用 · 计划执行</p>' +
+      '<div class="ob-feats">' +
+      ['🗨 多模态对话（文字/图片/视频/文件）', '🔍 受控浏览器搜索（自有 WebView2）',
+       '🧩 外部软件调用（CLI/GUI/URI）', '📋 Plan-Act 计划执行与检查点回滚']
+        .map((t, i) => '<div class="ob-feat" style="animation-delay:' + (i * 40) + 'ms">' + t + '</div>').join('') +
+      '</div></div>';
+  }
+  if (id === 'source') {
+    const presets = (typeof connectPresets === 'function') ? connectPresets() : [];
+    const list = presets.length ? presets : [
+      { id: 'glm', name: '智谱 GLM', desc: 'glm-5.3 系列 · 国内直连' },
+      { id: 'deepseek', name: 'DeepSeek', desc: 'OpenAI 兼容 · 高性价比' },
+      { id: 'ollama', name: 'Ollama（本地）', desc: '本机模型 · 免 Key' }
+    ];
+    return '<h2>选择模型服务</h2><p class="ob-sub">随时可在「设置 → 连接与模型」切换</p>' +
+      '<div class="ob-cards">' +
+      list.map((p, i) =>
+        '<button class="ob-card' + (p.id === 'glm' ? ' on' : '') + '" data-preset="' + obEsc(p.id) +
+        '" style="animation-delay:' + (i * 40) + 'ms">' +
+        '<span class="ob-card-n">' + obEsc(p.name || p.id) + '</span>' +
+        '<span class="ob-card-d">' + obEsc(p.desc || '') + '</span></button>').join('') +
+      '</div>';
+  }
+  if (id === 'key') {
+    return '<h2>填入 API Key</h2><p class="ob-sub">Key 仅存本机 config.json，不上传任何服务器</p>' +
+      '<div class="ob-keyrow">' +
+      '<input class="ob-input" id="obKey" type="password" placeholder="sk-…" maxlength="200">' +
+      '<button class="pill-btn" id="obTest">测试连接</button>' +
+      '</div>' +
+      '<div class="ob-keystat" id="obKeyStat"></div>' +
+      '<div class="ob-alt">使用本地模型（Ollama 等）？<a href="#" id="obLocal">跳过 Key，直接选本地服务 →</a></div>';
+  }
+  return '<div class="ob-hero"><div class="ob-logo ok">✓</div>' +
+    '<h2>准备就绪</h2><p>在下方输入框开始提问吧。输入 /plan 可让 Agent 先出计划再执行。</p>' +
+    '<div class="ob-tips">' +
+    ['Enter 发送 · Shift+Enter 换行', '支持拖入图片/文件', '随时点 header 放大镜试用浏览器搜索']
+      .map(t => '<div class="ob-tip">' + t + '</div>').join('') + '</div></div>';
+}
+
+function obWireStep(id) {
+  if (id === 'source') {
+    obRoot.querySelectorAll('.ob-card').forEach(c => {
+      c.onclick = () => {
+        obRoot.querySelectorAll('.ob-card').forEach(x => x.classList.remove('on'));
+        c.classList.add('on');
+        // 联动既有预设状态机（36-connect.js connectApplyPreset，存在则调）
+        if (typeof connectApplyPreset === 'function') {
+          try { connectApplyPreset(c.dataset.preset); } catch (e) {}
+        }
+      };
+    });
+  }
+  if (id === 'key') {
+    const test = obRoot.querySelector('#obTest');
+    if (test) test.onclick = () => obTestKey();
+    const local = obRoot.querySelector('#obLocal');
+    if (local) local.onclick = () => { obFinish(); };
+    const input = obRoot.querySelector('#obKey');
+    if (input) setTimeout(() => input.focus(), 80);
+  }
+}
+
+async function obTestKey() {
+  const input = obRoot.querySelector('#obKey');
+  const stat = obRoot.querySelector('#obKeyStat');
+  const key = input ? String(input.value || '').trim() : '';
+  if (!key) { if (stat) { stat.textContent = '请先填入 Key'; stat.className = 'ob-keystat err'; } return; }
+  if (stat) { stat.textContent = '正在测试连接…'; stat.className = 'ob-keystat'; }
+  // 写入既有 Key 字段（复用设置连接块的保存链）
+  const apiKeyEl = (typeof document !== 'undefined') ? document.getElementById('apiKey') : null;
+  if (apiKeyEl) apiKeyEl.value = key;
+  if (typeof queueSaveConfig === 'function') queueSaveConfig();
+  try {
+    if (typeof testProviderConnection === 'function') {
+      const r = await testProviderConnection();
+      const d = (typeof r === 'string') ? JSON.parse(r) : r;
+      if (d && d.ok) {
+        if (stat) { stat.textContent = '✓ 连接成功'; stat.className = 'ob-keystat ok'; }
+        if (typeof toast === 'function') toast('连接成功', 'ok');
+      } else {
+        if (stat) { stat.textContent = '✗ ' + ((d && d.error) || '连接失败'); stat.className = 'ob-keystat err'; }
+      }
+    } else {
+      if (stat) { stat.textContent = '✓ 已保存（测试连接入口不可用）'; stat.className = 'ob-keystat ok'; }
+    }
+  } catch (e) {
+    if (stat) { stat.textContent = '✗ ' + (e && e.message || e); stat.className = 'ob-keystat err'; }
+  }
+}
+
+function obNext() {
+  if (obStepIdx < OB_STEPS.length - 1) {
+    obStepIdx++;
+    obRender();
+  } else {
+    obFinish();
+  }
+}
+function obBack() {
+  if (obStepIdx > 0) { obStepIdx--; obRender(); }
+}
+function obSkip() {
+  obFinish();
+}
+function obFinish() {
+  obMarkDone();
+  if (!obRoot) return;
+  obRoot.classList.add('hiding');
+  const done = () => { if (obRoot) { obRoot.remove(); obRoot = null; } };
+  if (typeof MOTION !== 'undefined' && !MOTION.instant()) {
+    MOTION.onAnimEnd(obRoot, 'animationend', MOTION.compOut()).then(done);
+  } else done();
+  // 完成后刷新空态引导/头部状态（既有钩子）
+  if (typeof navRenderHeaderStatus === 'function') navRenderHeaderStatus();
+  if (typeof navUpdateEmptyGuide === 'function') navUpdateEmptyGuide();
+}
+
+/** 挂载引导层（幂等；110-boot loadAll 调用）。 */
+function onboardingInit() {
+  if (typeof document === 'undefined') return false;
+  if (obRoot) return true;               // 已挂载
+  if (!obShouldShow()) return false;     // 不需要引导
+  const root = document.createElement('div');
+  root.id = 'onboarding';
+  root.className = 'ob-root';
+  root.innerHTML =
+    '<div class="ob-win">' +
+      '<div class="ob-steps">' +
+        OB_STEPS.map((s, i) =>
+          '<button class="ob-dot' + (i === 0 ? ' on' : '') + '" data-i="' + i + '" title="' +
+          obEsc(s.title) + '"></button>').join('') +
+      '</div>' +
+      '<div class="ob-body"></div>' +
+      '<div class="ob-acts">' +
+        '<button class="ghost-btn" id="obSkip">跳过引导</button>' +
+        '<span style="flex:1"></span>' +
+        '<button class="ghost-btn" id="obBack">← 上一步</button>' +
+        '<button class="pill-btn primary" id="obNext">下一步 →</button>' +
+      '</div>' +
+    '</div>';
+  document.body.appendChild(root);
+  obRoot = root;
+  obStepIdx = 0;
+  obRender();
+  root.querySelector('#obNext').onclick = obNext;
+  root.querySelector('#obBack').onclick = obBack;
+  root.querySelector('#obSkip').onclick = obSkip;
+  root.querySelectorAll('.ob-dot').forEach(d => {
+    d.onclick = () => { obStepIdx = parseInt(d.dataset.i, 10) || 0; obRender(); };
+  });
+  return true;
+}
+
+function obEsc(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+/* ===== 69-memory-panel.js ===== */
+/* ================= 记忆管理面板（v1.8.0 W11，实现 v1.8.0 W11） =================
+ * #memoryBlock + .mm-*（纯新增 DOM，UI 契约只增不改——check_contract 验）：
+ * 设置面板「记忆」区块：记忆列表（get_memory）/ 添加（append_memory）/
+ * 删除（memory_delete）/ 前端搜索过滤（纯客户端，零后端调用）。
+ * 契约口径（W11 任务书 + 64-software-panel 同款模式）：
+ * - 三态状态机 idle/pending/success/error + 请求序号 last-wins
+ *   （memoryReqSeq；pending 期间新触发 → seq+1 覆盖，旧请求返回后
+ *   seq!==memoryReqSeq 静默丢弃）；
+ * - 存储：~/.glm-chat/memory.json（legacy 既有文件；config.json 零污染，
+ *   后端 append 时自动打 ts 并截尾保留最近 200 条）；
+ * - 后端：memory_delete(index)（_V12_EXTRA 隐身）删数组第 index 条，
+ *   边界校验不静默夹逼（非整数/越界 → BAD_PARAMS + hint；审计
+ *   op=memory_delete）；
+ * - 删除前应用内确认（uiConfirm，v1.2 R3 模态；vm 沙箱无 uiConfirm 时
+ *   回落原生 confirm——两层都有 typeof 守卫）；
+ * - typeof 守卫（vm 沙箱可测）：模块顶层不直接引用 window/document/
+ *   localStorage；callApi 统一经 mmCallApi 两步（入口守卫 → 竞速调用）。
+ * 挂载：110-boot.js loadAll 内 try{ memoryPanelInit(); }catch。
+ * 导航入口：设置面板本就是 v4「一项对一项」架构——本块作为 .set-block
+ * 挂进 .set-grid 并带 data-group="数据」，33-set-nav 的 buildSetNav 每次
+ * 打开设置自动收录「记忆」导航项（零新导航机制，不碰 33/41 两文件）。
+ * 样式：纯内联 + 既有 CSS 变量/既有泛型类（set-block/set-title/set-hint/
+ * provider-row/modal-btn）——零新 CSS 类定义、零新色值、零新动效令牌。
+ */
+const MM_LIST_TIMEOUT_MS = 15000;    // get_memory（本地文件读；与 S 域列表同款快失败口径）
+const MM_WRITE_TIMEOUT_MS = 15000;   // append_memory / memory_delete
+const MM_TEXT_MAX = 500;             // 单条记忆最大长度（与 textarea maxlength 对齐）
+
+let memoryReqSeq = 0;          // last-wins 请求序号（每次触发递增，旧请求失效）
+let memoryPanelState = 'idle'; // idle|pending|success|error（块上 data-state 镜像）
+let mmLastItems = [];          // 最近一次列表载荷（搜索过滤/重渲染用）
+let mmBusy = false;            // 写在途（添加/删除期间禁用提交按钮，防重复触发）
+
+/* ---------- typeof 守卫取值（vm 沙箱无 DOM 不炸） ---------- */
+function mmEl(id) {
+  return (typeof document !== 'undefined') ? document.getElementById(id) : null;
+}
+function mmCallApi(name, args, timeoutMs) {
+  // 入口守卫（与 64-software-panel swCallApi 同款口径，vm 下显式抛可断言）
+  if (typeof callApi !== 'function') {
+    throw new Error('pywebview bridge 未就绪: ' + name);
+  }
+  return callApi(name, args, timeoutMs);
+}
+function mmToast(msg, kind) {
+  if (typeof toast === 'function') toast(msg, kind || 'info');
+}
+function mmEsc(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+/* ---------- 条目归一（memory.json 元素可为任意 JSON 值） ---------- */
+function mmEntryText(it) {
+  if (it == null) return '';
+  if (typeof it === 'string') return it;
+  if (typeof it === 'object') {
+    if (typeof it.text === 'string' && it.text) return it.text;
+    try { return JSON.stringify(it); } catch (e) { return String(it); }
+  }
+  return String(it);
+}
+function mmEntryTs(it) {
+  return (it && typeof it === 'object' && it.ts) ? String(it.ts) : '';
+}
+
+/* ---------- 面板骨架（纯新增 DOM；挂到设置面板 set-grid，softwareBlock 同款模式） ---------- */
+function memoryPanelInit() {
+  if (mmEl('memoryBlock')) { memoryPanelWire(); return true; }   // 幂等
+  if (typeof document === 'undefined') return false;
+  const grid = document.querySelector('.set-grid');
+  if (!grid) return false;
+  const block = document.createElement('div');
+  block.id = 'memoryBlock';
+  block.className = 'set-block';
+  block.setAttribute('data-group', '数据');   // 归「数据」组（33-set-nav 既有归组机制）
+  block.setAttribute('data-state', 'idle');
+  block.innerHTML =
+    '<div class="set-title">记忆（v1.8.0）</div>' +
+    '<div class="set-hint" style="margin:2px 0 8px;">' +
+      'Harbor 记住你手动保存的偏好与事实（每条都由你确认，不会自动记忆）。' +
+      '数据存于 <code>~/.glm-chat/memory.json</code>（独立文件，不碰 config.json），' +
+      '最多保留最近 200 条。' +
+    '</div>' +
+    '<div class="provider-row" style="align-items:center;gap:8px;">' +
+      '<input class="mm-input" id="mmSearch" placeholder="搜索记忆（本地过滤）" maxlength="100" ' +
+        'style="flex:1;padding:7px 10px;border:1px solid var(--border);border-radius:var(--radius-sm);' +
+        'background:var(--main-bg);color:var(--text);font-size:12.5px;outline:none;">' +
+      '<span id="mmCount" style="font-size:12px;color:var(--text-2);white-space:nowrap;">读取中…</span>' +
+    '</div>' +
+    '<div class="provider-row" style="align-items:flex-start;gap:8px;">' +
+      '<textarea class="mm-input" id="mmInput" rows="2" maxlength="' + MM_TEXT_MAX + '" ' +
+        'placeholder="添加一条记忆，如：部署脚本在 D:\\deploy\\ship.ps1" ' +
+        'style="flex:1;padding:8px 10px;border:1px solid var(--border);border-radius:var(--radius-sm);' +
+        'background:var(--main-bg);color:var(--text);font-size:12.5px;outline:none;resize:vertical;"></textarea>' +
+    '</div>' +
+    '<div class="provider-row">' +
+      '<button type="button" class="modal-btn primary" id="mmAddBtn">添加记忆</button>' +
+      '<button type="button" class="modal-btn" id="mmRefreshBtn">↻ 刷新</button>' +
+    '</div>' +
+    '<div class="mm-list" id="mmList" style="display:flex;flex-direction:column;gap:6px;margin-top:10px;"></div>' +
+    '<div class="mm-error" id="mmError" style="display:none;margin-top:8px;"></div>';
+  grid.appendChild(block);
+  memoryPanelWire();
+  return true;
+}
+function memoryPanelWire() {
+  const add = mmEl('mmAddBtn');
+  if (add) add.addEventListener('click', () => memoryPanelAdd());
+  const refresh = mmEl('mmRefreshBtn');
+  if (refresh) refresh.addEventListener('click', () => memoryPanelRefresh());
+  const search = mmEl('mmSearch');
+  if (search) search.addEventListener('input', () => memoryPanelRenderList(mmLastItems));
+  memoryPanelRefresh();
+}
+
+/* ---------- 三态 + last-wins：列表刷新 ---------- */
+async function memoryPanelRefresh() {
+  const seq = ++memoryReqSeq;
+  memoryPanelSetState('pending');
+  try {
+    const raw = await mmCallApi('get_memory', [], MM_LIST_TIMEOUT_MS);
+    if (seq !== memoryReqSeq) return;               // last-wins：旧返回丢弃
+    let items = [];
+    try { items = JSON.parse(raw || '[]'); } catch (e) { items = []; }
+    if (!Array.isArray(items)) items = [];
+    mmLastItems = items;
+    memoryPanelRenderList(items);
+    memoryPanelRenderError(null);
+    memoryPanelSetState('success');
+  } catch (e) {
+    if (seq !== memoryReqSeq) return;
+    mmLastItems = [];
+    memoryPanelRenderList([]);
+    memoryPanelRenderError({ code: 'BRIDGE_TIMEOUT',
+      message: (e && e.message) || String(e) });
+    memoryPanelSetState('error');
+  }
+}
+
+/* ---------- 渲染（搜索过滤为纯客户端：对 mmLastItems 文本匹配） ---------- */
+function memoryPanelRenderList(items) {
+  const box = mmEl('mmList');
+  const count = mmEl('mmCount');
+  const all = Array.isArray(items) ? items : [];
+  // 配对全局下标（删除按全局 index 调 memory_delete；条目可重复，禁用 indexOf）
+  const pairs = all.map((it, i) => ({ it: it, i: i }));
+  let q = '';
+  try { q = String(((mmEl('mmSearch') || {}).value) || '').trim().toLowerCase(); } catch (e) {}
+  const shown = q
+    ? pairs.filter(p => mmEntryText(p.it).toLowerCase().indexOf(q) >= 0)
+    : pairs;
+  if (count) {
+    count.textContent = q
+      ? ('匹配 ' + shown.length + ' / ' + all.length + ' 条')
+      : ('共 ' + all.length + ' 条');
+  }
+  if (!box) return;
+  box.innerHTML = '';
+  if (!shown.length) {
+    const empty = document.createElement('div');
+    empty.className = 'mm-empty';
+    empty.setAttribute('style',
+      'padding:14px;text-align:center;font-size:12px;color:var(--text-3);' +
+      'border:1px dashed var(--border);border-radius:var(--radius-sm);');
+    empty.textContent = all.length ? '没有匹配的记忆。' : '暂无记忆——在上方添加第一条。';
+    box.appendChild(empty);
+    return;
+  }
+  shown.forEach(p => {
+    const row = document.createElement('div');
+    row.className = 'mm-row';
+    row.setAttribute('data-index', String(p.i));
+    row.setAttribute('style',
+      'display:flex;align-items:flex-start;gap:8px;padding:8px 10px;' +
+      'border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--surface-2);' +
+      'font-size:12px;animation:v4SetBlockIn var(--dur-comp) var(--ease-out-soft);');
+    row.innerHTML =
+      '<span class="mm-idx" style="flex:0 0 auto;color:var(--text-3);' +
+        'font-family:var(--font-mono,ui-monospace,Consolas,monospace);font-size:11px;">#' +
+        (p.i + 1) + '</span>' +
+      '<span class="mm-text" style="flex:1;min-width:0;color:var(--text);' +
+        'white-space:pre-wrap;word-break:break-all;"></span>' +
+      '<span class="mm-ts" style="flex:0 0 auto;color:var(--text-3);font-size:11px;' +
+        'white-space:nowrap;">' + mmEsc(mmEntryTs(p.it)) + '</span>' +
+      '<button type="button" class="modal-btn mm-del" data-index="' + p.i + '" ' +
+        'style="flex:0 0 auto;padding:3px 10px;font-size:11.5px;color:var(--err);' +
+        'border-color:var(--err);">删除</button>';
+    row.querySelector('.mm-text').textContent = mmEntryText(p.it);
+    box.appendChild(row);
+  });
+  box.querySelectorAll('.mm-del').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const idx = parseInt(btn.getAttribute('data-index'), 10);
+      memoryPanelDelete(Number.isInteger(idx) ? idx : -1);
+    });
+  });
+}
+function memoryPanelSetState(state) {
+  memoryPanelState = state;
+  const block = mmEl('memoryBlock');
+  if (block) block.setAttribute('data-state', state);
+}
+function memoryPanelRenderError(e) {
+  const box = mmEl('mmError');
+  if (!box) return;
+  if (!e) { box.style.display = 'none'; box.innerHTML = ''; return; }
+  box.innerHTML =
+    '<div style="font-size:12px;color:var(--err);word-break:break-all;">[' +
+      mmEsc(e.code || 'ERROR') + '] ' + mmEsc(e.message || '操作失败') + '</div>' +
+    (e.hint ? '<div style="font-size:11.5px;color:var(--text-2);margin-top:2px;">' +
+      mmEsc(e.hint) + '</div>' : '');
+  box.style.display = '';
+}
+
+/* ---------- 添加（append_memory；后端自动打 ts + 截尾 200） ---------- */
+async function memoryPanelAdd() {
+  if (mmBusy) return;
+  const ta = mmEl('mmInput');
+  const text = ta ? String(ta.value || '').trim() : '';
+  if (!text) { mmToast('先写点什么再添加', 'warn'); return; }
+  mmBusy = true;
+  const btn = mmEl('mmAddBtn');
+  if (btn) { btn.disabled = true; btn.textContent = '添加中…'; }
+  const seq = ++memoryReqSeq;
+  memoryPanelSetState('pending');
+  try {
+    const raw = await mmCallApi('append_memory',
+      [JSON.stringify({ text: text })], MM_WRITE_TIMEOUT_MS);
+    if (seq !== memoryReqSeq) return;
+    let d = {};
+    try { d = JSON.parse(raw || '{}'); } catch (e) { d = {}; }
+    if (d && d.ok) {
+      if (ta) ta.value = '';
+      mmToast('已添加记忆', 'ok');
+      await memoryPanelRefresh();
+    } else {
+      memoryPanelRenderError({ code: 'INTERNAL',
+        message: (d && d.error) || '添加失败' });
+      memoryPanelSetState('error');
+    }
+  } catch (e) {
+    if (seq !== memoryReqSeq) return;
+    memoryPanelRenderError({ code: 'BRIDGE_TIMEOUT',
+      message: (e && e.message) || String(e) });
+    memoryPanelSetState('error');
+  } finally {
+    mmBusy = false;
+    if (btn) { btn.disabled = false; btn.textContent = '添加记忆'; }
+  }
+}
+
+/* ---------- 删除（前端 confirm → memory_delete → 列表刷新） ---------- */
+async function memoryPanelDelete(index) {
+  if (mmBusy) return;
+  if (!Number.isInteger(index) || index < 0 || index >= mmLastItems.length) {
+    mmToast('该记忆已不在当前列表，请刷新后重试', 'warn');
+    return;
+  }
+  const preview = mmEntryText(mmLastItems[index]).slice(0, 40);
+  const body = '确定删除第 ' + (index + 1) + ' 条记忆吗？\n「' +
+    preview + (preview.length >= 40 ? '…' : '') + '」\n删除后不可恢复。';
+  let confirmed = false;
+  if (typeof uiConfirm === 'function') {
+    // v1.2 R3：应用内模态确认（danger 态）
+    const r = await uiConfirm({ title: '删除记忆', body: body, danger: true,
+      okText: '删除', cancelText: '取消' });
+    confirmed = !!(r && r.ok);
+  } else if (typeof confirm === 'function') {
+    confirmed = confirm(body);   // 降级：无 uiConfirm 的环境（vm 沙箱可桩）
+  }
+  if (!confirmed) return;
+  mmBusy = true;
+  const seq = ++memoryReqSeq;
+  memoryPanelSetState('pending');
+  try {
+    const raw = await mmCallApi('memory_delete', [index], MM_WRITE_TIMEOUT_MS);
+    if (seq !== memoryReqSeq) return;
+    let d = {};
+    try { d = JSON.parse(raw || '{}'); } catch (e) { d = {}; }
+    if (d && d.ok) {
+      mmToast('已删除（剩余 ' + (d.remaining || 0) + ' 条）', 'ok');
+      await memoryPanelRefresh();
+    } else {
+      const er = (d && d.error) || {};
+      memoryPanelRenderError({ code: er.code || 'INTERNAL',
+        message: er.message || '删除失败', hint: er.hint });
+      memoryPanelSetState('error');
+    }
+  } catch (e) {
+    if (seq !== memoryReqSeq) return;
+    memoryPanelRenderError({ code: 'BRIDGE_TIMEOUT',
+      message: (e && e.message) || String(e) });
+    memoryPanelSetState('error');
+  } finally {
+    mmBusy = false;
+  }
+}
+
 /* ===== 70-config.js ===== */
 /* ================= 配置 ================= */
 function collectConfig() {
@@ -10371,6 +11041,11 @@ async function openBilling() {
 const ERROR_HUMANIZE = [
   [/1113|余额不足.*coding|coding plan/i,
     'GLM Coding Plan 仅限官方指定工具使用，API 直连会报 1113。\n可行操作：① 在 bigmodel.cn 充值按量付费并使用平台 API Key；② 或切换到自定义 OpenAI 兼容端点（设置 → 模型服务商）。'],
+  // 修复（2026-10-21 用户实测）：模型已下线与端点地址错都是 404——先按模型特征
+  // 分流（GLM 等对下线模型返回 404 model not found，请求体带 model），避免误导
+  // 用户去查本来正确的 Base URL。顺序即优先级：具体模式必须在通用 404 前。
+  [/model[^\n]{0,24}(not\s+(found|exist)|不存在|已下线|下线|deprecat)|不存在[^\n]{0,4}模型/i,
+    '模型不存在或已下线：请更换模型（点「获取模型」刷新清单，或手动输入其他模型名）。'],
   [/\b401\b|invalid.*key|unauthorized/i, 'API Key 无效或未授权：请检查设置中的 Key 是否正确、是否属于所选服务商。'],
   [/\b403\b/i, '无权访问该端点（Key 权限不足或 IP 受限）。'],
   [/\b404\b/i, '端点地址不存在：请检查 Base URL（OpenAI 兼容端点通常需要 /v1 后缀）。'],
@@ -12169,6 +12844,8 @@ async function loadAll() {
   /* v1.8.0 B 域：搜索面板挂载（纯新增 #searchPanel；功能分级开关默认开，
    * 关闭时 searchPanelInit 内部短路——try/catch 防单模块异常拖垮启动） */
   try { searchPanelInit(); } catch (e) { console.warn('搜索面板初始化失败', e); }
+  /* v1.8.0 W10：首次使用引导向导（无 Key+无会话时展示；localStorage 记住） */
+  try { onboardingInit(); } catch (e) { console.warn('引导向导初始化失败', e); }
   /* v1.8.0 S 域·外部软件 + H 域·混合路由 + v1.8.5 A 域·任务授权/白名单
    * （纯新增 #softwareBlock / #hybridBlock / #grantIndicator / #grantRulesBlock；
    * 各自 Init 内部幂等 + typeof 守卫，失败不阻塞启动） */
