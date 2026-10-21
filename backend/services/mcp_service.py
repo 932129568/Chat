@@ -73,6 +73,12 @@ class McpService:
         # W10 楼层规则统计（tool_schemas 上次调用的截断/跳过计数；未调用为零值）
         self._floor_stats = {'truncated_desc': 0, 'skipped_per_server': 0,
                              'skipped_total': 0, 'emitted': 0}
+        # W10 TOFU：schema hash 快照 + 待重审集合（服务器工具悄悄变更→blocked）
+        self._schema_hash = {}
+        self._schema_review = set()
+        # W10 健康度三态：连续失败计数（ok/degraded/error）——失败 1-2 次
+        # degraded，≥3 error（面板徽标 + 建议重连）
+        self._fail_count = {}
         # 修复 S4①/W26：MCP 会话信任态（键 server__tool；切会话清空）
         self._session_trust = set()
         # 修复 S2（v1.5.1）：stdio 温启登记表（启用/测试后保留 client；IDLE 到期转
@@ -116,8 +122,45 @@ class McpService:
                         'callTimeout': s.get('callTimeout'),
                         # 修复 S2（v1.5.1）：温启状态与冷启耗时（面板「已预热/冷启 Nms」）
                         'warm': self._warm.get(s['name']) is not None,
-                        'spawn_ms': self._spawn_ms.get(s['name'])})
+                        'spawn_ms': self._spawn_ms.get(s['name']),
+                        # W10 健康度三态 + TOFU 待重审（deep-research W10）：
+                        # health = ok/degraded/error（连续失败 1-2→degraded，≥3→error）；
+                        # schema_review = 工具 schema 静默变更，需人工重审后才放行
+                        'health': self.server_health(s['name']),
+                        'schema_review': s['name'] in self._schema_review})
         return out
+
+    def server_health(self, name):
+        """W10 健康度三态：ok（无连续失败）/ degraded（1-2 连败）/ error（≥3）。"""
+        n = self._fail_count.get(name, 0)
+        if n >= 3:
+            return 'error'
+        if n >= 1:
+            return 'degraded'
+        return 'ok'
+
+    def report_result(self, name, ok):
+        """W10：工具调用结果回报 → 连续失败计数（成功清零；失败累加）。"""
+        with self._lock:
+            if ok:
+                self._fail_count.pop(name, None)
+            else:
+                self._fail_count[name] = self._fail_count.get(name, 0) + 1
+
+    def schema_review_ack(self, name):
+        """W10 TOFU：人工重审完成——接受新 schema 为快照（解除 blocked 态）。"""
+        with self._lock:
+            self._schema_review.discard(name)
+            entry = self._rt.get(name) or {}
+            canon = json.dumps(
+                [{'name': t.get('name'), 'description': t.get('description'),
+                  'inputSchema': t.get('inputSchema'),
+                  'annotations': t.get('annotations')}
+                 for t in entry.get('tools') or []],
+                sort_keys=True, ensure_ascii=False)
+            self._schema_hash[name] = hashlib.sha256(
+                canon.encode('utf-8')).hexdigest()
+        return {'ok': True, 'name': name}
 
     def save_server(self, name: str, cfg: dict, activate: bool = False) -> dict:
         """配置保存便捷入口（Api 装配用；实际逻辑在 McpConfigService）。"""
@@ -260,6 +303,29 @@ class McpService:
         with self._lock:
             self._server_alias = server_alias
             self._tool_alias = tool_alias
+            # W10 TOFU：schema hash 快照（server → sha256(tools 规范化 JSON)）。
+            # 首次见 → 记录（trust on first use）；与快照不符 → schema_review
+            # 状态（该 server 工具标 blocked-re-review，防「服务器悄悄换工具」
+            # 的供应链偷袭）。哈希只覆盖 name+description+inputSchema+annotations
+            # （ tierOverrides 等用户配置不算服务器侧变更）。
+            for name in names:
+                entry = self._rt.get(name) or {}
+                canon = json.dumps(
+                    [{'name': t.get('name'), 'description': t.get('description'),
+                      'inputSchema': t.get('inputSchema'),
+                      'annotations': t.get('annotations')}
+                     for t in entry.get('tools') or []],
+                    sort_keys=True, ensure_ascii=False)
+                h = hashlib.sha256(canon.encode('utf-8')).hexdigest()
+                prev = self._schema_hash.get(name)
+                if prev is None:
+                    self._schema_hash[name] = h
+                elif prev != h:
+                    self._schema_review.add(name)
+                    self._log.warning(
+                        'MCP 服务器 %s 工具 schema 变更（TOFU 告警）：需人工重审', name)
+                else:
+                    self._schema_review.discard(name)
             self._floor_stats = {'truncated_desc': n_trunc_desc,
                                  'skipped_per_server': n_skip_server,
                                  'skipped_total': n_skip_total,
@@ -481,19 +547,23 @@ class McpService:
                 result = client.call_tool(tool, arguments, eff_timeout)
         except McpTimeoutError:
             entry['last_error'] = 'timeout'
+            self.report_result(server, False)
             self._audit(server, tool, arguments, 'decision', decision, tier, source)
             # 修复 ㉑：超时时长用实际生效值而非硬编码
             return {'error': 'MCP 工具调用超时（%d 秒），已发送取消。可重试或确认服务器是否卡死。'
                              % eff_timeout}
         except McpProtocolError as e:
             entry['last_error'] = e.message
+            self.report_result(server, False)
             self._audit(server, tool, arguments, 'decision', decision, tier, source)
             return {'error': self._protocol_error_text(e)}
         except Exception as e:
             entry['last_error'] = str(e)
+            self.report_result(server, False)
             self._audit(server, tool, arguments, 'decision', decision, tier, source)
             return {'error': 'MCP 工具调用失败: %s' % e}
         rendered = self._render_result(result)
+        self.report_result(server, True)
         self._audit(server, tool, arguments, 'decision', decision, tier, source)
         return rendered
 

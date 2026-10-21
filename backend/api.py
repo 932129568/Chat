@@ -13,6 +13,7 @@ v1.2 追加 guard/update/provider 共 10 个、v1.3 追加 mcp_* 共 10 个隐�
 import json
 import os
 import sys
+import time
 
 from . import paths
 from . import tools_schema
@@ -27,6 +28,7 @@ from .services.guard_service import GuardService
 from .services.hybrid_router import HybridRouter
 from .services.plan_service import PlanService
 from .services.local_model_service import LocalModelService
+from .services.local_model_service import readiness as local_readiness_score
 from .services.local_proxy import get_proxy
 from .services.mcp_config_service import McpConfigService
 from .services.mcp_service import McpService
@@ -93,7 +95,7 @@ _V12_EXTRA = frozenset({
     'clarify_collect',
     # v1.8.0 W11 域·记忆 UI（1 个；删 memory.json 第 index 条，边界校验
     # 不静默夹逼；get_api_info 零漂移同款隐身）
-    'memory_delete', 'prompt_get',
+    'memory_delete', 'prompt_get', 'trace_new', 'local_readiness',
 })
 
 
@@ -107,6 +109,10 @@ class Api:
         self._workspace = WorkspaceService(self._runtime, self._config)
         self._toolcache = ToolcacheService()
         self._guard = GuardService()
+        # W1 trace_id：审计全链路追踪钩子（每消息/任务一个 t_<ts36>_<rand4>，
+        # guard/plan/tool 的审计自动带 trace 字段；切会话换新 trace）
+        self._guard.set_trace_hook(self._current_trace)
+        self._trace_id = None
         self._update = UpdateService()
         self._provider = ProviderService()
         self._files = FileService(self._runtime, self._workspace)
@@ -392,7 +398,35 @@ class Api:
             # 修复 W26：切会话清空后端会话信任态（与前端文案「本会话内不再提示」对齐）
             self._guard.clear_session_trust()
             self._mcp.clear_session_trust()
+            # W1：切会话使旧 trace 失效（下次 current_trace 生成新的）
+            self._trace_id = None
         return '{"ok":true}'
+
+    # ============ W1 trace_id（审计全链路追踪）============
+    def _current_trace(self):
+        """当前会话的 trace_id（懒生成 t_<ts36>_<rand4>；切会话后重新生成）。
+
+        供 guard audit 钩子读取——同一用户请求的 guard/plan/tool 审计行
+        带同一 trace，可按用户请求聚合检索。格式：36 位 base36 时间戳 +
+        4 位随机（总额定 41 字符，JSONL 友好）。
+        """
+        if not getattr(self, '_trace_id', None):
+            import random
+            import string
+            ts36 = ''
+            n = int(time.time() * 1000)
+            alpha = string.digits + string.ascii_lowercase
+            while n:
+                n, r = divmod(n, 36)
+                ts36 = alpha[r] + ts36
+            rand4 = ''.join(random.choice(alpha) for _ in range(4))
+            self._trace_id = 't_' + ts36 + '_' + rand4
+        return self._trace_id
+
+    def trace_new(self):
+        """强制开启新 trace（js_api 隐身；前端发送入口可显式调用分界请求）。"""
+        self._trace_id = None
+        return ok({'ok': True, 'trace': self._current_trace()})
 
     # ============ 工作区 ============
     def set_session_ws(self, sid, path, enabled=True):
@@ -692,6 +726,45 @@ class Api:
 
         返回 {ok, base_url, models:[{id, ctx_window, tool_capable, estimated}]}。"""
         return ok(self._local.models(base_url, api_key=api_key))
+
+    def local_readiness(self, base_url, model='', api_key=''):
+        """W2：本地模型协同就绪度 8 项评分（deep-research W2）。
+
+        管线：local_models 拉元数据 → readiness 纯函数评分（tag 固定/工具
+        能力/schema/迭代上限/路径护栏/结构化错误/日志/keep_alive）→
+        verdict=full|partial|cloud + 低分项建议（本地做不了的阶段交云端）。
+        返回 {ok, score, max, verdict, items[], suggestions[], model}。
+        探测失败 → 按不可达保守评分（verdict=cloud），不抛。
+        """
+        cfg = {}
+        try:
+            c = self._config.get_config()
+            cfg = {'local_model': c.get('local_model'),
+                   'local_ctx_window': c.get('local_ctx_window'),
+                   'local_max_iter': c.get('local_max_iter')}
+        except Exception:
+            pass
+        meta = {}
+        reachable = None
+        try:
+            lst = self._local.models(base_url, api_key=api_key)
+            reachable = bool(lst.get('ok'))
+            want = str(model or cfg.get('local_model') or '')
+            for m in lst.get('models') or []:
+                if m.get('id') == want:
+                    meta = m
+                    break
+            if not meta and (lst.get('models') or []):
+                meta = lst['models'][0]      # 未指定模型取清单首个（当前实际加载的）
+        except Exception:
+            reachable = False
+        info = {'reachable': reachable if reachable is not None else False,
+                'keep_alive': True,          # 混合路由组包默认带 keep_alive
+                'path_guard': True, 'logging_visible': True,
+                'schema_json': True}         # 提示词 schema 约束路径恒可用
+        r = local_readiness_score(meta, cfg, info)
+        r['model'] = meta.get('id') or str(model or cfg.get('local_model') or '')
+        return ok(r)
 
     # ============ v1.6 HF-P0 本地 CORS 代理（_V12_EXTRA 隐身）============
     def get_local_proxy(self):
