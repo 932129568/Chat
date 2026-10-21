@@ -177,3 +177,87 @@ class TestJsApiSurface:
         a = json.loads(legacy.Api().get_api_info())
         b = json.loads(Api().get_api_info())
         assert a['methods'] == b['methods']
+
+
+class TestExportSave:
+    """导出改保存对话框 + 后端写盘（2026-10-21 P1：blob a.click() 在 WebView2
+    里弹模态下载 UI 阻塞消息循环——导出后界面卡死只能重开）。"""
+
+    def test_save_export_file_ok(self, fresh_home):
+        from backend.api import Api
+        p = os.path.join(os.environ['HOME'], 'chat.md')
+        r = json.loads(Api().save_export_file(p, '# 导出\n内容行'))
+        assert r['ok'] and r['bytes'] > 0
+        assert '# 导出' in open(p, encoding='utf-8').read()
+
+    def test_empty_path_rejected(self, fresh_home):
+        from backend.api import Api
+        r = json.loads(Api().save_export_file('', 'x'))
+        assert 'error' in r
+
+    def test_bad_parent_rejected(self, fresh_home):
+        from backend.api import Api
+        r = json.loads(Api().save_export_file('Z://no-dir-xyz//a.md', 'x'))
+        assert 'error' in r
+
+    def test_oversize_rejected(self, fresh_home):
+        from backend.api import Api
+        p = os.path.join(os.environ['HOME'], 'big.md')
+        r = json.loads(Api().save_export_file(p, 'x' * (9 * 1024 * 1024)))
+        assert 'error' in r and not os.path.exists(p)
+
+    def test_pick_save_path_no_window(self, fresh_home):
+        from backend.api import Api
+        r = json.loads(Api().pick_save_path('a.md'))
+        assert 'error' in r        # 无窗口 → err（前端 toast 回落）
+
+    def test_stealth_and_contract(self, fresh_home):
+        from backend.api import Api, _V12_EXTRA
+        assert 'pick_save_path' in _V12_EXTRA and 'save_export_file' in _V12_EXTRA
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        from conftest import legacy
+        a = json.loads(legacy.Api().get_api_info())
+        b = json.loads(Api().get_api_info())
+        assert a['methods'] == b['methods']
+
+
+class TestExportSave:
+    """导出改保存对话框 + 后端写盘（2026-10-21 P1：blob a.click() 在 WebView2
+    里弹模态下载 UI 阻塞消息循环——导出后界面卡死只能重开）。"""
+
+    def test_save_export_file_ok(self, fresh_home):
+        from backend.api import Api
+        p = os.path.join(os.environ['HOME'], 'chat.md')
+        r = json.loads(Api().save_export_file(p, '# 导出\n内容行'))
+        assert r['ok'] and r['bytes'] > 0
+        assert '# 导出' in open(p, encoding='utf-8').read()
+
+    def test_empty_path_rejected(self, fresh_home):
+        from backend.api import Api
+        r = json.loads(Api().save_export_file('', 'x'))
+        assert 'error' in r
+
+    def test_bad_parent_rejected(self, fresh_home):
+        from backend.api import Api
+        r = json.loads(Api().save_export_file('Z:\no-dir-xyz\a.md', 'x'))
+        assert 'error' in r
+
+    def test_oversize_rejected(self, fresh_home):
+        from backend.api import Api
+        p = os.path.join(os.environ['HOME'], 'big.md')
+        r = json.loads(Api().save_export_file(p, 'x' * (9 * 1024 * 1024)))
+        assert 'error' in r and not os.path.exists(p)
+
+    def test_pick_save_path_no_window(self, fresh_home):
+        from backend.api import Api
+        r = json.loads(Api().pick_save_path('a.md'))
+        assert 'error' in r        # 无窗口 → err（前端 toast 回落）
+
+    def test_stealth_and_contract(self, fresh_home):
+        from backend.api import Api, _V12_EXTRA
+        assert 'pick_save_path' in _V12_EXTRA and 'save_export_file' in _V12_EXTRA
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        from conftest import legacy
+        a = json.loads(legacy.Api().get_api_info())
+        b = json.loads(Api().get_api_info())
+        assert a['methods'] == b['methods']

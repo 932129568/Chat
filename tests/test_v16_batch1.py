@@ -110,10 +110,12 @@ class TestT4DeepSeekPreset:
         src = _fe('36-connect.js')
         seg = src.split('  deepseek: {')[1].split('  },')[0]
         assert "base_url: 'https://api.deepseek.com/v1'" in seg
-        assert "id: 'deepseek-v4.1-256k'" in seg
-        assert "id: 'deepseek-v4.1'" in seg
-        assert 'prices: { in: 2, out: 8, cache: 0.4 }' in seg
-        assert '256k 上下文' in seg
+        # R20 校准（2026-10-21 api-docs.deepseek.com 实测）：现行模型名
+        # deepseek-flash/deepseek-v4-pro（ctx 1M）；旧名 v4.1-* 已退役
+        assert "id: 'deepseek-flash'" in seg
+        assert "id: 'deepseek-v4-pro'" in seg
+        assert 'prices: { in: 0.15, out: 0.6, cache: 0.003 }' in seg
+        assert '1M 上下文' in seg
 
 
 # ============================================================ T3 429 人话映射（vm 真实源码）

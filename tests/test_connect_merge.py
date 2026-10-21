@@ -201,7 +201,7 @@ class TestPresetTableAndVisibility:
         by_id = {p['id']: p for p in r['presets']}
         # D4：GLM 走内置价格表（无三价）、云端有默认价、本地零费
         assert by_id['glm']['prices'] is None
-        assert by_id['deepseek']['prices'] == {'in': 2, 'out': 8, 'cache': 0.4}
+        assert by_id['deepseek']['prices'] == {'in': 0.15, 'out': 0.6, 'cache': 0.003}  # R20 校准（2026-10-21 官网）
         for lid in ('ollama', 'lmstudio', 'vllm', 'llamacpp', 'localai'):
             assert by_id[lid]['prices'] == {'in': 0, 'out': 0, 'cache': 0}, lid
             assert by_id[lid]['base_url'].startswith('http://localhost:'), lid
@@ -316,7 +316,7 @@ async function __main() {
   ctx.connectSyncState();
   const ds = { glm: ctx.isGlmEndpoint(), local: ctx.localModeActive(),
                key: ctx.effectiveApiKey(), endpoint: ctx.resolveApiEndpoint(),
-               price: ctx.providerPriceFor('deepseek-v4.1') };
+               price: ctx.providerPriceFor('deepseek-flash') };
 
   /* ③ Ollama 预设：免 Key / 零费 / localState 派生出 model（60-agent-loop 本地分支依赖） */
   await ctx.connectApplyPreset('ollama', {});
@@ -367,7 +367,7 @@ class TestEndpointDerivation:
         assert ds['glm'] is False and ds['local'] is False
         assert ds['key'] == 'sk-ds'
         assert ds['endpoint'] == 'https://api.deepseek.com/v1/chat/completions'
-        assert ds['price'] == {'in': 2, 'out': 8, 'cache': 0.4}      # 三价实价（D4）
+        assert ds['price'] == {'in': 0.15, 'out': 0.6, 'cache': 0.003}   # 三价实价（R20 校准）
 
     def test_local_preset_is_keyless_and_zero_cost(self):
         r = _run_node(_JS_DERIVE, 'derive_local')
@@ -566,7 +566,7 @@ async function __main() {
   const again = snap();
   /* ③ 已是新配置（provider_* 齐全）：不 seed、不回退 GLM */
   ctx.connectLoadFromConfig({ provider_name: 'deepseek', provider_base_url: 'https://api.deepseek.com/v1',
-    provider_key: 'sk-ds', provider_model: 'deepseek-v4.1', provider_prices: { in: 2, out: 8, cache: 0.4 } });
+    provider_key: 'sk-ds', provider_model: 'deepseek-flash', provider_prices: { in: 0.15, out: 0.6, cache: 0.003 } });
   const cloud = snap();
   /* ④ v1.5 本地模式老配置：迁移为本地系预设（旧运行期本地优先） */
   ctx.connectLoadFromConfig({ local_mode: true, local_base_url: 'http://localhost:11434/v1',
@@ -611,8 +611,8 @@ class TestLegacyConfigSeed:
         assert cloud['preset'] == 'deepseek'
         assert cloud['base'] == 'https://api.deepseek.com/v1'
         assert cloud['key'] == 'sk-ds'
-        assert cloud['model'] == 'deepseek-v4.1'
-        assert cloud['collected']['provider_prices'] == {'in': 2, 'out': 8, 'cache': 0.4}
+        assert cloud['model'] == 'deepseek-flash'
+        assert cloud['collected']['provider_prices'] == {'in': 0.15, 'out': 0.6, 'cache': 0.003}
 
     def test_dual_config_migration_prefers_local_model(self):
         """双开老配置（provider_model=云端名 + local_model=本地名）迁到本地预设时，
@@ -845,7 +845,7 @@ class TestPricingIsolationAndMotion:
     def test_glm_builtin_price_ignores_three_price_inputs(self):
         r = _run_node(_JS_PRICE_ISOLATION, 'price_iso')
         assert r['glmFlash'] == {'in': 0.8, 'out': 2.8, 'cache': 0.23}   # 内置表，不吃 99
-        assert r['ds'] == {'in': 2, 'out': 8, 'cache': 0.4}             # 三价实价
+        assert r['ds'] == {'in': 0.15, 'out': 0.6, 'cache': 0.003}      # 三价实价（R20 校准）
         assert r['local'] == {'in': 0, 'out': 0, 'cache': 0}            # 本地零费
 
     def test_reduced_motion_applies_without_animation(self):
