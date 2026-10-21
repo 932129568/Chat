@@ -279,9 +279,34 @@ function hybridRenderSplit() {
   if (lt + ct <= 0) { chip.style.display = 'none'; return; }   // usage 缺失 → 隐藏
   const saved = lt / 1000 * HY_CLOUD_PRICE_PER_1K;
   chip.style.display = '';
-  chip.textContent = '本地 ' + hyFmtInt(lt) + ' tok · 云端 ' + hyFmtInt(ct) +
-    ' tok · 省 ' + hyFmtMoney(saved);
+  hyCountUpChip(chip, lt, ct, saved);
   chip.title = '本地 tok 计费 ¥0（计入统计）；节省 = 本地 tok × 云端单价';
+}
+
+/* 分账数字滚动（motion-spec §1-6：count-up 600ms MOTION.count()；
+   fx-off/reduced-motion 早退终值——JS prefersReduced 分支同 78-analytics 先例）。
+   CSS transition 对 textContent 无效，必须 rAF。 */
+let _hyChipAnim = null;
+function hyCountUpChip(chip, lt, ct, saved) {
+  const toL = Math.round(lt || 0), toC = Math.round(ct || 0);
+  const money = '省 ' + hyFmtMoney(saved);
+  if (typeof MOTION === 'undefined' || MOTION.instant() || MOTION.prefersReduced()) {
+    chip.textContent = '本地 ' + hyFmtInt(toL) + ' tok · 云端 ' + hyFmtInt(toC) + ' tok · ' + money;
+    return;
+  }
+  const from = (typeof _hyChipAnim === 'object' && _hyChipAnim) || { l: 0, c: 0 };
+  if (_hyChipAnim && _hyChipAnim.raf) cancelAnimationFrame(_hyChipAnim.raf);
+  const t0 = performance.now(), dur = MOTION.count();
+  _hyChipAnim = { l: toL, c: toC, raf: 0 };
+  const tick = () => {
+    const p = Math.min(1, (performance.now() - t0) / dur);
+    const e = 1 - Math.pow(1 - p, 3);
+    const cl = Math.round(from.l + (toL - from.l) * e);
+    const cc = Math.round(from.c + (toC - from.c) * e);
+    chip.textContent = '本地 ' + hyFmtInt(cl) + ' tok · 云端 ' + hyFmtInt(cc) + ' tok · ' + money;
+    if (p < 1) _hyChipAnim.raf = requestAnimationFrame(tick);
+  };
+  _hyChipAnim.raf = requestAnimationFrame(tick);
 }
 function hybridResetSplit() {
   hybridSplit = { local_tokens: 0, cloud_tokens: 0 };

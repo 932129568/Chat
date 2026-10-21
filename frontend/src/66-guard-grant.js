@@ -39,6 +39,7 @@ let ggState = 'idle';          // idle|pending|success|error
 let ggCountdownTimer = null;   // 本地 1s 递减句柄
 let ggCalibrateTimer = null;   // 30s 校准句柄
 let ggRemaining = 0;           // 本地递减剩余秒（校准源：guard_task_status）
+let ggTtlTotal = 0;            // 授权总时长秒（倒计时环比例分母；校准源同）
 let ggActive = false;          // 授权活跃态
 let ggExpiringSoon = false;    // 剩余 <600s 黄牌
 let ggGrantId = null;
@@ -81,6 +82,8 @@ function guardGrantInit() {
       ind.style.display = 'none';
       ind.innerHTML =
         '<span class="gg-light" id="ggLight"></span>' +
+        '<svg class="gg-ring" id="ggRing" viewBox="0 0 16 16" aria-hidden="true">' +
+        '<circle class="bg" cx="8" cy="8" r="7"/><circle class="fg" id="ggRingFg" cx="8" cy="8" r="7"/></svg>' +
         '<span class="gg-timer" id="ggTimer">--:--</span>' +
         '<button type="button" class="modal-btn gg-btn" id="ggRenewBtn" style="display:none;">重新授权</button>' +
         '<button type="button" class="modal-btn gg-btn" id="ggRevokeBtn">收回</button>';
@@ -213,6 +216,7 @@ async function guardGrantRefreshStatus(calibrate) {
       ggActive = !!d.active;
       ggGrantId = d.grant_id || null;
       ggRemaining = parseInt(d.remaining_s || 0, 10) || 0;
+      if (d.ttl_seconds) ggTtlTotal = parseInt(d.ttl_seconds, 10) || ggTtlTotal;
       ggExpiringSoon = !!d.expiring_soon;
       if (prevActive && !ggActive) {
         ggToast('任务授权已到期/收回，后续操作将逐项确认', 'warn');
@@ -247,10 +251,19 @@ function guardGrantRenderIndicator() {
   ind.style.display = '';
   const light = ggEl('ggLight');
   if (light) light.className = 'gg-light ' + (ggExpiringSoon ? 'warn' : 'ok');
+  const ring = ggEl('ggRing');
+  if (ring) ring.classList.toggle('warn', !!ggExpiringSoon);
   const timer = ggEl('ggTimer');
   if (timer) {
     timer.textContent = '授权剩余 ' + ggFmtRemain(ggRemaining);
     timer.className = 'gg-timer' + (ggExpiringSoon ? ' expiring' : '');
+  }
+  // 倒计时环：stroke-dashoffset 每秒一跳（时钟语义，登记的白名单例外属性）
+  const fg = ggEl('ggRingFg');
+  if (fg) {
+    const ttl = Math.max(1, ggTtlTotal || ggRemaining || 7200);
+    const p = Math.max(0, Math.min(1, (ggRemaining || 0) / ttl));
+    fg.style.strokeDashoffset = String(44 * (1 - p));
   }
   const renew = ggEl('ggRenewBtn');
   if (renew) renew.style.display = ggExpiringSoon ? '' : 'none';
