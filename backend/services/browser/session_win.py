@@ -22,6 +22,7 @@ browser/ 包（设计文档 §A2.6 迁移映射表）——SearchBrowser 类名/
 纯 IO 边界：本模块是搜索栈唯一直接触网的模块（urllib），窗口操作经 pywebview；
 ``import`` 无副作用（webview 延迟导入），可在无 GUI 环境导入与单测。
 """
+import json
 import os
 import re
 import socket
@@ -420,17 +421,133 @@ class SearchBrowser:
             self._destroy_window(win)
 
 
-class WinSession(BrowserSession):
-    """Windows 渲染后端（pywebview 次窗通道 SearchBrowser 适配六原语；M1.5）。
+# ================= M3：click/fill 的 evaluate_js 派发脚本（纯函数构建） =================
+# 参数一律经 json.dumps 编码为 JS 字符串字面量再嵌入脚本——target/selector/text
+# 里藏 '); malicious(); 的注入载荷只会成为字符串内容，零执行（M3.9 注入防御，
+# 测试 test_v19_driver 注入 fixture 锁定）。返回值统一 JSON.stringify 串，
+# 会话层 json.loads 解析（evaluate_js 传 str 回来）。
+_JS_ERR_MAP = {
+    'not_found': (BrowserErrorCode.BAD_PARAMS, '未找到目标元素', '换 selector 或用可见文本'),
+    'bad_selector': (BrowserErrorCode.BAD_PARAMS, '选择器语法非法'),
+    'not_visible': (BrowserErrorCode.BAD_PARAMS, '目标元素不可见（display:none/零尺寸）',
+                    'AI 驱动只点击可见元素'),
+    'out_of_viewport': (BrowserErrorCode.BAD_PARAMS, '目标元素在视口外',
+                        'AI 驱动拒绝点击视口外元素（防误触）'),
+    'sensitive_field': (BrowserErrorCode.BAD_PARAMS, '拒绝操作敏感字段（password/file）',
+                        '密码与文件字段不适用 AI 填充'),
+    'not_fillable': (BrowserErrorCode.BAD_PARAMS, '目标元素不可填充（非 input/textarea/select）'),
+    'click_failed': (BrowserErrorCode.INTERNAL, '元素 click() 调用失败'),
+    'js_unavailable': (BrowserErrorCode.INTERNAL, '页面 JS 通道不可用（evaluate_js 无法泵送）',
+                       '当前会话环境限制，换 browser_open 读取页面'),
+}
 
-    适配映射（设计文档 §A2.6）：
+
+def build_click_js(target):
+    """点击脚本：selector 优先（querySelector）→ 可见文本 XPath 兜底；
+    可见性检查（display/visibility/尺寸）+ 视口外拒点（M3.9）→ scrollIntoView → click()。
+
+    文本查找的 XPath 字面量用**单引号界定 + 目标串 ' 翻倍转义**（XPath 1.0
+    无反斜杠转义——JSON 的 \\" 在 XPath 是语法错误；不转义可构造谓词注入）；
+    document.evaluate 全程 try/catch（非法谓词归 not_found，不炸整段 IIFE）。"""
+    t = json.dumps(str(target or ''), ensure_ascii=False)
+    return ('(function(){'
+            'var T=%s;'
+            'var el=null,how="";'
+            'try{el=document.querySelector(T);how="selector";}catch(e){}'
+            'if(!el){'
+            'var esc=function(s){return String(s).replace(/\'/g,"\'\'");};'
+            'var x=null;'
+            'try{x=document.evaluate("//*[normalize-space(text())=\'"+esc(T)+"\']",'
+            'document,null,9,null).singleNodeValue;}catch(e){}'
+            'if(!x){try{x=document.evaluate('
+            '"//*[not(*)][contains(normalize-space(.),\'"+esc(T)+"\')]",'
+            'document,null,9,null).singleNodeValue;}catch(e){}}'
+            'if(x){el=x;how="text";}}'
+            'if(!el){return JSON.stringify({error:"not_found"});}'
+            'var st=window.getComputedStyle(el);var r=el.getBoundingClientRect();'
+            'if(st.display==="none"||st.visibility==="hidden"||r.width<=0||r.height<=0)'
+            '{return JSON.stringify({error:"not_visible"});}'
+            'if(r.bottom<0||r.right<0||r.top>window.innerHeight||r.left>window.innerWidth)'
+            '{return JSON.stringify({error:"out_of_viewport"});}'
+            'try{el.scrollIntoView({block:"center"});}catch(e){}'
+            'try{el.click();}catch(e){return JSON.stringify({error:"click_failed"});}'
+            'return JSON.stringify({ok:true,how:how});'
+            '})()' % t)
+
+
+def build_fill_js(selector, text):
+    """填充脚本：敏感字段（password/file）拒填（M3.9）；React 受控组件经
+    原型 native setter 赋值 + input/change 事件派发；select 走 value+change。"""
+    s = json.dumps(str(selector or ''), ensure_ascii=False)
+    t = json.dumps(str(text if text is not None else ''), ensure_ascii=False)
+    return ('(function(){'
+            'var SEL=%s,TEXT=%s;'
+            'var el=null;'
+            'try{el=document.querySelector(SEL);}catch(e){return JSON.stringify({error:"bad_selector"});}'
+            'if(!el){return JSON.stringify({error:"not_found"});}'
+            'var tag=(el.tagName||"").toLowerCase();'
+            'var type=(el.getAttribute("type")||"").toLowerCase();'
+            'if(type==="password"||type==="file"){return JSON.stringify({error:"sensitive_field"});}'
+            'if(tag==="select"){el.value=TEXT;'
+            'el.dispatchEvent(new Event("change",{bubbles:true}));'
+            'return JSON.stringify({ok:true});}'
+            'if(tag!=="input"&&tag!=="textarea"){return JSON.stringify({error:"not_fillable"});}'
+            'var proto=tag==="textarea"?window.HTMLTextAreaElement.prototype'
+            ':window.HTMLInputElement.prototype;'
+            'var d=Object.getOwnPropertyDescriptor(proto,"value");'
+            'if(d&&d.set){d.set.call(el,TEXT);}else{el.value=TEXT;}'
+            'el.dispatchEvent(new Event("input",{bubbles:true}));'
+            'el.dispatchEvent(new Event("change",{bubbles:true}));'
+            'return JSON.stringify({ok:true});'
+            '})()' % (s, t))
+
+
+def build_wait_js(selector):
+    """等待选择器探测脚本：'1'=命中 / '0'=未命中 / 'e'=选择器非法。"""
+    s = json.dumps(str(selector or ''), ensure_ascii=False)
+    return ('(function(){try{return document.querySelector(%s)!==null?"1":"0";}'
+            'catch(e){return "e";}})()' % s)
+
+
+def map_js_result(raw):
+    """evaluate_js 返回（str JSON 或 None）→ dict；解析失败/None 归一
+    {'error': 'js_unavailable'}（不可泵送/空返回统一降级语义）。"""
+    if not raw or not isinstance(raw, str):
+        return {'error': 'js_unavailable'}
+    try:
+        d = json.loads(raw)
+        return d if isinstance(d, dict) else {'error': 'js_unavailable'}
+    except Exception:
+        return {'error': 'js_unavailable'}
+
+
+def _js_error(result):
+    """JS 结果 dict → BrowserError（未知 error 码归 INTERNAL）。"""
+    key = str((result or {}).get('error') or '')
+    code, msg = _JS_ERR_MAP.get(key, (BrowserErrorCode.INTERNAL,
+                                      '页面原语执行失败: %s' % key))[:2]
+    hint = _JS_ERR_MAP.get(key, ('', '', ''))[2] if key in _JS_ERR_MAP else ''
+    return BrowserError(code, msg, hint)
+
+
+class WinSession(BrowserSession):
+    """Windows 渲染后端（pywebview 次窗通道适配六原语；M1.5 骨架 / M3 真实现）。
+
+    适配映射（设计文档 §A2.6 + master-plan §149 M3）：
     - ``navigate`` = SearchBrowser.open_url + 取 title（协议/SSRF 预校验给
-      精确 taxonomy 码：NAV_BLOCKED / SSRF_BLOCKED，通道层只回 NAV_BLOCKED）；
+      精确 taxonomy 码）+ wait_selector 等待（通道声明 ``supports_wait`` 时透传）；
     - ``extract`` = 对 navigate 所取 HTML 跑 build_extract_result
-      （markdown/text/links 三态；M3 起改经 evaluate_js 取实时 outerHTML——
-      沙箱不可泵送为已知限制，先用 navigate 所取页面）；
-    - ``close`` = SearchBrowser.shutdown（幂等）；
-    - ``click`` / ``fill`` / ``screenshot`` = PRIMITIVE_UNSUPPORTED（M3 落点）。
+      （markdown/text/links 三态）；
+    - ``click`` / ``fill`` = evaluate_js 派发（M3.2：通道声明 ``eval_js`` 时启用；
+      参数经 json.dumps 编码进 JS 字符串字面量——注入防御，毒网页参数零执行）；
+      click 附前后态截图审计（best-effort，通道有 ``capture_b64`` 才截）；
+      fill 禁回显原文（masked:true 契约）；
+    - ``screenshot`` = 通道窗口捕获（``capture_b64``；win32 窗口捕获在通道层）；
+    - ``close`` = 通道 shutdown（幂等）。
+
+    通道能力降级：SearchBrowser（搜索次窗）无 eval_js/capture_b64 →
+    click/fill/screenshot 抛 PRIMITIVE_UNSUPPORTED（M1.5 迁移期行为保持）；
+    DriverWindow（M3 驱动次窗）全能力。
 
     裁决（设计文档 §A3.3）：WinSession **不实现 open_url**——搜索管线只吃
     SearchBrowser（鸭子类型），六原语走 M3 BrowserService 新管线，与搜索
@@ -442,7 +559,9 @@ class WinSession(BrowserSession):
     def __init__(self, channel=None):
         """Args:
             channel: 取数通道（缺省 SearchBrowser()；测试可注入假通道——
-                任何有 open_url(url) / shutdown() 的对象均可，鸭子类型）。
+                任何有 open_url(url) / shutdown() 的对象均可，鸭子类型；
+                可选能力声明：supports_wait / eval_js / capture_b64 /
+                set_visible（M3 驱动通道 DriverWindow 全有）。
         """
         super().__init__()
         self._log = get_logger()
@@ -459,7 +578,9 @@ class WinSession(BrowserSession):
         换页请 close 后新建（M3 BrowserService 管线可扩展）。
 
         通道层已有 8s 看门狗与 urllib 兜底（SearchBrowser.open_url）；
-        ``timeout`` / ``wait_selector`` 为六原语契约参数（M3 透传到通道层）。
+        M3：wait_selector 经通道 ``supports_wait`` 声明透传（选择器等待 +
+        DOM 稳定三保险在 DriverWindow 侧）；SearchBrowser 通道忽略等待参数
+        （迁移期行为保持——加载事件即返回）。
         """
         try:
             u = str(url or '').strip()
@@ -475,8 +596,12 @@ class WinSession(BrowserSession):
                     BrowserErrorCode.SSRF_BLOCKED,
                     '已阻止访问内网/环回地址: %s' % u[:80],
                     '禁止访问内网/环回地址')
+            kwargs = {}
+            ws = str(wait_selector or '').strip()
+            if ws and getattr(self._channel, 'supports_wait', False):
+                kwargs = {'wait_selector': ws, 'timeout': timeout}
             try:
-                r = self._channel.open_url(u)
+                r = self._channel.open_url(u, **kwargs)
             except Exception as e:
                 raise BrowserError(BrowserErrorCode.INTERNAL,
                                    '导航失败: %s' % e)
@@ -506,37 +631,108 @@ class WinSession(BrowserSession):
             self._settle_ready()
 
     def click(self, target):
-        """M3 落点：Windows 渲染后端的点击原语（pywebview 事件注入）尚未交付。"""
+        """M3.2：点击原语——evaluate_js 派发（selector|text）+ 前后态截图审计。
+
+        参数经 json.dumps 编码进 JS 字面量（注入防御）；可见性/视口外拒点
+        在页面 JS 内判定（M3.9）；前后态截图 best-effort（通道 capture_b64
+        缺失或失败 → 空串，不阻断点击结果）。通道无 eval_js 能力
+        （SearchBrowser）→ PRIMITIVE_UNSUPPORTED（M1.5 迁移期行为保持）。
+        """
         self._enter(SessionState.BUSY)
         try:
-            raise BrowserError(
-                BrowserErrorCode.PRIMITIVE_UNSUPPORTED,
-                'Windows 渲染后端的 click 原语计划于 M3 交付（pywebview 事件注入）',
-                '当前可经 browser_open 读取页面内容')
+            t = str(target or '').strip()
+            if not t:
+                raise BrowserError(BrowserErrorCode.BAD_PARAMS, 'target 不能为空')
+            self._require_js_channel()
+            before = self._capture_best_effort()
+            result = map_js_result(self._eval_js(build_click_js(t)))
+            if result.get('error'):
+                raise _js_error(result)
+            after = self._capture_best_effort()
+            out = {'ok': True, 'before_b64': before, 'after_b64': after}
+            if result.get('how'):
+                out['how'] = result['how']
+            return out
         finally:
             self._settle_ready()
 
     def fill(self, selector, text):
-        """M3 落点：Windows 渲染后端的表单填充原语尚未交付。"""
+        """M3.2：填充原语——evaluate_js 派发；敏感字段（password/file）拒填；
+        返回 masked:true（契约禁回显原文）。通道无 eval_js → PRIMITIVE_UNSUPPORTED。"""
         self._enter(SessionState.BUSY)
         try:
-            raise BrowserError(
-                BrowserErrorCode.PRIMITIVE_UNSUPPORTED,
-                'Windows 渲染后端的 fill 原语计划于 M3 交付（pywebview 事件注入）',
-                '敏感内容禁回显：M3 实现同样只返回 {ok, masked: True}')
+            s = str(selector or '').strip()
+            if not s:
+                raise BrowserError(BrowserErrorCode.BAD_PARAMS, 'selector 不能为空')
+            self._require_js_channel()
+            result = map_js_result(self._eval_js(build_fill_js(s, text)))
+            if result.get('error'):
+                raise _js_error(result)
+            return {'ok': True, 'masked': True}
         finally:
             self._settle_ready()
 
     def screenshot(self, full_page=False):
-        """M3 落点：Windows 渲染后端的截屏原语尚未交付。"""
+        """M3.3：当前页截图（win32 窗口捕获在通道层 capture_b64）。
+
+        full_page=True 的整页捕获（JS 展开文档高度）为 M8.4 细化项——当前
+        返回窗口客户区（point 坐标系，与 macOS 侧同口径约定）。
+        """
         self._enter(SessionState.BUSY)
         try:
-            raise BrowserError(
-                BrowserErrorCode.PRIMITIVE_UNSUPPORTED,
-                'Windows 渲染后端的 screenshot 原语计划于 M3 交付',
-                '全屏截屏可先用 take_screenshot js_api')
+            cap = getattr(self._channel, 'capture_b64', None)
+            if not callable(cap):
+                raise BrowserError(
+                    BrowserErrorCode.PRIMITIVE_UNSUPPORTED,
+                    '当前通道不支持窗口捕获（screenshot 原语需驱动次窗通道）',
+                    '全屏截屏可先用 take_screenshot js_api')
+            try:
+                b64 = cap()
+            except Exception as e:
+                raise BrowserError(BrowserErrorCode.INTERNAL, '窗口捕获失败: %s' % e)
+            if not b64:
+                raise BrowserError(
+                    BrowserErrorCode.INTERNAL, '窗口捕获返回空（窗口可能已隐藏或不可用）')
+            size = getattr(self._channel, 'viewport', None) or (0, 0)
+            return {'ok': True, 'b64': b64, 'width': int(size[0]), 'height': int(size[1])}
         finally:
             self._settle_ready()
+
+    # ---------------- M3：JS 派发 / 截图 / 可见性 helper ----------------
+
+    def _require_js_channel(self):
+        """通道能力闸：无 eval_js 的通道（SearchBrowser）不支持交互原语——
+        PRIMITIVE_UNSUPPORTED（M1.5 迁移期行为保持；驱动原语需 DriverWindow）。"""
+        if not callable(getattr(self._channel, 'eval_js', None)):
+            raise BrowserError(
+                BrowserErrorCode.PRIMITIVE_UNSUPPORTED,
+                '当前通道不支持页面交互原语（需浏览器驱动次窗通道）',
+                '读取页面内容可经 browser_open')
+
+    def _eval_js(self, code, timeout=None):
+        """evaluate_js 统一门：通道声明 eval_js 才派发（否则 js_unavailable
+        降级语义）；不抛——异常归 None 由 map_js_result 统一降级。"""
+        fn = getattr(self._channel, 'eval_js', None)
+        if not callable(fn):
+            return None
+        try:
+            kw = {}
+            if timeout is not None:
+                kw['timeout'] = timeout
+            return fn(code, **kw) if kw else fn(code)
+        except Exception as e:
+            self._log.debug('evaluate_js 派发失败: %r', e)
+            return None
+
+    def _capture_best_effort(self):
+        """前后态截图 best-effort：失败/无能力 → ''（审计字段缺省，不阻断原语）。"""
+        cap = getattr(self._channel, 'capture_b64', None)
+        if not callable(cap):
+            return ''
+        try:
+            return cap() or ''
+        except Exception:
+            return ''
 
     def close(self):
         """关闭会话（幂等）：销毁次窗 + 停回收线程。重复调用直接返回 ok。"""

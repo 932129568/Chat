@@ -114,12 +114,33 @@ class TestV19Placeholders:
             assert m not in info['methods'], m
 
     def test_placeholder_shape(self, fresh_home):
+        """M1.9 占位契约：get_platform_info 仍占位（M6.10 转正）。"""
         from backend.api import Api
         api = Api()
-        r = json.loads(api.browser_navigate('https://x.com'))
+        r = json.loads(api.get_platform_info())
         assert r['ok'] is False
         assert r['error']['code'] == 'NOT_IMPLEMENTED'
         assert r['error']['milestone']
+
+    def test_browser_six_promoted_m3(self, fresh_home):
+        """M3/M5 转正：六浏览器原语不再返回 NOT_IMPLEMENTED（实现体转正，
+        _V12_EXTRA 登记不动——占位契约「转正只改实现体」的正向断言）。"""
+        from backend.api import Api
+        api = Api()
+        for method, args in (('browser_extract', ()),
+                             ('browser_click', ('#x',)),
+                             ('browser_fill', ('#x', 't')),
+                             ('browser_screenshot', ()),
+                             ('browser_close', ())):
+            r = json.loads(getattr(api, method)(*args))
+            assert r.get('ok') is not None
+            if r.get('ok') is False:
+                code = (r.get('error') or {}).get('code')
+                assert code != 'NOT_IMPLEMENTED', method
+        # navigate 走 SSRF/通道真实路径（不含 NOT_IMPLEMENTED）
+        r = json.loads(api.browser_navigate('https://x.com', timeout=1))
+        assert (r.get('error') or {}).get('code') != 'NOT_IMPLEMENTED' \
+            if r.get('ok') is False else True
 
     def test_checkpoint_three_not_placeholdered(self, fresh_home):
         """checkpoint 三兄弟是 v1.8 已交付项——不得返回 NOT_IMPLEMENTED。"""

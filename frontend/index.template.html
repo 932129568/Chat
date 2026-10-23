@@ -1511,6 +1511,37 @@ body.theming .mm-row,body.theming .mm-input{
 .gg-light.off{background:var(--text-3);animation:none}
 .gg-timer{font-size:11px;color:var(--text-2);font-family:var(--font-mono);white-space:nowrap}
 .gg-btn{height:22px;padding:0 9px;font-size:11px;border-radius:var(--radius-full)}
+/* ---- v1.9.0（grant-budget 原型移植）：审批预算条——mono「3/5」+ dot 格；.over 转 err ---- */
+.grant-budget{display:inline-flex;align-items:center;gap:3px;font-family:var(--font-mono);
+  font-size:11px;color:var(--text-2);white-space:nowrap;cursor:default}
+.grant-budget i{width:5px;height:5px;border-radius:50%;background:var(--border-strong);
+  display:inline-block;transition:background var(--dur-fast) var(--ease)}
+.grant-budget i.on{background:var(--primary)}
+.grant-budget b{font-weight:600;margin-left:4px;color:var(--text-2)}
+.grant-budget.over i,.grant-budget.over i.on{background:var(--err)}
+.grant-budget.over b{color:var(--err)}
+/* ---- v1.9.0（reader-status 原型移植）：读取器状态灯三态 ---- */
+.reader-badge{display:inline-flex;align-items:center;gap:5px;height:26px;padding:0 10px;
+  border-radius:var(--radius-full);background:var(--card-bg);border:1px solid var(--border);
+  box-shadow:var(--shadow-sm);font-size:11px;color:var(--text-2);white-space:nowrap;
+  cursor:default;animation:v4ChipIn var(--dur-comp) var(--ease-spring)}
+.reader-badge::before{content:'';width:8px;height:8px;border-radius:50%;flex-shrink:0}
+.reader-badge.ok::before{background:var(--ok)}
+.reader-badge.warn::before{background:var(--warn)}
+.reader-badge.off::before{background:var(--text-3)}
+.reader-badge.warn{color:var(--warn)}
+/* ---- v1.9.0（audit-chain 原型移植）：审计链块（断链标红） ---- */
+.audit-chain{font-family:var(--font-mono);font-size:11px;color:var(--text-2);
+  margin-left:6px;white-space:nowrap}
+.audit-chain.err{color:var(--err);font-weight:600}
+.audit-verify-toggle{font-size:11px}
+/* ---- v1.9.0（plan-intent-preview 补齐）：步骤 tools 徽标 + 批准时间 ---- */
+.plan-tools{display:inline-flex;gap:4px;margin-left:6px;font-size:var(--fs-micro);
+  font-family:var(--font-mono);color:var(--text-3);background:var(--chip-bg);
+  border-radius:var(--radius-xs);padding:1px 6px;max-width:260px;overflow:hidden;
+  text-overflow:ellipsis;white-space:nowrap;vertical-align:middle}
+.plan-approved-at{margin-left:auto;font-size:var(--fs-micro);color:var(--text-3);
+  font-family:var(--font-mono)}
 .gg-grant-form{border:1px solid var(--border);border-radius:var(--radius-md);padding:12px;background:var(--surface-2);
   animation:v4LineIn var(--dur-comp) var(--ease-out-soft)}
 .gg-rules-empty{padding:14px 12px;text-align:center;font-size:12px;color:var(--text-3);line-height:1.6}

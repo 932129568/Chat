@@ -105,6 +105,8 @@ _V12_EXTRA = frozenset({
     'guard_approval_budget', 'search_reader_stats',
     'reader_config_get', 'reader_config_save',
     'pick_save_path', 'save_export_file',
+    # v1.9.0 M3/M5 转正后新增（隐身同款）
+    'browser_sessions',
 })
 
 
@@ -172,6 +174,10 @@ class Api:
         # v1.9.0 M2.1：reader 与 search_reader_stats 同一实例（计数口径一致；
         # SearchService.browser_open 的正文经它过读取器）——须后于 reader 装配
         self._search = SearchService(guard=self._guard, reader=self._reader)
+        # v1.9.0 M3/M5：浏览器驱动服务（六原语会话池 + 提取桥 + 下载拦截；
+        # 与搜索管线解耦——design §A3.3 裁决，搜索次窗 SearchBrowser 不动）
+        from .services.browser.driver import BrowserService
+        self._driver = BrowserService()
         # v1.8.0 M3 域·计划执行与检查点（plans//checkpoints/ 独立目录，config.json 零污染）
         self._plan = PlanService()
         # v1.9.0 M2.7：plan 委托与 api 直连共享同一 CheckpointService 实例
@@ -289,29 +295,101 @@ class Api:
                              'message': '%s 尚未实现（v1.9.0 %s 转正）' % (name, milestone),
                              'milestone': milestone}})
 
-    def browser_navigate(self, url, wait_selector='', timeout=60):
-        """M3 Win/M4 Mac：通用导航（任意 URL + 等待选择器/硬超时）。"""
-        return self._not_implemented('browser_navigate', 'M3/M4')
+    def browser_navigate(self, url, wait_selector='', timeout=60,
+                         mode='hidden', token=None):
+        """M3/M5 转正：新建驱动会话并导航（任意 URL + 等待选择器/硬超时）。
 
-    def browser_extract(self, selector='', mode='markdown'):
-        """M3/M4 + M2.1：正文提取（readability 风格 → markdown + links）。"""
-        return self._not_implemented('browser_extract', 'M3/M4')
+        guard 矩阵（M5.2）：session 档；mode=hidden|visible（M3.8 驱动模式，
+        visible=用户可见浏览次窗）。返回含 session_id（后续原语无参作用于
+        最近导航的游标会话）。审计 op=browser_navigate。
+        """
+        detail = {'url': str(url or '')[:200]}
+        reason, bx = self._guard.enforce_exec_ex('browser_navigate', detail, token)
+        if bx:
+            self._guard.audit('browser_navigate', detail, 'block', 'budget-exceeded')
+            return ok({'ok': False, 'error': bx})
+        if reason:
+            self._guard.audit('browser_navigate', detail, 'block', reason)
+            return ok({'ok': False, 'error': {
+                'code': 'CONFIRM_REQUIRED', 'message': reason,
+                'op': 'browser_navigate'}})
+        return ok(self._driver.navigate(url, wait_selector, timeout, mode))
 
-    def browser_click(self, target):
-        """M3/M4（guard=always）：点击（selector|text；前后态截图审计）。"""
-        return self._not_implemented('browser_click', 'M3/M4')
+    def browser_extract(self, selector='', mode='markdown', token=None):
+        """M3/M5 + M2.1 转正：正文提取（markdown/text/links 三态 + provenance
+        经读取器管线——dual-LLM-lite 接入在会话层 digest 场景，本方法直出三态）。
+        guard session 档。审计 op=browser_extract。"""
+        reason, bx = self._guard.enforce_exec_ex(
+            'browser_extract', {'selector': str(selector or '')[:80]}, token)
+        if bx:
+            self._guard.audit('browser_extract',
+                              {'selector': str(selector or '')[:80]},
+                              'block', 'budget-exceeded')
+            return ok({'ok': False, 'error': bx})
+        if reason:
+            self._guard.audit('browser_extract',
+                              {'selector': str(selector or '')[:80]},
+                              'block', reason)
+            return ok({'ok': False, 'error': {
+                'code': 'CONFIRM_REQUIRED', 'message': reason,
+                'op': 'browser_extract'}})
+        return ok(self._driver.extract_guarded(selector, mode))
 
-    def browser_fill(self, selector, text):
-        """M3/M4（guard=always）：填充（回传 masked:true，禁回显原文）。"""
-        return self._not_implemented('browser_fill', 'M3/M4')
+    def browser_click(self, target, token=None):
+        """M3/M5 转正（guard=always）：点击（selector|text；前后态截图审计；
+        视口外/不可见元素拒点）。审计 op=browser_click。"""
+        detail = {'target': str(target or '')[:120]}
+        reason, bx = self._guard.enforce_exec_ex('browser_click', detail, token)
+        if bx:
+            self._guard.audit('browser_click', detail, 'block', 'budget-exceeded')
+            return ok({'ok': False, 'error': bx})
+        if reason:
+            self._guard.audit('browser_click', detail, 'block', reason)
+            return ok({'ok': False, 'error': {
+                'code': 'CONFIRM_REQUIRED', 'message': reason,
+                'op': 'browser_click'}})
+        return ok(self._driver.click(target))
 
-    def browser_screenshot(self, full_page=False):
-        """M3/M4：当前页截图（point 坐标系 b64）。"""
-        return self._not_implemented('browser_screenshot', 'M3/M4')
+    def browser_fill(self, selector, text, token=None):
+        """M3/M5 转正（guard=always）：填充（敏感字段拒填；回传 masked:true
+        禁回显原文）。审计 op=browser_fill（evidence 哈希在审计链侧，原文
+        不落日志——token 摘要绑 selector+text_len 同口径）。"""
+        detail = {'selector': str(selector or '')[:80],
+                  'text_len': len(str(text if text is not None else ''))}
+        reason, bx = self._guard.enforce_exec_ex('browser_fill', detail, token)
+        if bx:
+            self._guard.audit('browser_fill', detail, 'block', 'budget-exceeded')
+            return ok({'ok': False, 'error': bx})
+        if reason:
+            self._guard.audit('browser_fill', detail, 'block', reason)
+            return ok({'ok': False, 'error': {
+                'code': 'CONFIRM_REQUIRED', 'message': reason,
+                'op': 'browser_fill'}})
+        return ok(self._driver.fill(selector, text))
+
+    def browser_screenshot(self, full_page=False, token=None):
+        """M3/M5 转正（guard=session）：当前页截图（win32 窗口捕获 b64，
+        point 坐标系）。审计 op=browser_screenshot。"""
+        reason, bx = self._guard.enforce_exec_ex('browser_screenshot', {}, token)
+        if bx:
+            self._guard.audit('browser_screenshot', {}, 'block', 'budget-exceeded')
+            return ok({'ok': False, 'error': bx})
+        if reason:
+            self._guard.audit('browser_screenshot', {}, 'block', reason)
+            return ok({'ok': False, 'error': {
+                'code': 'CONFIRM_REQUIRED', 'message': reason,
+                'op': 'browser_screenshot'}})
+        return ok(self._driver.screenshot(full_page))
 
     def browser_close(self, session_id=''):
-        """M3/M4：会话池回收（browser_sessions.json 状态同步）。"""
-        return self._not_implemented('browser_close', 'M3/M4')
+        """M3/M5 转正：会话池回收（session_id 指定关一个；缺省全部；
+        browser_sessions.json 状态同步）。会话管理类不落审计（幂等操作）。"""
+        return ok(self._driver.close(session_id))
+
+    def browser_sessions(self):
+        """M3：会话池投影视图 {version, sessions[]}（browser_sessions.json
+        同构；brw-mode 面板数据源）。读取类不落审计。"""
+        return ok(self._driver.sessions())
 
     def get_platform_info(self):
         """M6.10：平台探测（os/arch/version/services 七接口就绪度）。"""

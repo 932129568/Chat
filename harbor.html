@@ -1511,6 +1511,37 @@ body.theming .mm-row,body.theming .mm-input{
 .gg-light.off{background:var(--text-3);animation:none}
 .gg-timer{font-size:11px;color:var(--text-2);font-family:var(--font-mono);white-space:nowrap}
 .gg-btn{height:22px;padding:0 9px;font-size:11px;border-radius:var(--radius-full)}
+/* ---- v1.9.0（grant-budget 原型移植）：审批预算条——mono「3/5」+ dot 格；.over 转 err ---- */
+.grant-budget{display:inline-flex;align-items:center;gap:3px;font-family:var(--font-mono);
+  font-size:11px;color:var(--text-2);white-space:nowrap;cursor:default}
+.grant-budget i{width:5px;height:5px;border-radius:50%;background:var(--border-strong);
+  display:inline-block;transition:background var(--dur-fast) var(--ease)}
+.grant-budget i.on{background:var(--primary)}
+.grant-budget b{font-weight:600;margin-left:4px;color:var(--text-2)}
+.grant-budget.over i,.grant-budget.over i.on{background:var(--err)}
+.grant-budget.over b{color:var(--err)}
+/* ---- v1.9.0（reader-status 原型移植）：读取器状态灯三态 ---- */
+.reader-badge{display:inline-flex;align-items:center;gap:5px;height:26px;padding:0 10px;
+  border-radius:var(--radius-full);background:var(--card-bg);border:1px solid var(--border);
+  box-shadow:var(--shadow-sm);font-size:11px;color:var(--text-2);white-space:nowrap;
+  cursor:default;animation:v4ChipIn var(--dur-comp) var(--ease-spring)}
+.reader-badge::before{content:'';width:8px;height:8px;border-radius:50%;flex-shrink:0}
+.reader-badge.ok::before{background:var(--ok)}
+.reader-badge.warn::before{background:var(--warn)}
+.reader-badge.off::before{background:var(--text-3)}
+.reader-badge.warn{color:var(--warn)}
+/* ---- v1.9.0（audit-chain 原型移植）：审计链块（断链标红） ---- */
+.audit-chain{font-family:var(--font-mono);font-size:11px;color:var(--text-2);
+  margin-left:6px;white-space:nowrap}
+.audit-chain.err{color:var(--err);font-weight:600}
+.audit-verify-toggle{font-size:11px}
+/* ---- v1.9.0（plan-intent-preview 补齐）：步骤 tools 徽标 + 批准时间 ---- */
+.plan-tools{display:inline-flex;gap:4px;margin-left:6px;font-size:var(--fs-micro);
+  font-family:var(--font-mono);color:var(--text-3);background:var(--chip-bg);
+  border-radius:var(--radius-xs);padding:1px 6px;max-width:260px;overflow:hidden;
+  text-overflow:ellipsis;white-space:nowrap;vertical-align:middle}
+.plan-approved-at{margin-left:auto;font-size:var(--fs-micro);color:var(--text-3);
+  font-family:var(--font-mono)}
 .gg-grant-form{border:1px solid var(--border);border-radius:var(--radius-md);padding:12px;background:var(--surface-2);
   animation:v4LineIn var(--dur-comp) var(--ease-out-soft)}
 .gg-rules-empty{padding:14px 12px;text-align:center;font-size:12px;color:var(--text-3);line-height:1.6}
@@ -3711,6 +3742,52 @@ async function executeToolRaw(name, args) {
     if (name === 'browser_open') {
       return await callApi('browser_open', [args], 60000);
     }
+    // v1.9.0 M5：浏览器驱动六原语分发（guard 矩阵：click/fill=always，其余
+    // session；护栏链同 browser_search 走 agentGuardCheck；预算超限
+    // APPROVAL_BUDGET_EXCEEDED → maybeBudgetInvite 任务授权邀请，不弹逐项确认）
+    if (name === 'browser_navigate') {
+      const g = await agentGuardCheck('browser_navigate',
+        { url: String((args && args.url) || '').slice(0, 200) });
+      if (g.blocked) return g.blocked;
+      return maybeBudgetInvite(await callApi('browser_navigate',
+        [(args && args.url) || '', (args && args.wait_selector) || '',
+         pickTimeout(args), (args && args.mode) === 'visible' ? 'visible' : 'hidden',
+         g.token], 120000));
+    }
+    if (name === 'browser_extract') {
+      const g = await agentGuardCheck('browser_extract',
+        { selector: String((args && args.selector) || '').slice(0, 80) });
+      if (g.blocked) return g.blocked;
+      return maybeBudgetInvite(await callApi('browser_extract',
+        [(args && args.selector) || '', (args && args.mode) || 'markdown', g.token], 90000));
+    }
+    if (name === 'browser_click') {
+      const g = await agentGuardCheck('browser_click',
+        { target: String((args && args.target) || '').slice(0, 120) });
+      if (g.blocked) return g.blocked;
+      return maybeBudgetInvite(await callApi('browser_click',
+        [(args && args.target) || '', g.token], 90000));
+    }
+    if (name === 'browser_fill') {
+      const g = await agentGuardCheck('browser_fill',
+        { selector: String((args && args.selector) || '').slice(0, 80) });
+      if (g.blocked) return g.blocked;
+      return maybeBudgetInvite(await callApi('browser_fill',
+        [(args && args.selector) || '', (args && args.text) || '', g.token], 90000));
+    }
+    if (name === 'browser_screenshot') {
+      const g = await agentGuardCheck('browser_screenshot', {});
+      if (g.blocked) return g.blocked;
+      return maybeBudgetInvite(await callApi('browser_screenshot',
+        [args && args.full_page === true, g.token], 90000));
+    }
+    if (name === 'browser_close') {
+      // 会话管理类（session 档）：确认后执行；缺省关全部（session_id 可选）
+      const g = await agentGuardCheck('browser_close', {});
+      if (g.blocked) return g.blocked;
+      return maybeBudgetInvite(await callApi('browser_close',
+        [(args && args.session_id) || ''], 60000));
+    }
     if (name === 'software_call') {
       const g = await agentGuardCheck('software_call', {
         software: String((args && args.software) || '').slice(0, 60),
@@ -3868,8 +3945,12 @@ function harborRenderValidation(result, toolDiv) {
 const agentTrusted = new Set();
 async function agentGuardCheck(op, detail) {
   detail = detail || {};
-  const target = String(detail.query || detail.software || '');
-  const trustKey = op + ':' + target;
+  // v1.9.0 M5：浏览器驱动六原语的 target 取值（URL/目标元素/选择器）；
+  // 信任键按 op 粒度（session 档语义=同类操作会话内首次确认，非按 URL 逐条）
+  const _isBrowserOp = op.indexOf('browser_') === 0;
+  const target = String(detail.query || detail.software || detail.url ||
+    detail.target || detail.selector || '');
+  const trustKey = op + ':' + (_isBrowserOp ? '' : target);
   const dangerous = detail.force_always === true;
   if (!dangerous && agentTrusted.has(trustKey)) {
     return { blocked: null, decision: 'session-trust', token: null };
@@ -3900,6 +3981,16 @@ async function agentGuardCheck(op, detail) {
     body = 'AI 请求执行浏览器搜索：\n检索词：' + target +
       '\n档位：' + (tierName[verdict.tier] || verdict.tier || '?') +
       '\n\n将通过内置浏览器窗口访问搜索引擎并提取结果（外联走应用进程，审计可见）。';
+  } else if (_isBrowserOp) {
+    // v1.9.0 M5：浏览器驱动六原语确认文案（click/fill=always 每次确认）
+    const _bLabel = { browser_navigate: '导航到页面', browser_extract: '提取页面内容',
+      browser_click: '点击页面元素', browser_fill: '填充表单字段',
+      browser_screenshot: '截取页面', browser_close: '关闭浏览器会话' };
+    body = 'AI 请求浏览器操作：' + (_bLabel[op] || op) +
+      (target ? '\n目标：' + target : '') +
+      '\n档位：' + (tierName[verdict.tier] || verdict.tier || '?') +
+      ((op === 'browser_click' || op === 'browser_fill')
+        ? '\n\n页面交互会作用于真实网站（点击/提交/输入），请确认目标无误。' : '');
   } else {
     body = 'AI 请求调用外部软件：\n软件：' + String(detail.software || '') +
       '\n动作：' + String(detail.action || '') +
@@ -3908,7 +3999,8 @@ async function agentGuardCheck(op, detail) {
       '\n\n外部软件可在本机执行操作，请确认你信任此调用。';
   }
   const r = await uiConfirm({
-    title: op === 'web_search' ? '确认执行浏览器搜索' : '确认调用外部软件',
+    title: op === 'web_search' ? '确认执行浏览器搜索'
+      : (_isBrowserOp ? '确认浏览器操作' : '确认调用外部软件'),
     body, danger: dangerous || verdict.tier === 'always',
     okText: '允许执行',
     checkboxLabel: dangerous ? null : '本会话内不再提示同类操作'
@@ -3916,6 +4008,8 @@ async function agentGuardCheck(op, detail) {
   if (!r.ok) {
     const msg = (op === 'web_search'
       ? '用户拒绝了本次浏览器搜索。请调整检索方案或询问用户意图，不要原样重试。'
+      : _isBrowserOp
+      ? '用户拒绝了本次浏览器操作（' + op + '）。请调整方案或询问用户意图，不要原样重试。'
       : '用户拒绝了本次外部软件调用（' + String(detail.software || '') + ' · ' + String(detail.action || '') + '）。请调整方案或询问用户意图，不要原样重试。');
     toast('已拒绝 AI 的本次调用', 'ok');
     return { blocked: JSON.stringify({ info: msg, skipped: true }), decision: 'deny', token: null };
@@ -3971,7 +4065,12 @@ const GUARD_OP_LABEL = {
   delete_path: '删除文件/目录', kill_process: '结束进程',
   clipboard_write: '写入剪贴板', clipboard_read: '读取剪贴板', take_screenshot: '屏幕截图',
   run_command: '执行命令', run_powershell: '执行 PowerShell', run_admin_command: '管理员命令',
-  open_app: '打开应用/链接'
+  open_app: '打开应用/链接',
+  // v1.9.0 M5：浏览器驱动六原语（审计查看器人话 op 名；拦截走 agentGuardCheck 分发支）
+  browser_navigate: '浏览器导航', browser_extract: '页面提取',
+  browser_click: '页面点击', browser_fill: '表单填充',
+  browser_screenshot: '页面截图', browser_close: '关闭浏览器会话',
+  web_search: '浏览器搜索', software_call: '外部软件调用'
 };
 const GUARD_RUN_OPS = ['run_command', 'run_powershell', 'run_admin_command'];
 
@@ -4197,6 +4296,81 @@ async function saveGuardSettings() {
   }
 }
 
+/* ---- v1.9.0 M2.4/2.5（grant-budget）：审批预算超限 → 任务授权邀请 ----
+ * 设计 §A3.5 前端契约：工具结果含 error.code=APPROVAL_BUDGET_EXCEEDED 时
+ * 不弹逐项确认，弹「任务授权邀请」（一次性授予 suggest_scopes，复用
+ * guard_task_grant）；授予后原操作以 grant 放行（不计预算）；拒绝则给
+ * AI 人话（调整方案/请用户提额）。 */
+async function maybeBudgetInvite(resJson) {
+  let d = null;
+  try { d = JSON.parse(resJson); } catch (e) { return resJson; }
+  const err = d && d.error;
+  if (!err || err.code !== 'APPROVAL_BUDGET_EXCEEDED') return resJson;
+  const scopes = Array.isArray(err.suggest_scopes) ? err.suggest_scopes : [];
+  const used = err.used != null ? err.used : '?';
+  const limit = err.limit != null ? err.limit : '?';
+  const r = await uiConfirm({
+    title: '审批预算已达上限（' + used + '/' + limit + '）',
+    body: (err.message || '本会话确认次数已达上限。') +
+      '\n\n已升级为任务授权邀请：授予后同类操作在授权期内放行（不再逐项确认）。' +
+      (scopes.length ? '\n授权范围：' + scopes.join('、') : '') +
+      '\n也可稍后在 设置 → 安全与授权 调整预算上限（guard_approval_budget）。',
+    danger: true,
+    okText: scopes.length ? '授予任务授权' : '知道了'
+  });
+  if (r.ok && scopes.length) {
+    try {
+      const g = JSON.parse(await callApi('guard_task_grant', [scopes, 7200], 20000));
+      if (g && !g.error) {
+        toast('任务授权已授予（' + scopes.join('、') + '）——同类操作授权期内放行', 'ok');
+        renderGrantBudgetBar();
+        return JSON.stringify({ info: '用户已授予任务授权（' + scopes.join('、') +
+          '）。请重试原操作——授权覆盖内将直接放行，不再逐项确认。', retry_hint: true });
+      }
+      toast('任务授权授予失败：' + ((g && g.error) || '未知错误'), 'err');
+    } catch (e) { toast('任务授权授予失败: ' + (e.message || e), 'err'); }
+  }
+  return JSON.stringify({
+    info: '审批预算已达上限（' + used + '/' + limit + '），用户未授予任务授权。' +
+      '请调整方案减少需要确认的操作，或请用户在设置中调高预算上限。',
+    skipped: true
+  });
+}
+
+/* ---- v1.9.0 M2.5：预算指示条（授权条内嵌 mono「审批 3/5」+ dot 格） ----
+ * grant-budget 原型移植（最小接线）：挂 #grantIndicator 首位；used≥limit 或
+ * escalated → .over（err 色，title 提示任务授权）；limit>10 时不渲染 dot 格。 */
+async function renderGrantBudgetBar() {
+  if (typeof document === 'undefined') return;
+  const ind = document.getElementById('grantIndicator');
+  if (!ind) return;
+  let bar = document.getElementById('grantBudgetBar');
+  if (!bar) {
+    bar = document.createElement('span');
+    bar.id = 'grantBudgetBar';
+    bar.className = 'grant-budget';
+    ind.insertBefore(bar, ind.firstChild);
+  }
+  try {
+    const b = JSON.parse(await callApi('guard_approval_budget', [], 20000));
+    if (!b || b.error) { bar.style.display = 'none'; return; }
+    const used = Math.max(0, parseInt(b.used || 0, 10));
+    const limit = Math.max(1, parseInt(b.limit || 1, 10));
+    const over = b.escalated === true || used >= limit;
+    let html = '';
+    if (limit <= 10) {
+      for (let i = 0; i < limit; i++)
+        html += '<i class="' + (i < used ? 'on' : '') + '"></i>';
+    }
+    bar.className = 'grant-budget' + (over ? ' over' : '');
+    bar.innerHTML = html + '<b>' + used + '/' + limit + '</b>';
+    bar.title = over
+      ? '审批预算已达上限——后续确认将升级为任务授权邀请'
+      : '会话审批预算 ' + used + '/' + limit + '（设置 → 安全与授权 可调）';
+    bar.style.display = '';
+  } catch (e) { bar.style.display = 'none'; }
+}
+
 /* ===== 27-update.js ===== */
 /* ================= 自动更新（v1.2 R1 最小版） =================
  * 启动后台检查 → header 版本 pill 轻提示 → 下载（SHA256 校验，进度轮询）
@@ -4320,6 +4494,7 @@ async function startUpdateFlow() {
  */
 
 let _auditFilter = 'all';   // 修复 S23：_auditFilter 从未声明，首次打开审计查看器即 ReferenceError（全项目 grep 无 let/const/var）
+let _auditVerifyAll = false;   // v1.9 M2.6：链块全量校验开关（默认窗口校验；全量 O(n) 大日志慢）
 
 const AUDIT_STATUS = {
   'block':            { t: '已阻断',       c: 'warn' },
@@ -4361,6 +4536,10 @@ async function openAuditViewer() {
     '      <button class="audit-chip on" data-f="all">全部</button>' +
     '      <button class="audit-chip" data-f="rejected">拒绝与阻断</button>' +
     '      <button class="audit-chip audit-refresh">刷新</button>' +
+    // v1.9 M2.6（audit-chain 原型移植）：哈希链块——head 前 8 位 + len +
+    // valid（断链标红）；verify_all 开关切换窗口/全量校验
+    '      <span class="audit-chain" id="auditChainInfo"></span>' +
+    '      <button class="audit-chip audit-verify-toggle" id="auditVerifyToggle" title="全量重算整条哈希链（大日志较慢）">全量校验: 关</button>' +
     '      <span class="audit-count" id="auditCount"></span>' +
     '    </div>' +
     '    <div class="audit-list" id="auditList">加载中…</div>' +
@@ -4378,6 +4557,12 @@ async function openAuditViewer() {
     };
   });
   m.querySelector('.audit-refresh').onclick = () => renderAuditList();
+  const vt = m.querySelector('#auditVerifyToggle');
+  if (vt) vt.onclick = () => {
+    _auditVerifyAll = !_auditVerifyAll;
+    vt.textContent = '全量校验: ' + (_auditVerifyAll ? '开' : '关');
+    renderAuditList();
+  };
   await renderAuditList();
 }
 
@@ -4388,11 +4573,35 @@ async function renderAuditList() {
   box.textContent = '加载中…';
   let data = null;
   try {
-    data = JSON.parse(await callApi('get_audit_log', [300, 0]));
+    data = JSON.parse(await callApi('get_audit_log', [300, 0, _auditVerifyAll]));
   } catch (e) {
-    box.textContent = '读取失败：' + e.message + '（后端可能为旧版，请重新打包）';
-    if (cnt) cnt.textContent = '';
-    return;
+    // 旧后端无第三参 → 回退两参（链块缺省隐藏，行为不劣化）
+    try { data = JSON.parse(await callApi('get_audit_log', [300, 0])); }
+    catch (e2) {
+      box.textContent = '读取失败：' + e2.message + '（后端可能为旧版，请重新打包）';
+      if (cnt) cnt.textContent = '';
+      return;
+    }
+  }
+  // v1.9 M2.6：链块渲染（head 前 8 位 + len + valid；断链标红 + 断点位置）
+  const chainEl = document.getElementById('auditChainInfo');
+  if (chainEl) {
+    const c = data && data.chain;
+    if (c && typeof c === 'object' && typeof c.len === 'number') {
+      const broken = c.valid === false;
+      chainEl.className = 'audit-chain' + (broken ? ' err' : '');
+      chainEl.textContent = broken
+        ? '⛓ 链断于 #' + ((c.broken_at && c.broken_at.index) != null ? c.broken_at.index : '?') +
+          ' · len=' + c.len
+        : '⛓ ' + String(c.head || '').slice(0, 8) + ' · len=' + c.len;
+      chainEl.title = broken
+        ? '审计哈希链校验失败（条目可能被篡改）：' + (c.reason || '') +
+          '\n断点：#' + JSON.stringify(c.broken_at || {})
+        : '审计条目哈希链（防篡改）：head=' + c.head + ' · 共 ' + c.len + ' 条' +
+          (_auditVerifyAll ? '（全量校验）' : '（窗口校验，开全量校验复核整链）');
+    } else {
+      chainEl.textContent = '';
+    }
   }
   if (!data || data.error) {
     box.textContent = '读取失败：' + ((data && data.error) || '未知错误');
@@ -5891,6 +6100,42 @@ function localCompactThreshold() {
     ctx = localMetaCache[localState.model].ctx_window || 0;
   }
   return compactThresholdLocal(ctx, level);
+}
+
+/* ---- v1.9.0 M2.1（reader-status）：dual-LLM-lite 读取器状态灯 ----
+ * 三态：未配置（灰，reader.json base_url 空）/ raw 降级（黄，本地不可用或
+ * schema 失败）/ reader 正常（绿）+ degrade/schema_fail 计数（title 明细）。
+ * 计数器进程内（重启归零，与 hybrid cost_split 同口径）。挂 header-right
+ * （grantIndicator 同区）；搜索链路读取后可调 refreshReaderBadge 刷新。 */
+async function refreshReaderBadge() {
+  if (typeof document === 'undefined') return;
+  const host = document.querySelector('.header-right');
+  if (!host) return;
+  let b = document.getElementById('readerStatusBadge');
+  if (!b) {
+    b = document.createElement('span');
+    b.id = 'readerStatusBadge';
+    b.className = 'reader-badge';
+    host.appendChild(b);
+  }
+  let s = null;
+  try { s = JSON.parse(await callApi('search_reader_stats', [], 20000)); }
+  catch (e) { b.style.display = 'none'; return; }
+  if (!s || s.error) { b.style.display = 'none'; return; }
+  let cls = 'off', txt = '读取器未配置';
+  if (s.configured) {
+    const degrade = (s.degrade_count | 0) + (s.schema_fail | 0);
+    if (degrade > 0) { cls = 'warn'; txt = '读取器降级 ×' + degrade; }
+    else { cls = 'ok'; txt = (s.reader_calls | 0) > 0 ? '读取器正常' : '读取器就绪'; }
+  }
+  b.className = 'reader-badge ' + cls;
+  b.textContent = txt;
+  b.title = 'dual-LLM-lite 本地读取器\n调用 ' + (s.reader_calls | 0) + ' · schema 失败 ' +
+    (s.schema_fail | 0) + ' · 降级 ' + (s.degrade_count | 0) +
+    '\n本地端点：' + (s.local_available ? '可用' : '不可用') +
+    (s.last_error ? '\n最近错误：' + s.last_error : '') +
+    '\n配置：设置 → 本地模型（reader.json）';
+  b.style.display = '';
 }
 
 /* ===== 35-frozen-compact.js ===== */
@@ -11619,13 +11864,17 @@ function planCardRender(plan) {
     '<div class="plan-ctx"><span>' + steps.length + ' 步 · ' + needConfirm + ' 需确认</span>' +
       '<span class="ctx-bar"><span class="ctx-fill" style="width:' + ctxPct + '%"></span></span></div>' +
     '<div class="plan-steps" id="planSteps">' +
-      (plan.steps || []).map((s, i) =>
-        '<div class="plan-step pending" data-i="' + i + '" style="animation-delay:' +
-        (60 + i * 40) + 'ms">' +
-        '<span class="st"></span><span class="txt">' + pcEsc(s.text) + '</span>' +
-        (s.risk ? '<span class="risk ' + pcEsc(s.risk) + '">' +
-          (s.risk === 'l2' ? '授权内' : '需确认') + '</span>' : '') +
-        '</div>').join('') +
+    (plan.steps || []).map((s, i) =>
+      '<div class="plan-step pending" data-i="' + i + '" style="animation-delay:' +
+      (60 + i * 40) + 'ms">' +
+      '<span class="st"></span><span class="txt">' + pcEsc(s.text) + '</span>' +
+      (Array.isArray(s.tools) && s.tools.length
+        ? '<span class="plan-tools">' +
+          s.tools.slice(0, 4).map(pcEsc).join(' ') +
+          (s.tools.length > 4 ? ' +' + (s.tools.length - 4) : '') + '</span>' : '') +
+      (s.risk ? '<span class="risk ' + pcEsc(s.risk) + '">' +
+        (s.risk === 'l2' ? '授权内' : '需确认') + '</span>' : '') +
+      '</div>').join('') +
     '</div>' +
     '<div class="plan-acts" id="planActs">' +
       '<button class="pill-btn primary" id="planApproveBtn">批准执行</button>' +
@@ -11675,6 +11924,15 @@ function planCardApprove() {
   const acts = pcEl('planActs');
   const badge = pcEl('planBadge');
   if (badge) { badge.className = 'plan-badge running'; badge.textContent = '执行中'; }
+  // v1.9 M2.3：批准动效链——approved_at（后端 plan_update 落 ISO 时间）挂 ctx 行
+  const ctx = planCardEl ? planCardEl.querySelector('.plan-ctx') : null;
+  if (ctx && planCurrent && !planCurrent.approved_at) {
+    planCurrent.approved_at = new Date().toISOString().slice(0, 19).replace('T', ' ');
+    const sp = document.createElement('span');
+    sp.className = 'plan-approved-at';
+    sp.textContent = '已批准 ' + planCurrent.approved_at.slice(11);
+    ctx.appendChild(sp);
+  }
   if (acts) {
     acts.classList.add('gone');
     const done = () => { acts.style.display = 'none'; };
@@ -11762,8 +12020,20 @@ async function ckptDoRollback() {
   const vbox = pcEl('ckptVerify');
   const confirm = pcEl('ckptConfirmBtn');
   if (confirm) { confirm.disabled = true; confirm.textContent = '回滚中…'; }
+  const tid = planCurrent && planCurrent.task_id || '';
   try {
-    const raw = await pcCall('checkpoint_rollback', [planCurrent && planCurrent.task_id || '', ''], 60000);
+    // v1.9 M2.7 军规⑤ 后端闸门：先 confirmed=False 预检（后端返回
+    // CONFIRM_REQUIRED+manifest=可回滚确认；绕过前端直调默认拒），
+    // 通过后再 confirmed=True 执行——与清单态用户点击「确认回滚」两级确认
+    const pre = JSON.parse((await pcCall(
+      'checkpoint_rollback', [tid, '', false], 60000)) || '{}');
+    if (pre && pre.ok === false && pre.error &&
+        pre.error.code !== 'CONFIRM_REQUIRED') {
+      if (vbox) vbox.innerHTML = '<div class="ckpt-verify err">回滚预检失败：' +
+        pcEsc(pre.error.message || pre.error.code || '未知错误') + '</div>';
+      return;
+    }
+    const raw = await pcCall('checkpoint_rollback', [tid, '', true], 60000);
     const d = JSON.parse(raw || '{}');
     if (vbox) {
       if (d && d.ok) {
@@ -15719,6 +15989,11 @@ async function loadAll() {
   try { memoryPanelInit(); } catch (e) { console.warn('记忆面板初始化失败', e); }
   try { hybridInit(); } catch (e) { console.warn('混合路由初始化失败', e); }
   try { guardGrantInit(); } catch (e) { console.warn('任务授权面板初始化失败', e); }
+  /* v1.9.0 M2.1/2.5：审批预算指示条（grant-budget）+ 读取器状态灯
+   * （reader-status）——挂载在授权条/页头区，内部幂等 + typeof 守卫，
+   * 旧后端无对应 js_api 时自动隐藏（行为不劣化） */
+  try { renderGrantBudgetBar(); } catch (e) { console.warn('审批预算条初始化失败', e); }
+  try { refreshReaderBadge(); } catch (e) { console.warn('读取器状态灯初始化失败', e); }
   document.getElementById('enableSearch').addEventListener('change', function () {
     document.getElementById('searchEngineWrap').style.display = this.checked ? 'flex' : 'none';
     queueSaveConfig();

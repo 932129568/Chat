@@ -50,9 +50,50 @@ _AGENT_SOFTWARE_CALL = {'type': 'function', 'function': {'name': 'software_call'
         'source': {'type': 'string'}},
         'required': ['software', 'action']}}}
 
+# ---- v1.9.0 M5.1/M5.3：浏览器驱动六原语（include_agent=True 时追加）----
+# 描述三段式（M5.9 R44：触发|语义|排除，竖线分隔）；schema strict
+# （additionalProperties:false + enum + required——M5.3，只对 v1.9 新工具，
+# 既有 v1.8 工具契约锁定不动）。R11 端点过滤（startswith('browser_')）
+# 天然覆盖新工具：GLM 端点不进工具集。
+_AGENT_BROWSER_DRIVER = (
+    {'type': 'function', 'function': {'name': 'browser_navigate',
+        'description': '导航浏览器会话到URL并等待就绪|需要渲染页面或后续交互前的定位步骤|纯文本抓取用browser_open,仅支持http(s)公网页面',
+        'parameters': {'type': 'object', 'properties': {
+            'url': {'type': 'string'}, 'wait_selector': {'type': 'string'},
+            'timeout': {'type': 'integer'}},
+            'required': ['url'], 'additionalProperties': False}}},
+    {'type': 'function', 'function': {'name': 'browser_extract',
+        'description': '提取当前会话页面正文|导航后取结构化内容|未导航时先browser_navigate',
+        'parameters': {'type': 'object', 'properties': {
+            'selector': {'type': 'string'},
+            'mode': {'type': 'string', 'enum': ['markdown', 'text', 'links']}},
+            'required': [], 'additionalProperties': False}}},
+    {'type': 'function', 'function': {'name': 'browser_click',
+        'description': '点击页面元素(需确认)|selector或可见文本定位,拒绝视口外/不可见元素|敏感确认弹窗类页面交给用户接管',
+        'parameters': {'type': 'object', 'properties': {
+            'target': {'type': 'string'}},
+            'required': ['target'], 'additionalProperties': False}}},
+    {'type': 'function', 'function': {'name': 'browser_fill',
+        'description': '填充表单字段(需确认)|selector定位输入框并填入文本|密码/文件字段拒绝填充',
+        'parameters': {'type': 'object', 'properties': {
+            'selector': {'type': 'string'}, 'text': {'type': 'string'}},
+            'required': ['selector', 'text'], 'additionalProperties': False}}},
+    {'type': 'function', 'function': {'name': 'browser_screenshot',
+        'description': '截取当前会话页面|交互后取证或视觉复核|全屏截图用take_screenshot',
+        'parameters': {'type': 'object', 'properties': {
+            'full_page': {'type': 'boolean'}},
+            'required': [], 'additionalProperties': False}}},
+    {'type': 'function', 'function': {'name': 'browser_close',
+        'description': '关闭浏览器会话释放资源|任务完成或页面不再需要时|活跃会话不必要关闭',
+        'parameters': {'type': 'object', 'properties': {
+            'session_id': {'type': 'string'}},
+            'required': [], 'additionalProperties': False}}},
+)
+
 # include_agent=True 的增量全集（R11 过滤前）——L0-3 契约差分断言「增量恰为
 # browser_*/software_* 工具族」即以此常量为基准
-AGENT_TOOLS = (_AGENT_BROWSER_SEARCH, _AGENT_BROWSER_OPEN, _AGENT_SOFTWARE_CALL)
+AGENT_TOOLS = (_AGENT_BROWSER_SEARCH, _AGENT_BROWSER_OPEN, _AGENT_SOFTWARE_CALL
+               ) + _AGENT_BROWSER_DRIVER
 
 
 def build(role='full', ws_on=True, mcp_tools=None, include_agent=False,

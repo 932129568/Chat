@@ -77,13 +77,17 @@ function planCardRender(plan) {
     '<div class="plan-ctx"><span>' + steps.length + ' 步 · ' + needConfirm + ' 需确认</span>' +
       '<span class="ctx-bar"><span class="ctx-fill" style="width:' + ctxPct + '%"></span></span></div>' +
     '<div class="plan-steps" id="planSteps">' +
-      (plan.steps || []).map((s, i) =>
-        '<div class="plan-step pending" data-i="' + i + '" style="animation-delay:' +
-        (60 + i * 40) + 'ms">' +
-        '<span class="st"></span><span class="txt">' + pcEsc(s.text) + '</span>' +
-        (s.risk ? '<span class="risk ' + pcEsc(s.risk) + '">' +
-          (s.risk === 'l2' ? '授权内' : '需确认') + '</span>' : '') +
-        '</div>').join('') +
+    (plan.steps || []).map((s, i) =>
+      '<div class="plan-step pending" data-i="' + i + '" style="animation-delay:' +
+      (60 + i * 40) + 'ms">' +
+      '<span class="st"></span><span class="txt">' + pcEsc(s.text) + '</span>' +
+      (Array.isArray(s.tools) && s.tools.length
+        ? '<span class="plan-tools">' +
+          s.tools.slice(0, 4).map(pcEsc).join(' ') +
+          (s.tools.length > 4 ? ' +' + (s.tools.length - 4) : '') + '</span>' : '') +
+      (s.risk ? '<span class="risk ' + pcEsc(s.risk) + '">' +
+        (s.risk === 'l2' ? '授权内' : '需确认') + '</span>' : '') +
+      '</div>').join('') +
     '</div>' +
     '<div class="plan-acts" id="planActs">' +
       '<button class="pill-btn primary" id="planApproveBtn">批准执行</button>' +
@@ -133,6 +137,15 @@ function planCardApprove() {
   const acts = pcEl('planActs');
   const badge = pcEl('planBadge');
   if (badge) { badge.className = 'plan-badge running'; badge.textContent = '执行中'; }
+  // v1.9 M2.3：批准动效链——approved_at（后端 plan_update 落 ISO 时间）挂 ctx 行
+  const ctx = planCardEl ? planCardEl.querySelector('.plan-ctx') : null;
+  if (ctx && planCurrent && !planCurrent.approved_at) {
+    planCurrent.approved_at = new Date().toISOString().slice(0, 19).replace('T', ' ');
+    const sp = document.createElement('span');
+    sp.className = 'plan-approved-at';
+    sp.textContent = '已批准 ' + planCurrent.approved_at.slice(11);
+    ctx.appendChild(sp);
+  }
   if (acts) {
     acts.classList.add('gone');
     const done = () => { acts.style.display = 'none'; };
@@ -220,8 +233,20 @@ async function ckptDoRollback() {
   const vbox = pcEl('ckptVerify');
   const confirm = pcEl('ckptConfirmBtn');
   if (confirm) { confirm.disabled = true; confirm.textContent = '回滚中…'; }
+  const tid = planCurrent && planCurrent.task_id || '';
   try {
-    const raw = await pcCall('checkpoint_rollback', [planCurrent && planCurrent.task_id || '', ''], 60000);
+    // v1.9 M2.7 军规⑤ 后端闸门：先 confirmed=False 预检（后端返回
+    // CONFIRM_REQUIRED+manifest=可回滚确认；绕过前端直调默认拒），
+    // 通过后再 confirmed=True 执行——与清单态用户点击「确认回滚」两级确认
+    const pre = JSON.parse((await pcCall(
+      'checkpoint_rollback', [tid, '', false], 60000)) || '{}');
+    if (pre && pre.ok === false && pre.error &&
+        pre.error.code !== 'CONFIRM_REQUIRED') {
+      if (vbox) vbox.innerHTML = '<div class="ckpt-verify err">回滚预检失败：' +
+        pcEsc(pre.error.message || pre.error.code || '未知错误') + '</div>';
+      return;
+    }
+    const raw = await pcCall('checkpoint_rollback', [tid, '', true], 60000);
     const d = JSON.parse(raw || '{}');
     if (vbox) {
       if (d && d.ok) {

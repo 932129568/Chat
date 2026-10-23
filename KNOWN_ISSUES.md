@@ -214,12 +214,18 @@
 
 ### 20. v19 迭代进度与环境坑（开发期记录，随批次更新）
 
-- **已完成**：M1 全量（T01 契约资产 / T02 browser 平台抽象包+搜索栈迁移，commit `d0044e0`，1196 passed）；M2 部分（批 2a：dual-LLM-lite 读取器 + provenance，commit `8691f51`；批 2b：Bing RSS 双通道 + 缓存分级 TTL + 输出四连洗，commit `e6fe2be`，1249 passed；已推远端 `65a13550`）
-- **在途**：批 2c（RSS 主路径接线 + provenance 三接入点 + reader 接入 browser_open）；待排：批 2d（T04 审批预算+审计哈希链+计划卡字段）、批 3（T05 检查点六军规+MCP 收尾）、M3-M9（Win 浏览器六原语 / macOS / 打包发布）
+- **已完成**：M1 全量（T01 契约资产 / T02 browser 平台抽象包+搜索栈迁移，commit `d0044e0`，1196 passed）；M2 部分（批 2a：dual-LLM-lite 读取器 + provenance，commit `8691f51`；批 2b：Bing RSS 双通道 + 缓存分级 TTL + 输出四连洗，commit `e6fe2be`，1249 passed；已推远端 `65a13550`）；批 2c/2d/3a（RSS 主路径+provenance 三接入+审批预算+审计哈希链+检查点六军规，至 `0f9a21f` 1306 passed）
+- **2026-10-24 新增完成（批 3b + 批 4 M3/M5 + 批 5 前端）**：
+  - 批 3b（M2.10 MCP 收尾）：定期重验（24h/1h/15min 三档按健康度）+ lastReverifyAt/reverifyEnabled 纯增键（set_reverify_at 直写 + absent-keep 防抹）+ schema_poison_signals 四维投毒检测 + derive_tier input_schema 纯增 kwarg + resolve_tier tier_source='schema-poison'（38 测试）
+  - M3（Win 浏览器六原语）：driver.py（BrowserService 会话池 + Bridge 提取桥 + DriverWindow 驱动次窗）+ session_win click/fill/screenshot 真实现（注入防御/视口外拒点/敏感字段拒填/前后态截图审计）+ win_capture.py（PrintWindow PW_RENDERFULLCONTENT）+ 下载拦截/外链策略 JS + 可见/隐藏模式 + browser_sessions.json 投影
+  - M5（AI 驱动工具面）：六 js_api 转正（guard 矩阵 click/fill=always）+ tools_schema 六原语（strict：additionalProperties:false+enum+required）+ AGENTS.md（R44 三段式描述）+ M5.7 反爬（extract_guarded CAPTCHA_REQUIRED）
+  - 批 5 前端：25-tool-exec 六原语分发 + agentGuardCheck browser 分支 + maybeBudgetInvite 任务授权邀请 + 26-guard 预算条（grant-budget）+ 28-audit-viewer 链块（audit-chain）+ 34-local-model 读取器状态灯（reader-status）+ 67-plan-card tools 徽标/approved_at/回滚两步 confirm + build 幂等 + UI 契约 PASS
+- **本轮 bug 修复（10 项实证）**：① driver.navigate 会话并发移除 KeyError 竞态；② win_capture GDI 选中对象删除泄漏（3MB/次）；③ MCP TOFU 重验竞态（hash 对拍与 tools 交换原子化）；④ guard token 摘要不绑 browser 参数（W4 同型）；⑤ enforce_exec_ex 预算升级短路 grant/rule/trusted 授权链（改 reason 先行）；⑥ approval_budget.limit 不落盘（重启回 20）；⑦ DriverWindow eval_js 僵尸 worker 破坏单门串行（_pumpable 退役）；⑧ _drop 持池锁做窗口销毁 IO（锁外关闭）；⑨ click 文本 XPath 单引号转义缺失（谓词注入+错误码失真）；⑩ checkpoint git 模式 manifest 记工作区哈希令恢复后校验恒假失败（改记 HEAD 版哈希）
 - **环境坑（本机实测，非代码问题，处置路径已验证）**：
   - venv python stub 对中文用户 profile 路径解析失败（exit 103，`did not find executable at C:\Users\?\...`）——**降级路径**：系统 `C:\Python315\python.exe` + `PYTHONPATH` 指向 venv 的 `Lib\site-packages`（QA 侧用 vendor python 3.13.14 同效，两路独立收敛）
   - PowerShell 会话不继承 git PATH——先 `$env:Path += ";C:\Program Files\Git\cmd"`；bash 的 MSYS 中文路径转换已坏，git/构建命令一律走 PowerShell 工具
   - 子代理工具环境间歇性 502（127.0.0.1:7863 代理拒连）——本地命令不走代理；重试一次仍失败则记录「环境故障未执行」并继续后续项，勿反复撞同一失败调用
-- **行为变更备案**：CACHE_TTL_MINUTES 30→60（R30，general 档分级 TTL）——test_v18_search_service 两处 + `_mk_service` 默认 + test_v19_browser 共 4 处断言同步（方案原计两处，grep 实扫补全）
-- **前端产品移植**：v19 新组件（brw-mode / grant-budget / plan-eta / audit-chain / mac-kbd 等）仍零移植进 `frontend/src/`——后端接口已按契约定稿（9 占位 + reader/budget 转正 + 配置类 js_api），UI 并行会话按 `design/v19/prototypes/` 移植
-- **处理状态**：🟡 开发中（M1 完成 / M2 进行 / M3-M9 未启动；每批过门禁：pytest 全绿 + 契约差分 + build 幂等）
+- **行为变更备案**：CACHE_TTL_MINUTES 30→60（R30，general 档分级 TTL）——test_v18_search_service 两处 + `_mk_service` 默认 + test_v19_browser 共 4 处断言同步（方案原计两处，grep 实扫补全）；M5 转正后 test_release_discipline 占位断言更新（六 browser 方法正向转正断言 + get_platform_info 唯一剩余占位）
+- **实现偏差登记**：会话池「上限 3 + 排队」实现为「驱逐最旧空闲」（master-plan §149 3.7）——js_api 同步调用无等待语义，LLM 调用方无法等待异步 close 事件；驱逐最旧空闲（Chrome tab discard 同型）+ 60s 空闲回收兜底，语义等价且不阻塞调用方
+- **前端产品移植**：v19 新组件已移植 5 个（grant-budget / audit-chain / reader-status / plan-intent 补齐 / checkpoint confirm 闸门）；browser-driver-panel（brw-mode 面板 UI）与 macos-adaptation 待 UI 会话（后端 browser_sessions/六原语已可用）
+- **处理状态**：🟡 开发中（M1+M2+M3+M5 完成 / M4-M7 macOS 栈待 macOS 真机（需 PyObjC，Windows 不可开发验证）/ M8-M9 性能基准+真机+发布待排；每批过门禁：pytest 全绿 + 契约差分 + build 幂等）

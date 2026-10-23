@@ -26,7 +26,12 @@ const GUARD_OP_LABEL = {
   delete_path: '删除文件/目录', kill_process: '结束进程',
   clipboard_write: '写入剪贴板', clipboard_read: '读取剪贴板', take_screenshot: '屏幕截图',
   run_command: '执行命令', run_powershell: '执行 PowerShell', run_admin_command: '管理员命令',
-  open_app: '打开应用/链接'
+  open_app: '打开应用/链接',
+  // v1.9.0 M5：浏览器驱动六原语（审计查看器人话 op 名；拦截走 agentGuardCheck 分发支）
+  browser_navigate: '浏览器导航', browser_extract: '页面提取',
+  browser_click: '页面点击', browser_fill: '表单填充',
+  browser_screenshot: '页面截图', browser_close: '关闭浏览器会话',
+  web_search: '浏览器搜索', software_call: '外部软件调用'
 };
 const GUARD_RUN_OPS = ['run_command', 'run_powershell', 'run_admin_command'];
 
@@ -250,4 +255,79 @@ async function saveGuardSettings() {
   } catch (e) {
     toast('护栏配置保存失败: ' + e.message, 'err');
   }
+}
+
+/* ---- v1.9.0 M2.4/2.5（grant-budget）：审批预算超限 → 任务授权邀请 ----
+ * 设计 §A3.5 前端契约：工具结果含 error.code=APPROVAL_BUDGET_EXCEEDED 时
+ * 不弹逐项确认，弹「任务授权邀请」（一次性授予 suggest_scopes，复用
+ * guard_task_grant）；授予后原操作以 grant 放行（不计预算）；拒绝则给
+ * AI 人话（调整方案/请用户提额）。 */
+async function maybeBudgetInvite(resJson) {
+  let d = null;
+  try { d = JSON.parse(resJson); } catch (e) { return resJson; }
+  const err = d && d.error;
+  if (!err || err.code !== 'APPROVAL_BUDGET_EXCEEDED') return resJson;
+  const scopes = Array.isArray(err.suggest_scopes) ? err.suggest_scopes : [];
+  const used = err.used != null ? err.used : '?';
+  const limit = err.limit != null ? err.limit : '?';
+  const r = await uiConfirm({
+    title: '审批预算已达上限（' + used + '/' + limit + '）',
+    body: (err.message || '本会话确认次数已达上限。') +
+      '\n\n已升级为任务授权邀请：授予后同类操作在授权期内放行（不再逐项确认）。' +
+      (scopes.length ? '\n授权范围：' + scopes.join('、') : '') +
+      '\n也可稍后在 设置 → 安全与授权 调整预算上限（guard_approval_budget）。',
+    danger: true,
+    okText: scopes.length ? '授予任务授权' : '知道了'
+  });
+  if (r.ok && scopes.length) {
+    try {
+      const g = JSON.parse(await callApi('guard_task_grant', [scopes, 7200], 20000));
+      if (g && !g.error) {
+        toast('任务授权已授予（' + scopes.join('、') + '）——同类操作授权期内放行', 'ok');
+        renderGrantBudgetBar();
+        return JSON.stringify({ info: '用户已授予任务授权（' + scopes.join('、') +
+          '）。请重试原操作——授权覆盖内将直接放行，不再逐项确认。', retry_hint: true });
+      }
+      toast('任务授权授予失败：' + ((g && g.error) || '未知错误'), 'err');
+    } catch (e) { toast('任务授权授予失败: ' + (e.message || e), 'err'); }
+  }
+  return JSON.stringify({
+    info: '审批预算已达上限（' + used + '/' + limit + '），用户未授予任务授权。' +
+      '请调整方案减少需要确认的操作，或请用户在设置中调高预算上限。',
+    skipped: true
+  });
+}
+
+/* ---- v1.9.0 M2.5：预算指示条（授权条内嵌 mono「审批 3/5」+ dot 格） ----
+ * grant-budget 原型移植（最小接线）：挂 #grantIndicator 首位；used≥limit 或
+ * escalated → .over（err 色，title 提示任务授权）；limit>10 时不渲染 dot 格。 */
+async function renderGrantBudgetBar() {
+  if (typeof document === 'undefined') return;
+  const ind = document.getElementById('grantIndicator');
+  if (!ind) return;
+  let bar = document.getElementById('grantBudgetBar');
+  if (!bar) {
+    bar = document.createElement('span');
+    bar.id = 'grantBudgetBar';
+    bar.className = 'grant-budget';
+    ind.insertBefore(bar, ind.firstChild);
+  }
+  try {
+    const b = JSON.parse(await callApi('guard_approval_budget', [], 20000));
+    if (!b || b.error) { bar.style.display = 'none'; return; }
+    const used = Math.max(0, parseInt(b.used || 0, 10));
+    const limit = Math.max(1, parseInt(b.limit || 1, 10));
+    const over = b.escalated === true || used >= limit;
+    let html = '';
+    if (limit <= 10) {
+      for (let i = 0; i < limit; i++)
+        html += '<i class="' + (i < used ? 'on' : '') + '"></i>';
+    }
+    bar.className = 'grant-budget' + (over ? ' over' : '');
+    bar.innerHTML = html + '<b>' + used + '/' + limit + '</b>';
+    bar.title = over
+      ? '审批预算已达上限——后续确认将升级为任务授权邀请'
+      : '会话审批预算 ' + used + '/' + limit + '（设置 → 安全与授权 可调）';
+    bar.style.display = '';
+  } catch (e) { bar.style.display = 'none'; }
 }

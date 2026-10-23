@@ -41,7 +41,10 @@ NEW_APIS = {'software_list', 'software_probe', 'software_call',
             'hybrid_get_config', 'hybrid_save_config',
             'guard_task_grant', 'guard_task_revoke', 'guard_task_status',
             'guard_rule_list', 'guard_rule_add', 'guard_rule_remove'}
-AGENT_TOOL_NAMES = ['browser_search', 'browser_open', 'software_call']
+# v1.9.0 M5.1：AGENT 工具族自 3 扩至 9（+浏览器驱动六原语）——改从
+# AGENT_TOOLS 常量动态推导（design 总账「以 AGENT_TOOLS 常量为基准」，
+# 断言随 schema 演进，不再硬编码清单）
+AGENT_TOOL_NAMES = [t['function']['name'] for t in tools_schema.AGENT_TOOLS]
 
 
 # ============================================================ C1·build_tools 差分
@@ -140,13 +143,15 @@ class TestBuildToolsIncludeAgent:
         tools = json.loads(tools_schema.build('full', True, mcp_tools=mcp,
                                               include_agent=True))
         names = [t['function']['name'] for t in tools]
-        assert names[-4:] == ['mcp__x'] + AGENT_TOOL_NAMES
+        assert names[-(1 + len(AGENT_TOOL_NAMES)):] == \
+            ['mcp__x'] + AGENT_TOOL_NAMES
 
     def test_api_passes_endpoint_judgement(self):
         """Api.build_tools 透传 include_agent + is_glm_endpoint。"""
         api = NewApi()
         inc = json.loads(api.build_tools('full', False, True, False))
-        assert [t['function']['name'] for t in inc][-3:] == AGENT_TOOL_NAMES
+        assert [t['function']['name'] for t in inc][-len(AGENT_TOOL_NAMES):] == \
+            AGENT_TOOL_NAMES
         glm = json.loads(api.build_tools('full', False, True, True))
         assert 'browser_search' not in [t['function']['name'] for t in glm]
         assert 'software_call' in [t['function']['name'] for t in glm]

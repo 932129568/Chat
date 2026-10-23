@@ -191,8 +191,11 @@ class TestApprovalBudget:
 
         先 arm()（武装=桌面 UI 会话在位；未武装环境 always/session 档按
         legacy 兼容直接 allow，不产生确认需求——预算语义只在武装后有戏）。
+        bug 修复回归：enforce_exec_ex 改 reason 先行——未武装（无确认流）
+        不升级；武装后需确认（token-missing）才升级。
         """
         g = self._guard()
+        g.arm()
         g.approval_budget(limit=1)
         g.issue_confirm_token('delete_path', {'path': 'a.py'})   # used=1 越限
         reason, bx = g.enforce_exec_ex('delete_path', {'path': 'b.py'})
@@ -200,6 +203,26 @@ class TestApprovalBudget:
         assert bx['code'] == 'APPROVAL_BUDGET_EXCEEDED'
         assert bx['used'] == 1 and bx['limit'] == 1
         assert bx['suggest_scopes'] == ['workspace_write']   # delete_path 映射
+
+    def test_budget_upgrade_skips_grant_covered(self, fresh_home):
+        """bug 修复回归：预算升级不短路授权链——grant 覆盖的 op 放行（bx=None）。"""
+        g = self._guard()
+        g.arm()
+        g.approval_budget(limit=1)
+        g.issue_confirm_token('delete_path', {'path': 'a.py'})   # used=1 越限
+        g.task_grant(['workspace_write'], ttl_seconds=600)
+        reason, bx = g.enforce_exec_ex('delete_path', {'path': 'b.py'})
+        assert reason is None and bx is None      # grant 覆盖 → 直接放行
+
+    def test_budget_limit_persisted(self, fresh_home):
+        """bug 修复回归：limit 落盘持久（重启不回默认 20）。"""
+        g = self._guard()
+        g.approval_budget(limit=7)
+        with open(g._path, encoding='utf-8') as f:
+            data = json.load(f)
+        assert data.get('approval_budget', {}).get('limit') == 7
+        g2 = self._guard()
+        assert g2.approval_budget()['limit'] == 7
 
     def test_api_set_limit_bounds(self, fresh_home):
         from backend.api import Api

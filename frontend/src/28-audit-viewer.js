@@ -7,6 +7,7 @@
  */
 
 let _auditFilter = 'all';   // 修复 S23：_auditFilter 从未声明，首次打开审计查看器即 ReferenceError（全项目 grep 无 let/const/var）
+let _auditVerifyAll = false;   // v1.9 M2.6：链块全量校验开关（默认窗口校验；全量 O(n) 大日志慢）
 
 const AUDIT_STATUS = {
   'block':            { t: '已阻断',       c: 'warn' },
@@ -48,6 +49,10 @@ async function openAuditViewer() {
     '      <button class="audit-chip on" data-f="all">全部</button>' +
     '      <button class="audit-chip" data-f="rejected">拒绝与阻断</button>' +
     '      <button class="audit-chip audit-refresh">刷新</button>' +
+    // v1.9 M2.6（audit-chain 原型移植）：哈希链块——head 前 8 位 + len +
+    // valid（断链标红）；verify_all 开关切换窗口/全量校验
+    '      <span class="audit-chain" id="auditChainInfo"></span>' +
+    '      <button class="audit-chip audit-verify-toggle" id="auditVerifyToggle" title="全量重算整条哈希链（大日志较慢）">全量校验: 关</button>' +
     '      <span class="audit-count" id="auditCount"></span>' +
     '    </div>' +
     '    <div class="audit-list" id="auditList">加载中…</div>' +
@@ -65,6 +70,12 @@ async function openAuditViewer() {
     };
   });
   m.querySelector('.audit-refresh').onclick = () => renderAuditList();
+  const vt = m.querySelector('#auditVerifyToggle');
+  if (vt) vt.onclick = () => {
+    _auditVerifyAll = !_auditVerifyAll;
+    vt.textContent = '全量校验: ' + (_auditVerifyAll ? '开' : '关');
+    renderAuditList();
+  };
   await renderAuditList();
 }
 
@@ -75,11 +86,35 @@ async function renderAuditList() {
   box.textContent = '加载中…';
   let data = null;
   try {
-    data = JSON.parse(await callApi('get_audit_log', [300, 0]));
+    data = JSON.parse(await callApi('get_audit_log', [300, 0, _auditVerifyAll]));
   } catch (e) {
-    box.textContent = '读取失败：' + e.message + '（后端可能为旧版，请重新打包）';
-    if (cnt) cnt.textContent = '';
-    return;
+    // 旧后端无第三参 → 回退两参（链块缺省隐藏，行为不劣化）
+    try { data = JSON.parse(await callApi('get_audit_log', [300, 0])); }
+    catch (e2) {
+      box.textContent = '读取失败：' + e2.message + '（后端可能为旧版，请重新打包）';
+      if (cnt) cnt.textContent = '';
+      return;
+    }
+  }
+  // v1.9 M2.6：链块渲染（head 前 8 位 + len + valid；断链标红 + 断点位置）
+  const chainEl = document.getElementById('auditChainInfo');
+  if (chainEl) {
+    const c = data && data.chain;
+    if (c && typeof c === 'object' && typeof c.len === 'number') {
+      const broken = c.valid === false;
+      chainEl.className = 'audit-chain' + (broken ? ' err' : '');
+      chainEl.textContent = broken
+        ? '⛓ 链断于 #' + ((c.broken_at && c.broken_at.index) != null ? c.broken_at.index : '?') +
+          ' · len=' + c.len
+        : '⛓ ' + String(c.head || '').slice(0, 8) + ' · len=' + c.len;
+      chainEl.title = broken
+        ? '审计哈希链校验失败（条目可能被篡改）：' + (c.reason || '') +
+          '\n断点：#' + JSON.stringify(c.broken_at || {})
+        : '审计条目哈希链（防篡改）：head=' + c.head + ' · 共 ' + c.len + ' 条' +
+          (_auditVerifyAll ? '（全量校验）' : '（窗口校验，开全量校验复核整链）');
+    } else {
+      chainEl.textContent = '';
+    }
   }
   if (!data || data.error) {
     box.textContent = '读取失败：' + ((data && data.error) || '未知错误');

@@ -92,6 +92,11 @@ async function loadAll() {
   try { memoryPanelInit(); } catch (e) { console.warn('记忆面板初始化失败', e); }
   try { hybridInit(); } catch (e) { console.warn('混合路由初始化失败', e); }
   try { guardGrantInit(); } catch (e) { console.warn('任务授权面板初始化失败', e); }
+  /* v1.9.0 M2.1/2.5：审批预算指示条（grant-budget）+ 读取器状态灯
+   * （reader-status）——挂载在授权条/页头区，内部幂等 + typeof 守卫，
+   * 旧后端无对应 js_api 时自动隐藏（行为不劣化） */
+  try { renderGrantBudgetBar(); } catch (e) { console.warn('审批预算条初始化失败', e); }
+  try { refreshReaderBadge(); } catch (e) { console.warn('读取器状态灯初始化失败', e); }
   document.getElementById('enableSearch').addEventListener('change', function () {
     document.getElementById('searchEngineWrap').style.display = this.checked ? 'flex' : 'none';
     queueSaveConfig();

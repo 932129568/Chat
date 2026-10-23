@@ -344,3 +344,39 @@ function localCompactThreshold() {
   }
   return compactThresholdLocal(ctx, level);
 }
+
+/* ---- v1.9.0 M2.1（reader-status）：dual-LLM-lite 读取器状态灯 ----
+ * 三态：未配置（灰，reader.json base_url 空）/ raw 降级（黄，本地不可用或
+ * schema 失败）/ reader 正常（绿）+ degrade/schema_fail 计数（title 明细）。
+ * 计数器进程内（重启归零，与 hybrid cost_split 同口径）。挂 header-right
+ * （grantIndicator 同区）；搜索链路读取后可调 refreshReaderBadge 刷新。 */
+async function refreshReaderBadge() {
+  if (typeof document === 'undefined') return;
+  const host = document.querySelector('.header-right');
+  if (!host) return;
+  let b = document.getElementById('readerStatusBadge');
+  if (!b) {
+    b = document.createElement('span');
+    b.id = 'readerStatusBadge';
+    b.className = 'reader-badge';
+    host.appendChild(b);
+  }
+  let s = null;
+  try { s = JSON.parse(await callApi('search_reader_stats', [], 20000)); }
+  catch (e) { b.style.display = 'none'; return; }
+  if (!s || s.error) { b.style.display = 'none'; return; }
+  let cls = 'off', txt = '读取器未配置';
+  if (s.configured) {
+    const degrade = (s.degrade_count | 0) + (s.schema_fail | 0);
+    if (degrade > 0) { cls = 'warn'; txt = '读取器降级 ×' + degrade; }
+    else { cls = 'ok'; txt = (s.reader_calls | 0) > 0 ? '读取器正常' : '读取器就绪'; }
+  }
+  b.className = 'reader-badge ' + cls;
+  b.textContent = txt;
+  b.title = 'dual-LLM-lite 本地读取器\n调用 ' + (s.reader_calls | 0) + ' · schema 失败 ' +
+    (s.schema_fail | 0) + ' · 降级 ' + (s.degrade_count | 0) +
+    '\n本地端点：' + (s.local_available ? '可用' : '不可用') +
+    (s.last_error ? '\n最近错误：' + s.last_error : '') +
+    '\n配置：设置 → 本地模型（reader.json）';
+  b.style.display = '';
+}

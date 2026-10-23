@@ -57,7 +57,12 @@ GUARD_OPS = ('delete_path', 'kill_process', 'clipboard_write', 'clipboard_read',
              # v1.8.0 §3.3 护栏与隐私：浏览器搜索默认 session 档（会话首次确认）；
              # 外部软件调用默认 session 档（§4.4：read/mutate 会话首次，dangerous
              # 由 preset risk 在 software_service 侧强制 always）
-             'web_search', 'software_call')
+             'web_search', 'software_call',
+             # v1.9.0 M5.2：浏览器驱动六原语档位（master-plan §181）——click/fill
+             # 是页面交互原语（可触发页面任意动作/提交表单）默认 always 每次确认；
+             # navigate/extract/screenshot/close 为读取/会话管理默认 session 档
+             'browser_navigate', 'browser_extract', 'browser_click', 'browser_fill',
+             'browser_screenshot', 'browser_close')
 DEFAULT_TIERS = {
     'delete_path': 'always',
     'kill_process': 'always',
@@ -71,6 +76,14 @@ DEFAULT_TIERS = {
     'open_app': 'off',   # 修复 W9（三轮）：默认 off 保持既有行为，提档后弹窗/ token 生效
     'web_search': 'session',      # v1.8.0 §3.3：浏览器搜索默认 session 档
     'software_call': 'session',   # v1.8.0 §4.4：软件调用默认 session 档
+    # v1.9.0 M5.2（master-plan §181）：click/fill=always（前后态截图审计在
+    # 会话层 best-effort）；其余 session
+    'browser_navigate': 'session',
+    'browser_extract': 'session',
+    'browser_click': 'always',
+    'browser_fill': 'always',
+    'browser_screenshot': 'session',
+    'browser_close': 'session',
 }
 
 # ---- v1.8.5 A 域：任务授权 grant（进程内状态，不入 guard.json）----
@@ -205,6 +218,13 @@ class GuardService:
                         norm = self._norm_rule(r)
                         if norm is not None:
                             cfg.setdefault('allow_rules', []).append(norm)
+                # v1.9.0 M2.4（bug 修复）：approval_budget.limit 持久加载
+                # （used/escalated 会话级——不加载，重启归零语义保持）
+                ab_loaded = data.get('approval_budget')
+                if isinstance(ab_loaded, dict) and \
+                        isinstance(ab_loaded.get('limit'), int):
+                    cfg['approval_budget'] = {'limit': ab_loaded['limit'],
+                                              'used': 0, 'escalated': False}
         except FileNotFoundError:
             pass
         except Exception as e:
@@ -500,6 +520,18 @@ class GuardService:
                     'action': str(d.get('action') or '')[:40]}
         if op == 'web_search':
             return {'query': str(d.get('query') or '')[:200]}
+        # v1.9.0 M5（bug 修复：W4 同型缺口）：browser 六原语绑定实参摘要——
+        # 缺省 {} 会令「确认 A 参数、执行 B 参数」的 token 移花接木可行；
+        # fill 不绑 text 原文（隐私——绑长度口径与剪贴板 W1 修复同思路）
+        if op == 'browser_navigate':
+            return {'url': str(d.get('url') or '')[:200]}
+        if op == 'browser_extract':
+            return {'selector': str(d.get('selector') or '')[:80]}
+        if op == 'browser_click':
+            return {'target': str(d.get('target') or '')[:120]}
+        if op == 'browser_fill':
+            return {'selector': str(d.get('selector') or '')[:80],
+                    'text_len': len(str(d.get('text') or ''))}
         return {}
 
     @classmethod
@@ -613,13 +645,25 @@ class GuardService:
                                   'message': '审批预算上限需为 1-100 的整数'
                                              '（当前 %r）' % (limit,)}}
             with self._lock:
-                self._cfg['approval_budget']['limit'] = int(limit)
-                self._cfg['approval_budget']['escalated'] = \
-                    self._cfg['approval_budget']['used'] >= int(limit)
+                ab2 = self._cfg.get('approval_budget')
+                if not isinstance(ab2, dict):
+                    ab2 = {'limit': 20, 'used': 0, 'escalated': False}
+                    self._cfg['approval_budget'] = ab2
+                ab2['limit'] = int(limit)
+                ab2['escalated'] = int(ab2.get('used') or 0) >= int(limit)
+                # bug 修复：limit 承诺持久（design §A3.5「limit 持久，guard.json
+                # 纯增键」）却只改内存——重启静默回 20。随设置落盘（used/
+                # escalated 会话级不落盘，写前剥离）
+                try:
+                    persist = dict(self._cfg)
+                    persist['approval_budget'] = {'limit': ab2['limit']}
+                    atomic_write_json(self._path, persist, indent=2)
+                except Exception as e:
+                    self._log.warning('approval_budget.limit 落盘失败: %r', e)
             self.audit('guard_budget', {'limit': int(limit)},
                        'decision', 'set-limit')
             ab['limit'] = int(limit)
-            ab['escalated'] = self._cfg['approval_budget']['escalated']
+            ab['escalated'] = ab2['escalated']
         used = int(ab.get('used') or 0)
         lim = int(ab.get('limit') or 20)
         return {'ok': True, 'used': used, 'limit': lim,
@@ -660,25 +704,23 @@ class GuardService:
         """v1.9.0 M2.4：enforce_exec + 预算超限 payload（8 处 api 挂点升级用）。
 
         返回 (reason, budget_exceeded)：budget_exceeded 非 None 的时机=该次
-        判定需要确认（always/session/listless）且 escalated=True——前端收到
-        APPROVAL_BUDGET_EXCEEDED 不弹逐项确认，弹任务授权邀请。其余语义与
-        enforce_exec 逐字一致（deny→rules→grant→trusted→档位→token）。
+        判定**若无预算机制本需确认**（enforce_exec 返回 reason 非 None）且
+        escalated=True——前端收到 APPROVAL_BUDGET_EXCEEDED 不弹逐项确认，
+        弹任务授权邀请。
+
+        bug 修复（预算升级不短路授权链）：原实现按档位口径先判 needs_confirm，
+        escalated 时先于 grant/allow_rules/trustedOps/token 判定直接返回
+        budget_exceeded——已激活的任务授权/白名单/持久信任全部被误拦。改
+        reason 先行：先跑完整判定链，reason 非 None（本次真需要确认弹窗）
+        才升级——放行路径（grant/rule/trusted/token 覆盖）零影响。
         """
         r = self.check(op, detail)
         if r.get('action') == 'block':
             return r.get('reason'), None
-        # 需要确认的时机（design §A3.5）= **档位口径**（非 check.action——
-        # 后者受 armed/trusted/grant 影响会把 always 档误判为 allow）：
-        # always/session/listless 档或高危 force_always。off/list/放行不计。
-        with self._lock:
-            tier = self._cfg['tiers'].get(op, DEFAULT_TIERS.get(op, 'always'))
-        if tier == 'list' and op in _LISTLESS_OPS:
-            tier = 'always'              # W10：listless 的 list 档按 always 处理
-        needs_confirm = tier in ('always', 'session') \
-            or bool((detail or {}).get('force_always'))
-        if needs_confirm and self._budget_escalated():
+        reason = self.enforce_exec(op, detail, token)
+        if reason and self._budget_escalated():
             return None, self.budget_exceeded_payload(op, detail)
-        return self.enforce_exec(op, detail, token), None
+        return reason, None
 
     def _budget_escalated(self):
         with self._lock:

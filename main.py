@@ -113,6 +113,8 @@ def main():
 
         # v1.3 MCP：进程退出时按规范关停全部 stdio 子进程（关 stdin→等→TERM→KILL）
         atexit.register(api.mcp_shutdown)
+        # v1.9.0 M3：浏览器驱动服务随进程退出关闭全部会话（daemon sweeper 双保险）
+        atexit.register(api._driver.shutdown)
         # v1.6 HF-P0：本地 CORS 代理随进程退出关停（daemon 线程，双保险）
         atexit.register(shutdown_proxy)
 
@@ -144,8 +146,7 @@ def main():
                 width=680, height=520, hidden=True)
             api._search.set_window(_search_win)
             atexit.register(api._search.shutdown)   # 退出时停回收线程 + 销毁次窗
-        except Exception as e:
-            log.warning('搜索次窗装配失败（搜索将回落 urllib 直连抓取）: %r', e)
+        except Exception as e:            log.warning('搜索次窗装配失败（搜索将回落 urllib 直连抓取）: %r', e)
 
         window.events.loaded += lambda: _enable_context_menu(window)
 

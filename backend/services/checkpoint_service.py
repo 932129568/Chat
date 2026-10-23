@@ -21,6 +21,7 @@
 投影（前端面板数据源：items[] 含 badges/size_mb/file_count——损坏可重建）。
 保留 CKPT_KEEP=3 份，超限随创建清理。
 """
+import hashlib
 import json
 import os
 import shutil
@@ -197,10 +198,26 @@ class CheckpointService:
                     warnings.append('快照失败 %s: %s' % (rel, e))
                     manifest['files'].append({'path': rel, 'snapshot': False})
                     continue
-            # v1.9 ⑥：创建时记录 sha256（恢复后校验数据源）
+            # v1.9 ⑥：创建时记录 sha256（恢复后校验数据源）——git 模式记
+            # **HEAD 版**哈希（bug 修复：恢复目标=git checkout <head>，记工作区
+            # 当前哈希会在「建点时存在未提交改动」场景令恢复后校验恒假失败；
+            # 未提交改动不丢——.rollback-bak 兜底回滚前状态）
+            sha = None
+            if head:
+                try:
+                    _r = subprocess.run(
+                        ['git', 'show', '%s:%s' % (head, rel)],
+                        cwd=ws, capture_output=True, timeout=30,
+                        creationflags=getattr(subprocess,
+                                               'CREATE_NO_WINDOW', 0))
+                    if _r.returncode == 0:
+                        sha = hashlib.sha256(_r.stdout).hexdigest()
+                except Exception:
+                    sha = None
+            else:
+                sha = _file_sha256(full)
             manifest['files'].append({'path': rel, 'snapshot': not head,
-                                      'sha256': _file_sha256(full),
-                                      'size': size})
+                                      'sha256': sha, 'size': size})
         try:
             os.makedirs(snap_dir, exist_ok=True)
             atomic_write_json(os.path.join(snap_dir, 'manifest.json'),

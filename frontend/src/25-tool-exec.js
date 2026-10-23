@@ -137,6 +137,52 @@ async function executeToolRaw(name, args) {
     if (name === 'browser_open') {
       return await callApi('browser_open', [args], 60000);
     }
+    // v1.9.0 M5：浏览器驱动六原语分发（guard 矩阵：click/fill=always，其余
+    // session；护栏链同 browser_search 走 agentGuardCheck；预算超限
+    // APPROVAL_BUDGET_EXCEEDED → maybeBudgetInvite 任务授权邀请，不弹逐项确认）
+    if (name === 'browser_navigate') {
+      const g = await agentGuardCheck('browser_navigate',
+        { url: String((args && args.url) || '').slice(0, 200) });
+      if (g.blocked) return g.blocked;
+      return maybeBudgetInvite(await callApi('browser_navigate',
+        [(args && args.url) || '', (args && args.wait_selector) || '',
+         pickTimeout(args), (args && args.mode) === 'visible' ? 'visible' : 'hidden',
+         g.token], 120000));
+    }
+    if (name === 'browser_extract') {
+      const g = await agentGuardCheck('browser_extract',
+        { selector: String((args && args.selector) || '').slice(0, 80) });
+      if (g.blocked) return g.blocked;
+      return maybeBudgetInvite(await callApi('browser_extract',
+        [(args && args.selector) || '', (args && args.mode) || 'markdown', g.token], 90000));
+    }
+    if (name === 'browser_click') {
+      const g = await agentGuardCheck('browser_click',
+        { target: String((args && args.target) || '').slice(0, 120) });
+      if (g.blocked) return g.blocked;
+      return maybeBudgetInvite(await callApi('browser_click',
+        [(args && args.target) || '', g.token], 90000));
+    }
+    if (name === 'browser_fill') {
+      const g = await agentGuardCheck('browser_fill',
+        { selector: String((args && args.selector) || '').slice(0, 80) });
+      if (g.blocked) return g.blocked;
+      return maybeBudgetInvite(await callApi('browser_fill',
+        [(args && args.selector) || '', (args && args.text) || '', g.token], 90000));
+    }
+    if (name === 'browser_screenshot') {
+      const g = await agentGuardCheck('browser_screenshot', {});
+      if (g.blocked) return g.blocked;
+      return maybeBudgetInvite(await callApi('browser_screenshot',
+        [args && args.full_page === true, g.token], 90000));
+    }
+    if (name === 'browser_close') {
+      // 会话管理类（session 档）：确认后执行；缺省关全部（session_id 可选）
+      const g = await agentGuardCheck('browser_close', {});
+      if (g.blocked) return g.blocked;
+      return maybeBudgetInvite(await callApi('browser_close',
+        [(args && args.session_id) || ''], 60000));
+    }
     if (name === 'software_call') {
       const g = await agentGuardCheck('software_call', {
         software: String((args && args.software) || '').slice(0, 60),
@@ -294,8 +340,12 @@ function harborRenderValidation(result, toolDiv) {
 const agentTrusted = new Set();
 async function agentGuardCheck(op, detail) {
   detail = detail || {};
-  const target = String(detail.query || detail.software || '');
-  const trustKey = op + ':' + target;
+  // v1.9.0 M5：浏览器驱动六原语的 target 取值（URL/目标元素/选择器）；
+  // 信任键按 op 粒度（session 档语义=同类操作会话内首次确认，非按 URL 逐条）
+  const _isBrowserOp = op.indexOf('browser_') === 0;
+  const target = String(detail.query || detail.software || detail.url ||
+    detail.target || detail.selector || '');
+  const trustKey = op + ':' + (_isBrowserOp ? '' : target);
   const dangerous = detail.force_always === true;
   if (!dangerous && agentTrusted.has(trustKey)) {
     return { blocked: null, decision: 'session-trust', token: null };
@@ -326,6 +376,16 @@ async function agentGuardCheck(op, detail) {
     body = 'AI 请求执行浏览器搜索：\n检索词：' + target +
       '\n档位：' + (tierName[verdict.tier] || verdict.tier || '?') +
       '\n\n将通过内置浏览器窗口访问搜索引擎并提取结果（外联走应用进程，审计可见）。';
+  } else if (_isBrowserOp) {
+    // v1.9.0 M5：浏览器驱动六原语确认文案（click/fill=always 每次确认）
+    const _bLabel = { browser_navigate: '导航到页面', browser_extract: '提取页面内容',
+      browser_click: '点击页面元素', browser_fill: '填充表单字段',
+      browser_screenshot: '截取页面', browser_close: '关闭浏览器会话' };
+    body = 'AI 请求浏览器操作：' + (_bLabel[op] || op) +
+      (target ? '\n目标：' + target : '') +
+      '\n档位：' + (tierName[verdict.tier] || verdict.tier || '?') +
+      ((op === 'browser_click' || op === 'browser_fill')
+        ? '\n\n页面交互会作用于真实网站（点击/提交/输入），请确认目标无误。' : '');
   } else {
     body = 'AI 请求调用外部软件：\n软件：' + String(detail.software || '') +
       '\n动作：' + String(detail.action || '') +
@@ -334,7 +394,8 @@ async function agentGuardCheck(op, detail) {
       '\n\n外部软件可在本机执行操作，请确认你信任此调用。';
   }
   const r = await uiConfirm({
-    title: op === 'web_search' ? '确认执行浏览器搜索' : '确认调用外部软件',
+    title: op === 'web_search' ? '确认执行浏览器搜索'
+      : (_isBrowserOp ? '确认浏览器操作' : '确认调用外部软件'),
     body, danger: dangerous || verdict.tier === 'always',
     okText: '允许执行',
     checkboxLabel: dangerous ? null : '本会话内不再提示同类操作'
@@ -342,6 +403,8 @@ async function agentGuardCheck(op, detail) {
   if (!r.ok) {
     const msg = (op === 'web_search'
       ? '用户拒绝了本次浏览器搜索。请调整检索方案或询问用户意图，不要原样重试。'
+      : _isBrowserOp
+      ? '用户拒绝了本次浏览器操作（' + op + '）。请调整方案或询问用户意图，不要原样重试。'
       : '用户拒绝了本次外部软件调用（' + String(detail.software || '') + ' · ' + String(detail.action || '') + '）。请调整方案或询问用户意图，不要原样重试。');
     toast('已拒绝 AI 的本次调用', 'ok');
     return { blocked: JSON.stringify({ info: msg, skipped: true }), decision: 'deny', token: null };
