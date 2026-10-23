@@ -249,6 +249,13 @@ class McpConfigService:
         if pool_err:
             return None, None, pool_err
         record.update(pool_record)
+        # 批 3b（M2.10 R36）：定期重验纯增键透传——_normalize 是白名单重建，
+        # 不透传则 save_server 全量保存会把后台写入的 lastReverifyAt 抹掉
+        # （后果=下次扫描全部首验，重验风暴）。未携带不写（缺省语义）。
+        if isinstance(cfg.get('lastReverifyAt'), str) and cfg.get('lastReverifyAt'):
+            record['lastReverifyAt'] = cfg['lastReverifyAt']
+        if isinstance(cfg.get('reverifyEnabled'), bool):
+            record['reverifyEnabled'] = cfg['reverifyEnabled']
         return record, transport, None
 
     # ---- 写操作 ----
@@ -285,6 +292,14 @@ class McpConfigService:
             elif isinstance(subs, list):
                 record['resourceSubs'] = [str(u)[:500] for u in subs
                                           if isinstance(u, str) and u.strip()][:100]
+            # 批 3b（M2.10 R36）：重验键未携带时保留既有（resourceSubs 同款
+            # absent-keep——UI 全量保存不感知后台写入值，禁抹）
+            if cfg.get('lastReverifyAt') is None \
+                    and isinstance(existing.get('lastReverifyAt'), str):
+                record['lastReverifyAt'] = existing['lastReverifyAt']
+            if cfg.get('reverifyEnabled') is None \
+                    and isinstance(existing.get('reverifyEnabled'), bool):
+                record['reverifyEnabled'] = existing['reverifyEnabled']
             # 字段级加密：env 值 / header 值（键名明文；非 Windows 明文容忍）
             plain_keys = []
             if 'env' in record:
@@ -326,6 +341,29 @@ class McpConfigService:
                 servers[str(name)] = old   # 修复 W5（二轮）：落盘失败回滚内存态（原内存/磁盘分裂）
                 self._log.exception('mcp_servers.json 删除失败')
                 return {'error': '配置删除失败: %s' % e}
+        return {'ok': True}
+
+    def set_reverify_at(self, name, iso_ts: str) -> dict:
+        """批 3b（M2.10 R36）：直写 lastReverifyAt 纯增键（后台定期重验专用）。
+
+        不走 save_server 全量重建——那条路会重跑 _normalize + env/headers 二次
+        加密 round-trip，且与 UI 并发保存互覆；本方法只动一个键，锁内改内存 +
+        原子落盘，失败回滚（W5 同口径）。"""
+        with self._lock:
+            cfg = self._data.get('mcpServers', {}).get(str(name or ''))
+            if not isinstance(cfg, dict):
+                return {'error': '服务器不存在: %s' % name}
+            old = cfg.get('lastReverifyAt')
+            cfg['lastReverifyAt'] = str(iso_ts)
+            try:
+                self._save()
+            except Exception as e:
+                if old is None:
+                    cfg.pop('lastReverifyAt', None)
+                else:
+                    cfg['lastReverifyAt'] = old
+                self._log.exception('lastReverifyAt 保存失败')
+                return {'error': 'lastReverifyAt 保存失败: %s' % e}
         return {'ok': True}
 
     def set_tool_tier(self, server: str, tool: str, tier: str) -> dict:

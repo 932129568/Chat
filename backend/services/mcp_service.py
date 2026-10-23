@@ -39,7 +39,103 @@ LIST_TIMEOUT = 15             # tools/list
 OUTPUT_CACHE_LIMIT = 20000    # 超长输出截断落盘阈值（字符）
 IDLE_SWEEP_INTERVAL = 30      # 空闲回收扫描周期（秒）
 
+# 批 3b（M2.10 R36）：定期重验间隔按健康度三态取档（秒）
+REVERIFY_OK_S = 86400         # health=ok → 24h
+REVERIFY_DEGRADED_S = 3600    # health=degraded（1-2 连败）→ 1h
+REVERIFY_ERROR_S = 900        # health=error（≥3 连败）→ 15min
+
 _STATUS_PUBLIC = {'ok': 'ok', 'error': 'error'}   # untested/stale → 'stale'
+
+
+def _utc_now_iso() -> str:
+    """批 3b：ISO8601 UTC 'Z' 后缀口径（B8 共享知识 5，与 hybrid/search 同款）。"""
+    return time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
+
+
+def _parse_iso_utc(s: str) -> float:
+    """解析 ISO8601 UTC 'Z' 串 → epoch 秒；格式不符抛 ValueError（调用方按首验处理）。"""
+    import datetime as _dt
+    dt = _dt.datetime.strptime(str(s), '%Y-%m-%dT%H:%M:%SZ').replace(
+        tzinfo=_dt.timezone.utc)
+    return dt.timestamp()
+
+
+# 批 3b（M2.10 R36）：楼层规则扩 schema 全字段——投毒检测词表与命令特征
+_DANGER_NAME_STEMS = ('delete', 'drop', 'purge', 'remove', 'destroy', 'erase',
+                      'truncate', 'format', 'exec', 'eval', 'run', 'shell',
+                      'cmd', 'kill', 'force')
+_SHELL_META = (';', '|', '&', '`', '$', '(', ')', '<', '>', '\n', '&&', '||')
+_CMD_FEATURES = ('sh -c', 'bash -c', 'cmd.exe', 'cmd /c', 'rm -rf', 'rm ',
+                 'del ', 'powershell', 'invoke-expression', 'iex ')
+_ABS_PATH_RE = re.compile(r'^(?:[A-Za-z]:[\\/]|[\\/])')   # /x、\x、C:\x、C:/x
+_POISON_DEPTH_MAX = 3
+
+
+def schema_poison_signals(input_schema) -> list:
+    """批 3b（M2.10 R36）：inputSchema 四维投毒检测（纯函数，零 IO 可单测）。
+
+    返回信号串列表（空=干净；去重保序）：
+    - 'param-name:<参数名>'   参数名（含嵌套 properties，深度≤3）命中危险动词词干
+    - 'enum-value:<参数名>'   enum 值含 shell 元字符（;|&`$()<>\n）或绝对路径
+    - 'default-bool:<参数名>' default 布尔 True 且参数名含 force/overwrite/
+                              recursive/delete（默认放行破坏性行为）
+    - 'default-cmd:<参数名>'  default 字符串含命令特征（'sh -c'/'cmd.exe'/'rm '…）
+
+    深度封顶 _POISON_DEPTH_MAX=3（防病态嵌套 DoS）；type 非标量（object/array）
+    递归下行。服务器注解可伪造，参数面是供应链偷袭面——本函数命中即由
+    derive_tier 升 always 档（每次确认），不阻断工具发射。"""
+    signals, seen = [], set()
+
+    def _add(sig):
+        if sig not in seen:
+            seen.add(sig)
+            signals.append(sig)
+
+    def _enum_poisonous(v) -> bool:
+        if not isinstance(v, str):
+            return False
+        if any(ch in v for ch in _SHELL_META):
+            return True
+        return bool(_ABS_PATH_RE.match(v))
+
+    def _visit(schema, depth):
+        # depth=根 properties（参数深度 1）；封顶=参数深度 3（depth 0/1/2 可访问）
+        if not isinstance(schema, dict) or depth >= _POISON_DEPTH_MAX:
+            return
+        props = schema.get('properties')
+        if not isinstance(props, dict):
+            return
+        for pname, pspec in props.items():
+            pname = str(pname)
+            low = pname.lower()
+            for stem in _DANGER_NAME_STEMS:
+                if stem in low:
+                    _add('param-name:%s' % pname)
+                    break
+            if not isinstance(pspec, dict):
+                continue
+            enum = pspec.get('enum')
+            if isinstance(enum, list) and any(_enum_poisonous(v) for v in enum):
+                _add('enum-value:%s' % pname)
+            default = pspec.get('default')
+            if default is True and any(s in low for s in
+                                       ('force', 'overwrite', 'recursive', 'delete')):
+                _add('default-bool:%s' % pname)
+            elif isinstance(default, str) and default:
+                dlow = default.lower()
+                for feat in _CMD_FEATURES:
+                    if feat in dlow:
+                        _add('default-cmd:%s' % pname)
+                        break
+            # ④ type 非标量递归下行（object 自身 / array items 携带子 schema）
+            if pspec.get('type') == 'object' or isinstance(pspec.get('properties'), dict):
+                _visit(pspec, depth + 1)
+            items = pspec.get('items')
+            if isinstance(items, dict):
+                _visit(items, depth + 1)
+
+    _visit(input_schema, 0)
+    return signals
 
 
 def _entry_template():
@@ -372,14 +468,20 @@ class McpService:
         return False
 
     @staticmethod
-    def derive_tier(annotations: dict, tool_name: str = '', description: str = '') -> str:
+    def derive_tier(annotations: dict, tool_name: str = '', description: str = '',
+                    input_schema: dict = None) -> str:
         """注解 + 楼层规则推导默认档位（注解不可信：最宽 session，永不放宽 off）。
 
         W10 楼层规则：工具名以下划线危险动词开头（delete_/drop_/purge_/wipe_/
         remove_/destroy_/erase_/truncate_/format_）或描述含同类破坏性表述 →
         always 档（无论注解如何标注——服务器注解可伪造，名字撒谎成本高）。
-        """
+
+        批 3b（M2.10 R36）：纯增 kwarg input_schema——提供且 schema_poison_signals
+        非空 → always（参数面投毒=供应链偷袭面：readOnly 注解的工具参数里藏
+        shell 元字符枚举/default 命令，照样每次确认）。既有三参调用零改。"""
         a = annotations or {}
+        if input_schema is not None and schema_poison_signals(input_schema):
+            return 'always'
         if a.get('destructiveHint') is True:
             return 'always'
         name = str(tool_name or '').lower()
@@ -446,6 +548,11 @@ class McpService:
         entry = self._rt.get(server) or {}
         for t in entry.get('tools') or []:
             if t.get('name') == tool:
+                # 批 3b（M2.10 R36）：schema 投毒优先于注解（注解不可信）——
+                # 参数面四维检测命中 → always + tier_source='schema-poison'
+                _schema = t.get('inputSchema')
+                if _schema is not None and schema_poison_signals(_schema):
+                    return 'always', 'schema-poison'
                 annotations = t.get('annotations')
                 if annotations:
                     return self.derive_tier(annotations), 'annotation'
@@ -808,6 +915,72 @@ class McpService:
                 closed += 1
         return {'ok': True, 'closed': closed}
 
+    # ============ 定期重验（批 3b，M2.10 R36） ============
+    def _reverify_due(self, name, entry) -> bool:
+        """到期判定：enabled 且非停用；间隔按 server_health(name) 取档
+        （ok 24h / degraded 1h / error 15min）；lastReverifyAt 缺失或不可解析
+        → 立即到期（首验口径）。reverifyEnabled=False 为用户显式窄关闭（禁全局）。"""
+        cfg = self._cfg.get_server(name) or {}
+        if not cfg.get('enabled'):
+            return False
+        if cfg.get('reverifyEnabled') is False:
+            return False
+        last = str(cfg.get('lastReverifyAt') or '')
+        if not last:
+            return True
+        try:
+            last_ts = _parse_iso_utc(last)
+        except Exception:
+            return True
+        health = self.server_health(name)
+        interval = {'ok': REVERIFY_OK_S, 'degraded': REVERIFY_DEGRADED_S,
+                    'error': REVERIFY_ERROR_S}.get(health, REVERIFY_OK_S)
+        return (time.time() - last_ts) >= interval
+
+    def _reverify_one(self, name) -> bool:
+        """轻量重验：持 entry 锁取既有 client（无则跳过——不新 spawn，防重验变
+        冷启风暴）→ tools/list → schema hash 对拍（canon 口径同 schema_review_ack）
+        → 变更 → _schema_review 入列（TOFU 阻断既有机制；entry['tools'] 同步更新
+        为新清单，供 ack 以新 schema 为快照基准）→ 成功 → lastReverifyAt 落
+        mcp_servers.json（纯增键原子写）。返回是否完成一次重验。"""
+        entry = self._rt.get(name)
+        if entry is None:
+            return False
+        with entry.get('lock', threading.RLock()):
+            client = entry.get('client')
+        if client is None:
+            return False
+        try:
+            tools = client.list_tools()
+        except Exception as e:
+            self._log.debug('MCP 服务器 %s 定期重验失败: %r', name, e)
+            return False
+        canon = json.dumps(
+            [{'name': t.get('name'), 'description': t.get('description'),
+              'inputSchema': t.get('inputSchema'),
+              'annotations': t.get('annotations')}
+             for t in tools],
+            sort_keys=True, ensure_ascii=False)
+        h = hashlib.sha256(canon.encode('utf-8')).hexdigest()
+        # hash 对拍 + _schema_review 更新 + entry['tools'] 交换必须在同一次
+        # self._lock 持有内原子完成——否则 tool_schemas（持 self._lock 读
+        # entry['tools']）可能读到旧清单算出旧 hash 与快照相等，把刚置的
+        # 「schema 变更待重审」阻断标志 discard 掉（TOFU 竞态窗口）
+        with self._lock:
+            prev = self._schema_hash.get(name)
+            if prev is None:
+                self._schema_hash[name] = h          # TOFU 首见：记录即信任
+            elif prev != h:
+                self._schema_review.add(name)
+                self._log.warning(
+                    'MCP 服务器 %s 定期重验发现 schema 变更（TOFU）：需人工重审', name)
+            else:
+                self._schema_review.discard(name)    # 恢复原样：解除待重审
+            entry['tools'] = tools
+            entry['last_list_at'] = time.monotonic()
+        self._cfg.set_reverify_at(name, _utc_now_iso())
+        return True
+
     def _idle_loop(self):
         # 修复 ㉑：等待切片化（≤1s）保证 shutdown 及时响应，但扫描周期按 IDLE_SWEEP_INTERVAL
         # 计（原 min(30,1.0) 使每次唤醒都全量扫描，与常量意图不符）；
@@ -861,6 +1034,19 @@ class McpService:
                 except Exception:
                     pass
                 self._log.info('温启条目 %s 超 %ss 未用，已关闭', server, WARM_ENTRY_IDLE_TTL)
+            # 批 3b（M2.10 R36）：定期重验扫描——到期且 enabled 的服务器轻量重验
+            # （_reverify_due 检查 enabled/reverifyEnabled/间隔取档；_reverify_one
+            # 对无 client 的服务器跳过不 spawn——不新起线程、不占 dispatcher）
+            try:
+                for s in self._cfg.list_servers():
+                    if not s.get('enabled'):
+                        continue
+                    _name = s['name']
+                    if self._rt.get(_name) is not None \
+                            and self._reverify_due(_name, self._rt[_name]):
+                        self._reverify_one(_name)
+            except Exception:
+                self._log.debug('MCP 定期重验扫描异常', exc_info=True)
 
     # ============ 拉起/重拉 ============
     def _get_or_spawn(self, name, entry=None, cfg=None):
