@@ -55,7 +55,7 @@ def _load_app_version():
         except Exception:
             continue
     # 修复 建议㉕：回退常量与 VERSION 文件保持同步（发布 checklist：bump 时两边核对）
-    return '1.7.0'
+    return '1.9.0'
 
 
 APP_VERSION = _load_app_version()

@@ -370,7 +370,17 @@ class PlanService(object):
         # 无快照目录：尝试 git 锚点（create 时记在计划里的场景由调用方传 files 重建）
         return {'ok': False, 'error': '未找到检查点: %s（可能创建时超限降级为仅记录）' % tid}
 
-    def checkpoint_list(self, task_id):
+    def checkpoint_list(self, task_id=''):
+        """检查点清单。
+
+        v1.9 契约对齐（2026-10-23 核对发现）：前端契约为无参 `()`——列**全部**
+        任务的检查点（checkpoints.json 数据源 + v19 检查点面板/三态对话框）；
+        传 task_id 时保持 M3-D1 原语义（该任务「将恢复的文件」清单，既有
+        调用方零改动）。返回 {ok, files, mode, git_head, ws_dir}；无参形态
+        追加 items[]（每任务摘要：id/mode/created_at/file_count/size_bytes）。
+        """
+        if not task_id:
+            return self._checkpoint_list_all()
         try:
             snap_dir = _ckpt_path(task_id)
         except ValueError:
@@ -387,6 +397,45 @@ class PlanService(object):
                  for it in manifest.get('files', [])]
         return {'ok': True, 'files': files, 'mode': 'git' if manifest.get('git_head') else 'snapshot',
                 'git_head': manifest.get('git_head'), 'ws_dir': manifest.get('ws_dir')}
+
+    def _checkpoint_list_all(self):
+        """无参形态：扫 checkpoints/ 下全部任务的 manifest 汇总（v19 面板数据源）。
+
+        保留策略 CKPT_KEEP=3 的轮换已在 create 时执行——此处只读现状。
+        items 按 created_at 降序；manifest 损坏的任务跳过（不阻塞整列表）。
+        """
+        base = _ckpts_dir()
+        items = []
+        try:
+            names = sorted(os.listdir(base))
+        except OSError:
+            names = []
+        for tid in names:
+            mf_path = os.path.join(base, tid, 'manifest.json')
+            if not os.path.exists(mf_path):
+                continue
+            try:
+                with open(mf_path, 'r', encoding='utf-8') as f:
+                    mf = json.load(f)
+            except (OSError, ValueError):
+                continue
+            files = mf.get('files') or []
+            size = 0
+            try:
+                for fn in os.listdir(os.path.join(base, tid)):
+                    fp = os.path.join(base, tid, fn)
+                    if os.path.isfile(fp):
+                        size += os.path.getsize(fp)
+            except OSError:
+                pass
+            items.append({'id': tid,
+                          'mode': 'git' if mf.get('git_head') else 'snapshot',
+                          'git_head': mf.get('git_head'),
+                          'created_at': mf.get('created_at'),
+                          'file_count': len(files),
+                          'size_bytes': size})
+        items.sort(key=lambda x: x.get('created_at') or '', reverse=True)
+        return {'ok': True, 'items': items, 'keep': CKPT_KEEP}
 
     # ---------------- 澄清（纯数据结构） ----------------
     def clarify_collect(self, questions, answers):

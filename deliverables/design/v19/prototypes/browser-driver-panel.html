@@ -1,0 +1,562 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta http-equiv="Content-Security-Policy" content="object-src 'none'; base-uri 'none'; form-action 'none'">
+<title>原型 · 浏览器驱动面板 — Harbor v1.9.0</title>
+<!--
+  ============================================================
+  设计系统：Harbor 设计系统 v4（deliverables/design/v4）
+  升级依据：deliverables/design/v19/token-upgrade-plan.md（彩格调）
+  原型类型：dashboard 域 · 浏览器驱动（M3.8 / M5 / 5.7）
+  纪律：brw-mode 可见/隐藏切换（spring 滑块 200ms）；六原语状态行
+        12px 点 ok/warn/err；brw-takeover 反爬接管 warn 边 + 1.4s 脉冲点；
+        UNTRUSTED 演示条（琥珀斜纹边 + mono 来源 + 哈希链首 8 位）。
+  ============================================================
+-->
+<style>
+/* ============================================================
+   ① 令牌块 —— v4 保留值 + v1.9.0 新增
+   ============================================================ */
+:root{
+  --bg:#f6f7f9; --sidebar-bg:#ffffff; --main-bg:#f6f7f9; --header-bg:rgba(255,255,255,.78);
+  --card-bg:#ffffff; --surface-2:#f1f3f7;
+  --border:#e4e6ec; --border-strong:#d2d6e0;
+  --text:#14161c; --text-2:#5f6674; --text-3:#656b7a;
+  --primary:#4560e0; --primary-hover:#3a51cc; --primary-soft:#eef1fe;
+  --user-bubble:#4f6ef7; --user-bubble-text:#ffffff; --ai-bubble:#ffffff;
+  --hover:#f1f3f7; --active:#eef1fe; --chip-bg:#f1f3f7;
+  --ok:#146b40; --warn:#8f5a0a; --err:#bd2a1c;
+  --ok-bg:#e8f6ee; --warn-bg:#fdf5e6; --err-bg:#fdecea;
+  --shadow-sm:0 1px 2px rgba(16,18,28,.05),0 1px 3px rgba(16,18,28,.07);
+  --shadow-md:0 2px 8px rgba(16,18,28,.07),0 4px 12px rgba(16,18,28,.06);
+  --shadow-lg:0 12px 28px rgba(16,18,28,.12),0 24px 48px rgba(16,18,28,.10);
+  --edge-hi:inset 0 1px 0 rgba(255,255,255,.65);
+  --radius-xs:4px; --radius-sm:6px; --radius-md:9px; --radius-lg:12px; --radius-xl:16px; --radius-full:999px;
+  --font-sans:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei","Noto Sans SC",sans-serif;
+  --font-mono:"JetBrains Mono","Cascadia Code",Consolas,"SFMono-Regular",Menlo,monospace;
+  --dur-fast:120ms; --dur-base:180ms; --dur-slow:280ms;
+  --ease:cubic-bezier(.4,0,.2,1); --ease-out:cubic-bezier(.16,1,.3,1);
+  --content-w:920px;
+  --brand-gradient:linear-gradient(135deg,#6b84ff,#4560e0);
+  --glass-bg:rgba(255,255,255,.62); --glass-bg-2:rgba(255,255,255,.80);
+  --glass-border:rgba(255,255,255,.72); --glass-blur:18px; --glass-fallback:#f4f6fb; --glass-saturate:1.15;
+  --aurora-1:#22d3ee; --aurora-3:#8b5cf6;
+  --aurora-opacity:.12; --aurora-bg-opacity:.50; --aurora-blur:64px;
+  --glow-color:rgba(79,110,247,.50);
+  --glow:0 0 0 1px var(--glass-border),0 0 22px -6px var(--glow-color);
+  --glow-focus:0 0 0 3px var(--primary-soft),0 0 20px -4px var(--glow-color);
+  --dur-press:90ms; --dur-micro:130ms; --dur-micro-out:90ms;
+  --dur-comp:200ms; --dur-comp-out:140ms;
+  --dur-panel:240ms; --dur-panel-out:200ms;
+  --dur-narr:220ms; --dur-theme:280ms;
+  --dur-ambient:34s; --dur-ambient-2:52s;
+  --dur-stream:1.4s; --dur-breathe:2.6s;
+  --ease-out-soft:cubic-bezier(.25,.8,.35,1);
+  --ease-in-soft:cubic-bezier(.42,0,1,1);
+  --ease-spring:cubic-bezier(.34,1.3,.5,1);
+  --ease-anticipate:cubic-bezier(.34,1.45,.64,1);
+  --stagger-xs:40ms; --stagger-sm:60ms; --stagger-max:160ms;
+  --shift-tip:4px; --shift-comp:6px; --shift-panel:12px;
+  --fs-display:19px; --fs-title:13.5px; --fs-body:13.5px; --fs-caption:12px; --fs-micro:11px;
+  /* ===== v1.9.0 新增令牌（亮色）===== */
+  --aurora-5:rgba(69,96,224,.10);
+  --aurora-op-focus:.18;
+  --edge-hi-strong:inset 0 1px 0 rgba(255,255,255,.9);
+  --bg-deep:#0d0f16;
+  --skylight-strength:.5;
+  --untrusted:#8f5a0a;
+  --untrusted-bg:#fdf5e6;
+  --prov-line:1px dashed var(--border-strong);
+}
+body.dark{
+  --bg:#101114; --sidebar-bg:#16181d; --main-bg:#101114; --header-bg:rgba(22,24,29,.78);
+  --card-bg:#1a1c22; --surface-2:#212429;
+  --border:#272a32; --border-strong:#343843;
+  --text:#e6e7ea; --text-2:#8b909c; --text-3:#9298a6;
+  --primary:#6b84ff; --primary-hover:#8098ff; --primary-soft:#1d2337;
+  --user-bubble:#4c5fd4; --user-bubble-text:#ffffff; --ai-bubble:#1a1c22;
+  --hover:#212429; --active:#232a3f; --chip-bg:#212429;
+  --ok:#4ade80; --warn:#fbbf24; --err:#f87171;
+  --ok-bg:#12251b; --warn-bg:#2a2213; --err-bg:#2b1618;
+  --shadow-sm:0 1px 2px rgba(0,0,0,.35),0 1px 3px rgba(0,0,0,.45);
+  --shadow-md:0 2px 10px rgba(0,0,0,.42),0 4px 14px rgba(0,0,0,.38);
+  --shadow-lg:0 16px 40px rgba(0,0,0,.55),0 24px 56px rgba(0,0,0,.5);
+  --edge-hi:inset 0 1px 0 rgba(255,255,255,.06);
+  --glass-bg:rgba(26,28,34,.60); --glass-bg-2:rgba(30,33,41,.78);
+  --glass-border:rgba(255,255,255,.10); --glass-blur:20px; --glass-fallback:#171a21; --glass-saturate:1.15;
+  --aurora-1:#22d3ee; --aurora-3:#8b5cf6;
+  --aurora-opacity:.15; --aurora-bg-opacity:.62; --aurora-blur:64px;
+  --glow-color:rgba(107,132,255,.55);
+  --glow:0 0 0 1px var(--glass-border),0 0 22px -6px var(--glow-color);
+  --glow-focus:0 0 0 3px var(--primary-soft),0 0 20px -4px var(--glow-color);
+  /* ===== v1.9.0 新增令牌（暗色）===== */
+  --aurora-5:rgba(69,96,224,.18);
+  --aurora-op-focus:.26;
+  --edge-hi-strong:inset 0 1px 0 rgba(255,255,255,.10);
+  --bg-deep:#07080d;
+  --skylight-strength:.7;
+  --untrusted:#fbbf24;
+  --untrusted-bg:#2a2213;
+}
+
+/* ============================================================
+   ② 基座 / 降级矩阵
+   ============================================================ */
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:var(--font-sans);background:var(--bg);min-height:100vh;color:var(--text);
+  font-size:14px;line-height:1.6;
+  transition:background var(--dur-theme) var(--ease-out-soft),color var(--dur-theme) var(--ease-out-soft);}
+:focus-visible{outline:2px solid var(--primary);outline-offset:2px;}
+::selection{background:var(--primary-soft);color:var(--primary);}
+body.fx-off{
+  --dur-press:1ms; --dur-micro:1ms; --dur-micro-out:1ms;
+  --dur-comp:1ms; --dur-comp-out:1ms;
+  --dur-panel:1ms; --dur-panel-out:1ms; --dur-narr:1ms; --dur-theme:1ms;
+  --stagger-xs:0ms; --stagger-sm:0ms; --stagger-max:0ms;
+}
+body.fx-off #auroraBg .au,body.fx-off .brw-pulse{animation:none;}
+body.fx-off .brw-pulse{box-shadow:0 0 0 3px var(--warn-bg);}
+@media (prefers-reduced-motion: reduce){
+  *,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;
+    transition-duration:.01ms!important;}
+  #auroraBg .au{animation:none!important;}
+}
+@media (prefers-reduced-transparency: reduce){
+  :root{--glass-bg:#f4f6fb; --glass-bg-2:#ffffff; --glass-blur:0px;}
+  body.dark{--glass-bg:#171a21; --glass-bg-2:#1a1c22; --glass-blur:0px;}
+}
+
+/* ============================================================
+   ③ 极光背景层
+   ============================================================ */
+#auroraBg{position:fixed;inset:0;z-index:-1;overflow:hidden;pointer-events:none;
+  opacity:var(--aurora-bg-opacity);background:var(--bg);
+  transition:opacity var(--dur-panel) var(--ease-out-soft);}
+#auroraBg .au{position:absolute;width:58vmax;height:58vmax;border-radius:50%;
+  filter:blur(var(--aurora-blur));will-change:transform;}
+#auroraBg .au-1{top:-20vmax;left:-14vmax;opacity:.66;
+  background:radial-gradient(circle at 50% 50%,var(--aurora-1),transparent 62%);
+  animation:v4AuroraA var(--dur-ambient) ease-in-out infinite alternate;}
+#auroraBg .au-2{bottom:-22vmax;right:-16vmax;opacity:.62;
+  background:radial-gradient(circle at 50% 50%,var(--aurora-3),transparent 62%);
+  animation:v4AuroraB var(--dur-ambient-2) ease-in-out infinite alternate;}
+#auroraBg .au-5{top:26vmax;right:6vmax;width:44vmax;height:44vmax;opacity:.8;
+  background:radial-gradient(circle at 50% 50%,var(--aurora-5),transparent 62%);
+  animation:v4AuroraC var(--dur-ambient) ease-in-out infinite alternate;}
+@keyframes v4AuroraA{from{transform:translate3d(0,0,0)}to{transform:translate3d(8vmax,5vmax,0)}}
+@keyframes v4AuroraB{from{transform:translate3d(0,0,0)}to{transform:translate3d(-7vmax,-6vmax,0)}}
+@keyframes v4AuroraC{from{transform:translate3d(0,0,0)}to{transform:translate3d(-5vmax,4vmax,0)}}
+
+/* ============================================================
+   ④ 原型外框
+   ============================================================ */
+.proto-bar{position:sticky;top:0;z-index:50;display:flex;align-items:center;gap:10px;
+  padding:10px 18px;border-bottom:1px solid var(--glass-border);
+  background:linear-gradient(var(--glass-bg),var(--glass-bg)),var(--glass-fallback);
+  backdrop-filter:blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  -webkit-backdrop-filter:blur(var(--glass-blur)) saturate(var(--glass-saturate));}
+.proto-bar-title{font-size:13px;font-weight:600;letter-spacing:-.1px;white-space:nowrap;}
+.proto-bar-sub{font-size:var(--fs-micro);color:var(--text-3);font-family:var(--font-mono);white-space:nowrap;}
+.proto-bar-acts{margin-left:auto;display:flex;gap:8px;align-items:center;}
+.proto-stage{max-width:var(--content-w);margin:0 auto;padding:28px 20px 12px;position:relative;}
+.proto-foot{max-width:var(--content-w);margin:0 auto;padding:18px 20px 48px;font-size:var(--fs-micro);
+  color:var(--text-3);line-height:1.9;}
+.proto-foot b{color:var(--text-2);font-weight:600;}
+.proto-foot code{font-family:var(--font-mono);background:var(--surface-2);border:1px solid var(--border);
+  border-radius:var(--radius-xs);padding:0 5px;}
+.pill-btn{height:30px;padding:0 12px;border:1px solid var(--border);border-radius:var(--radius-md);
+  background:var(--card-bg);cursor:pointer;font-size:12px;font-family:inherit;color:var(--text);
+  display:inline-flex;align-items:center;gap:6px;white-space:nowrap;
+  transition:background-color var(--dur-micro) var(--ease-out-soft),color var(--dur-micro) var(--ease-out-soft),
+    border-color var(--dur-micro) var(--ease-out-soft),box-shadow var(--dur-micro) var(--ease-out-soft),
+    transform var(--dur-press) var(--ease-out-soft);}
+.pill-btn:hover{border-color:var(--primary);color:var(--primary);background:var(--primary-soft);}
+.pill-btn:active{transform:scale(.97);}
+.pill-btn svg{width:14px;height:14px;flex-shrink:0;}
+.pill-btn[aria-pressed="true"]{background:var(--primary-soft);border-color:var(--primary);color:var(--primary);font-weight:600;}
+.ghost-btn{height:30px;padding:0 12px;border:1px solid var(--border);border-radius:var(--radius-md);
+  background:transparent;cursor:pointer;font-size:12px;font-family:inherit;color:var(--text-2);
+  display:inline-flex;align-items:center;justify-content:center;gap:5px;white-space:nowrap;text-decoration:none;
+  transition:background-color var(--dur-micro) var(--ease-out-soft),color var(--dur-micro) var(--ease-out-soft),
+    border-color var(--dur-micro) var(--ease-out-soft),box-shadow var(--dur-micro) var(--ease-out-soft);}
+.ghost-btn:hover{border-color:var(--primary);color:var(--primary);background:var(--primary-soft);}
+
+/* ============================================================
+   ⑤ 浏览器驱动面板（g-card 玻璃范式）
+   ============================================================ */
+.brw-panel{background:linear-gradient(var(--glass-bg),var(--glass-bg)),var(--glass-fallback);
+  backdrop-filter:blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  -webkit-backdrop-filter:blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  border:1px solid var(--glass-border);border-radius:var(--radius-lg);
+  box-shadow:var(--shadow-md),var(--edge-hi);overflow:hidden;
+  animation:v4MsgIn var(--dur-narr) var(--ease-out-soft);}
+@keyframes v4MsgIn{from{opacity:0;transform:translateY(var(--shift-comp))}to{opacity:1;transform:none}}
+.brw-head{display:flex;align-items:center;gap:10px;padding:12px 14px;border-bottom:1px solid var(--border);flex-wrap:wrap;}
+.brw-head h1{font-size:var(--fs-title);font-weight:650;letter-spacing:-.1px;white-space:nowrap;}
+.brw-session{font-size:var(--fs-micro);color:var(--text-3);font-family:var(--font-mono);
+  font-variant-numeric:tabular-nums;white-space:nowrap;}
+.brw-head .head-right{margin-left:auto;display:flex;align-items:center;gap:10px;}
+
+/* ---- v1.9 新增：brw-mode 可见/隐藏切换（spring 滑块 200ms）---- */
+.brw-mode{display:flex;align-items:center;gap:8px;}
+.brw-mode-label{font-size:var(--fs-micro);color:var(--text-3);font-weight:600;letter-spacing:.04em;white-space:nowrap;}
+.brw-mode-switch{position:relative;display:flex;background:var(--surface-2);border:1px solid var(--border);
+  border-radius:var(--radius-full);padding:2px;width:148px;}
+.brw-mode-thumb{position:absolute;top:2px;bottom:2px;left:2px;width:calc(50% - 2px);
+  background:var(--card-bg);border-radius:var(--radius-full);box-shadow:var(--shadow-sm);
+  transition:transform var(--dur-comp) var(--ease-spring);}   /* spring 形变 200ms */
+.brw-mode-switch[data-mode="visible"] .brw-mode-thumb{transform:translateX(100%);}
+.brw-mode-opt{position:relative;z-index:1;flex:1;height:24px;border:none;background:transparent;cursor:pointer;
+  font-size:var(--fs-caption);font-family:inherit;color:var(--text-2);border-radius:var(--radius-full);
+  display:inline-flex;align-items:center;justify-content:center;gap:5px;white-space:nowrap;
+  transition:color var(--dur-micro) var(--ease-out-soft);}
+.brw-mode-opt svg{width:13px;height:13px;}
+.brw-mode-opt.on{color:var(--primary);font-weight:600;}
+
+/* ---- 浏览器预览窗（可见模式）---- */
+.brw-view{display:none;padding:12px 14px 4px;}
+.brw-view.show{display:block;animation:v4BrwViewIn var(--dur-comp) var(--ease-spring);}
+@keyframes v4BrwViewIn{from{opacity:0;transform:scale(.97) translateY(var(--shift-comp))}to{opacity:1;transform:none}}
+.brw-window{border:1px solid var(--border-strong);border-radius:var(--radius-md);overflow:hidden;
+  background:var(--card-bg);box-shadow:var(--shadow-sm);}
+.brw-urlbar{display:flex;align-items:center;gap:8px;padding:7px 10px;background:var(--surface-2);
+  border-bottom:1px solid var(--border);font-size:var(--fs-micro);font-family:var(--font-mono);color:var(--text-2);}
+.brw-urlbar .u{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.brw-urlbar .lock{color:var(--ok);flex-shrink:0;width:12px;height:12px;}
+.brw-canvas{padding:14px;display:flex;flex-direction:column;gap:8px;min-height:88px;}
+.brw-canvas .sk{height:8px;border-radius:var(--radius-full);background:var(--surface-2);}
+.brw-canvas .sk.w60{width:60%;} .brw-canvas .sk.w80{width:80%;} .brw-canvas .sk.w40{width:40%;}
+.brw-canvas .sk.tall{height:34px;border-radius:var(--radius-sm);}
+.brw-canvas .cap{font-size:var(--fs-micro);color:var(--text-3);margin-top:2px;}
+.brw-view-note{padding:8px 14px 12px;font-size:var(--fs-micro);color:var(--text-3);}
+.brw-view-note b{color:var(--text-2);font-weight:600;}
+
+/* ---- v1.9 新增：brw-row 六原语状态行 ---- */
+.brw-rows{display:flex;flex-direction:column;}
+.brw-row{display:flex;align-items:center;gap:10px;padding:9px 14px;border-bottom:1px solid var(--border);
+  transition:background-color var(--dur-micro) var(--ease-out-soft);}
+.brw-row:last-child{border-bottom:none;}
+.brw-row:hover{background:var(--hover);}
+.brw-dot{width:12px;height:12px;border-radius:50%;flex-shrink:0;background:var(--text-3);
+  transition:background-color var(--dur-micro) var(--ease-out-soft),box-shadow var(--dur-micro) var(--ease-out-soft);}
+.brw-dot.ok{background:var(--ok);}
+.brw-dot.warn{background:var(--warn);box-shadow:0 0 0 3px var(--warn-bg);}
+.brw-dot.err{background:var(--err);box-shadow:0 0 0 3px var(--err-bg);}
+.brw-name{font-family:var(--font-mono);font-size:var(--fs-caption);font-weight:600;color:var(--text);
+  min-width:96px;flex-shrink:0;}
+.brw-desc{font-size:var(--fs-caption);color:var(--text-2);flex:1;min-width:0;overflow:hidden;
+  text-overflow:ellipsis;white-space:nowrap;}
+.brw-state{font-size:var(--fs-micro);padding:1px 8px;border-radius:var(--radius-full);flex-shrink:0;
+  background:var(--chip-bg);color:var(--text-2);font-weight:500;}
+.brw-state.ok{background:var(--ok-bg);color:var(--ok);}
+.brw-state.warn{background:var(--warn-bg);color:var(--warn);}
+.brw-state.err{background:var(--err-bg);color:var(--err);}
+.brw-trace{font-size:var(--fs-micro);color:var(--text-3);font-family:var(--font-mono);
+  font-variant-numeric:tabular-nums;white-space:nowrap;flex-shrink:0;}
+
+/* ---- v1.9 新增：brw-takeover 反爬接管卡 ---- */
+.brw-takeover{display:flex;align-items:center;gap:11px;margin:12px 14px;padding:11px 13px;
+  border:1px solid var(--warn);border-radius:var(--radius-md);background:var(--warn-bg);
+  animation:v4TakeoverIn var(--dur-panel) var(--ease-out-soft);}
+@keyframes v4TakeoverIn{from{opacity:0;transform:translateY(calc(-1 * var(--shift-comp)))}to{opacity:1;transform:none}}
+.brw-takeover.out{animation:v4TakeoverOut var(--dur-comp-out) var(--ease-in-soft) forwards;}
+@keyframes v4TakeoverOut{from{opacity:1;transform:none}to{opacity:0;transform:scale(.98) translateY(calc(-1 * var(--shift-tip)))}}
+.brw-pulse{width:10px;height:10px;border-radius:50%;background:var(--warn);flex-shrink:0;
+  animation:v4Pulse var(--dur-stream) var(--ease-out-soft) infinite;}   /* 1.4s 脉冲点 */
+@keyframes v4Pulse{0%,100%{box-shadow:0 0 0 0 var(--warn-bg)}50%{box-shadow:0 0 0 5px var(--warn-bg)}}
+.brw-takeover-body{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px;}
+.brw-takeover-body b{font-size:var(--fs-caption);color:var(--warn);font-weight:600;}
+.brw-takeover-body span{font-size:var(--fs-micro);color:var(--text-2);line-height:1.6;}
+.brw-takeover-acts{display:flex;gap:6px;flex-shrink:0;}
+
+/* ---- UNTRUSTED 演示条（提取结果标记）---- */
+.prov-strip{margin:0 14px 12px;padding:2px;border-radius:var(--radius-md);
+  background:repeating-linear-gradient(45deg,var(--untrusted) 0 5px,transparent 5px 10px);}
+.prov-strip-inner{background:var(--card-bg);border-radius:calc(var(--radius-md) - 2px);padding:9px 12px;}
+.prov-head{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
+.prov-tag{font-size:var(--fs-micro);font-weight:700;letter-spacing:.08em;color:var(--untrusted);
+  border:1px solid var(--untrusted);border-radius:var(--radius-xs);padding:0 6px;font-family:var(--font-mono);}
+.prov-cap{font-size:var(--fs-micro);color:var(--text-3);font-family:var(--font-mono);}
+.prov-body{font-size:var(--fs-caption);color:var(--text-2);line-height:1.7;margin-top:5px;}
+.prov-body i{color:var(--text-3);font-style:normal;}
+.prov-chain{display:flex;align-items:center;margin-top:8px;}
+.prov-chain-line{flex:1;border-top:var(--prov-line);position:relative;min-width:12px;}
+.prov-chain-line::after{content:"";position:absolute;left:50%;top:50%;width:4px;height:4px;border-radius:50%;
+  background:var(--border-strong);transform:translate(-50%,-50%);}
+.prov-node{font-size:var(--fs-micro);font-family:var(--font-mono);color:var(--text-3);white-space:nowrap;padding:0 6px;}
+
+/* ============================================================
+   ⑥ 演示控制
+   ============================================================ */
+.demo-ctl{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:20px;padding:12px 14px;
+  border:1px dashed var(--border-strong);border-radius:var(--radius-lg);background:var(--surface-2);}
+.demo-ctl-label{font-size:var(--fs-micro);color:var(--text-3);font-weight:600;letter-spacing:.08em;}
+.demo-ctl .spacer{flex:1;}
+.demo-note{font-size:var(--fs-micro);color:var(--text-3);font-family:var(--font-mono);}
+
+body.theming .proto-bar,body.theming .brw-panel,body.theming .brw-row,body.theming .brw-window,
+body.theming .brw-urlbar,body.theming .brw-takeover,body.theming .prov-strip,body.theming .prov-strip-inner,
+body.theming .demo-ctl,body.theming #auroraBg,body.theming .pill-btn,body.theming .ghost-btn{
+  transition-property:background-color,color,border-color,box-shadow,opacity;
+  transition-duration:var(--dur-theme);
+  transition-timing-function:var(--ease-out-soft);}
+
+@media (max-width:720px){
+  .proto-bar-sub{display:none;}
+  .brw-desc{display:none;}
+  .brw-head .head-right{margin-left:0;}
+  .brw-takeover{flex-wrap:wrap;}
+}
+</style>
+</head>
+<body>
+<div id="auroraBg" aria-hidden="true"><div class="au au-1"></div><div class="au au-2"></div><div class="au au-5"></div></div>
+
+<header class="proto-bar">
+  <span class="proto-bar-title">浏览器驱动面板</span>
+  <span class="proto-bar-sub">M3.8 / M5 · token-upgrade-plan §2.3</span>
+  <div class="proto-bar-acts">
+    <a class="ghost-btn" href="index.html">← 原型总览</a>
+    <button class="pill-btn" id="fxBtn" aria-pressed="true" title="动效开关（fx-off 停列 + prefers-reduced-motion 降级）">
+      <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2l1.6 4.6L18 8.2l-4.4 1.6L12 14.4l-1.6-4.6L6 8.2l4.4-1.6L12 2z"/><path d="M19 11l.9 2.5L22.4 14.4l-2.5.9L19 17.8l-.9-2.5-2.5-.9 2.5-.9L19 11z" opacity=".6"/></svg>
+      <span id="fxLabel">动效 开</span>
+    </button>
+    <button class="pill-btn" id="themeBtn" aria-pressed="false" title="亮/暗双主题（body.dark）">
+      <svg id="themeIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8Z"/></svg>
+      <span id="themeLabel">暗色</span>
+    </button>
+  </div>
+</header>
+
+<main class="proto-stage">
+  <section class="brw-panel" aria-label="浏览器驱动面板">
+    <header class="brw-head">
+      <h1>浏览器驱动</h1>
+      <span class="brw-session">bs_7f3a · 池 1/3 · 空闲 42s · guard: click/fill=always</span>
+      <div class="head-right">
+        <!-- v1.9 新增：brw-mode 可见/隐藏切换 -->
+        <div class="brw-mode">
+          <span class="brw-mode-label">驱动模式</span>
+          <div class="brw-mode-switch" id="brwMode" data-mode="hidden">
+            <span class="brw-mode-thumb" aria-hidden="true"></span>
+            <button class="brw-mode-opt on" data-mode="hidden" aria-pressed="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 10 8 10 8a13.16 13.16 0 0 1-1.67 2.68"/><path d="M6.61 6.61A13.5 13.5 0 0 0 2 12s3 8 10 8a9.74 9.74 0 0 0 5.39-1.61"/><path d="M14.12 14.12a3 3 0 1 1-4.24-4.24"/><path d="M2 2l20 20"/></svg>
+              隐藏
+            </button>
+            <button class="brw-mode-opt" data-mode="visible" aria-pressed="false">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M2 12s3-8 10-8 10 8 10 8-3 8-10 8-10-8-10-8z"/><circle cx="12" cy="12" r="3"/></svg>
+              可见
+            </button>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <!-- 可见模式预览窗 -->
+    <div class="brw-view" id="brwView">
+      <div class="brw-window" role="img" aria-label="浏览器窗口预览">
+        <div class="brw-urlbar">
+          <svg class="lock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>
+          <span class="u">https://quote.example.com/c/00700</span>
+          <span>· 用户可见浏览中</span>
+        </div>
+        <div class="brw-canvas" aria-hidden="true">
+          <div class="sk w40"></div>
+          <div class="sk w80"></div>
+          <div class="sk tall"></div>
+          <div class="sk w60"></div>
+          <span class="cap">页面内容示意 · 前后态截图已入审计链（b64 不回传正文）</span>
+        </div>
+      </div>
+      <div class="brw-view-note"><b>可见模式</b>：窗口归用户可见，AI 后台驱动暂停输入焦点，避免双驱抢焦点。</div>
+    </div>
+
+    <!-- v1.9 新增：六原语状态行 -->
+    <div class="brw-rows" id="brwRows">
+      <div class="brw-row" data-prim="navigate">
+        <span class="brw-dot ok"></span>
+        <span class="brw-name">navigate</span>
+        <span class="brw-desc">打开页面 · 等待选择器 · 硬超时</span>
+        <span class="brw-state ok">待命</span>
+        <span class="brw-trace">a1b2c3d4</span>
+      </div>
+      <div class="brw-row" data-prim="extract">
+        <span class="brw-dot warn"></span>
+        <span class="brw-name">extract</span>
+        <span class="brw-desc">双 LLM-lite 读取 · 只回传序列化结果</span>
+        <span class="brw-state warn">运行中</span>
+        <span class="brw-trace">e5f6a7b8</span>
+      </div>
+      <div class="brw-row" data-prim="click">
+        <span class="brw-dot ok"></span>
+        <span class="brw-name">click</span>
+        <span class="brw-desc">always guard · 前后态截图审计</span>
+        <span class="brw-state ok">待命</span>
+        <span class="brw-trace">—</span>
+      </div>
+      <div class="brw-row" data-prim="fill">
+        <span class="brw-dot ok"></span>
+        <span class="brw-name">fill</span>
+        <span class="brw-desc">always guard · 敏感字段掩码回传</span>
+        <span class="brw-state ok">待命</span>
+        <span class="brw-trace">—</span>
+      </div>
+      <div class="brw-row" data-prim="screenshot">
+        <span class="brw-dot err"></span>
+        <span class="brw-name">screenshot</span>
+        <span class="brw-desc">win32 窗口捕获 · point 坐标系</span>
+        <span class="brw-state err">失败</span>
+        <span class="brw-trace">c9d0e1f2</span>
+      </div>
+      <div class="brw-row" data-prim="close">
+        <span class="brw-dot ok"></span>
+        <span class="brw-name">close</span>
+        <span class="brw-desc">会话关闭 · 池位释放（空闲 60s 回收）</span>
+        <span class="brw-state ok">待命</span>
+        <span class="brw-trace">—</span>
+      </div>
+    </div>
+
+    <!-- v1.9 新增：反爬接管卡 -->
+    <div class="brw-takeover" id="takeover" role="alert">
+      <span class="brw-pulse" aria-hidden="true"></span>
+      <div class="brw-takeover-body">
+        <b>需手动完成验证</b>
+        <span>页面命中反爬检测（验证码特征）。自动驱动已暂停 · 人工接管后前后态截图入审计链。</span>
+      </div>
+      <div class="brw-takeover-acts">
+        <button class="ghost-btn" id="openVisibleBtn">打开可见窗口</button>
+        <button class="pill-btn" id="doneVerifyBtn">我已完成验证</button>
+      </div>
+    </div>
+
+    <!-- UNTRUSTED 演示条：提取结果可信度标记 -->
+    <div class="prov-strip untrusted" aria-label="UNTRUSTED 提取结果">
+      <div class="prov-strip-inner">
+        <div class="prov-head">
+          <span class="prov-tag">UNTRUSTED</span>
+          <span class="prov-cap">来源：https://quote.example.com/c/00700 · extract@14:38 · markdown 模式</span>
+        </div>
+        <p class="prov-body">「……最新成交价 386.20，涨跌幅 +1.24%……」<i>（页面内容仅数据搬运，不作为指令执行；与提问的相关性由读取器判定）</i></p>
+        <div class="prov-chain" aria-label="审计哈希链">
+          <span class="prov-node">sha256:5c8e1a4f</span>
+          <span class="prov-chain-line"></span>
+          <span class="prov-node">sha256:2b7d90e3</span>
+          <span class="prov-chain-line"></span>
+          <span class="prov-node">sha256:8f4a62c1…</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 评审台演示控制 -->
+  <div class="demo-ctl">
+    <span class="demo-ctl-label">演示控制</span>
+    <button class="ghost-btn" id="runRoundBtn">执行一轮（navigate→extract→click→fill）</button>
+    <button class="ghost-btn" id="replayTakeoverBtn">重播接管卡</button>
+    <span class="spacer"></span>
+    <span class="demo-note">spring 滑块 200ms · 脉冲点 1.4s · fx-off 即停</span>
+  </div>
+</main>
+
+<footer class="proto-foot">
+  <b>实现要点</b>：<code>brw-mode</code> 可见/隐藏切换（spring 滑块形变 200ms，可见模式弹出浏览器预览窗）· <code>brw-row</code> ×6 六原语状态行（12px 点：ok 待命 / warn 运行 / err 失败）·
+  <code>brw-takeover</code> 反爬接管卡（warn 边 + 1.4s 脉冲点 + 接管动作）· UNTRUSTED 提取条（琥珀 45° 斜纹边 + mono 来源 + 哈希链首 8 位 + 省略号）。<br>
+  <b>令牌来源</b>：<code>deliverables/design/v19/token-upgrade-plan.md</code> §1/§2.3；既有范式继承 <code>frontend/index.template.html</code> g-card 玻璃域。
+</footer>
+
+<script>
+/* ============================================================
+   MOTION 单一事实源（读 CSS 令牌，禁硬编码 ms）
+   ============================================================ */
+const MOTION = (() => {
+  const cs = getComputedStyle(document.documentElement);
+  const ms = k => { const v = cs.getPropertyValue(k).trim(); return v.endsWith('ms') ? parseFloat(v) : parseFloat(v) * 1000; };
+  return { press: ms('--dur-press'), micro: ms('--dur-micro'), microOut: ms('--dur-micro-out'),
+    comp: ms('--dur-comp'), compOut: ms('--dur-comp-out'), panel: ms('--dur-panel'),
+    narr: ms('--dur-narr'), theme: ms('--dur-theme') };
+})();
+const DEMO = { primDwell: 650 };   /* 演示节奏：单个原语运行时长（非动效令牌） */
+
+const $ = s => document.querySelector(s);
+const body = document.body;
+
+/* ---------- 主题 / 动效开关 ---------- */
+const themeBtn = $('#themeBtn'), themeLabel = $('#themeLabel'), themeIcon = $('#themeIcon');
+const SUN = '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>';
+const MOON = '<path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8Z"/>';
+function setTheme(dark){
+  body.classList.add('theming');
+  body.classList.toggle('dark', dark);
+  themeBtn.setAttribute('aria-pressed', String(dark));
+  themeLabel.textContent = dark ? '亮色' : '暗色';
+  themeIcon.innerHTML = dark ? SUN : MOON;
+  try{ localStorage.setItem('proto-theme', dark ? 'dark' : 'light'); }catch(e){}
+  setTimeout(() => body.classList.remove('theming'), MOTION.theme + 60);
+}
+themeBtn.addEventListener('click', () => setTheme(!body.classList.contains('dark')));
+try{ if (localStorage.getItem('proto-theme') === 'dark') setTheme(true); }catch(e){}
+const fxBtn = $('#fxBtn'), fxLabel = $('#fxLabel');
+function setFx(on){
+  body.classList.toggle('fx-off', !on);
+  fxBtn.setAttribute('aria-pressed', String(on));
+  fxLabel.textContent = on ? '动效 开' : '动效 关';
+}
+fxBtn.addEventListener('click', () => setFx(body.classList.contains('fx-off')));
+
+/* ---------- brw-mode 可见/隐藏切换 ---------- */
+const brwMode = $('#brwMode'), brwView = $('#brwView');
+const modeOpts = brwMode.querySelectorAll('.brw-mode-opt');
+function setMode(mode){
+  brwMode.dataset.mode = mode;
+  modeOpts.forEach(b => {
+    const on = b.dataset.mode === mode;
+    b.classList.toggle('on', on);
+    b.setAttribute('aria-pressed', String(on));
+  });
+  brwView.classList.toggle('show', mode === 'visible');
+}
+modeOpts.forEach(b => b.addEventListener('click', () => setMode(b.dataset.mode)));
+
+/* ---------- 六原语状态行 ---------- */
+const rows = {};
+document.querySelectorAll('.brw-row').forEach(r => rows[r.dataset.prim] = r);
+const STATE_TEXT = { ok: '待命', warn: '运行中', err: '失败' };
+function setPrim(prim, st, trace){
+  const r = rows[prim]; if (!r) return;
+  r.querySelector('.brw-dot').className = 'brw-dot ' + st;
+  const s = r.querySelector('.brw-state');
+  s.className = 'brw-state ' + st; s.textContent = STATE_TEXT[st];
+  if (trace) r.querySelector('.brw-trace').textContent = trace;
+}
+let runTimers = [];
+function runRound(){
+  runTimers.forEach(clearTimeout); runTimers = [];
+  const seq = ['navigate', 'extract', 'click', 'fill'];
+  let t = 0;
+  seq.forEach((p, idx) => {
+    runTimers.push(setTimeout(() => setPrim(p, 'warn'), t));
+    t += DEMO.primDwell;
+    runTimers.push(setTimeout(() => setPrim(p, 'ok', 'tr_' + Math.random().toString(16).slice(2, 10)), t));
+    t += 120;
+  });
+  /* screenshot 保持 err（失败示例，重试上限 1 已用尽） */
+}
+$('#runRoundBtn').addEventListener('click', runRound);
+
+/* ---------- 反爬接管卡 ---------- */
+const takeover = $('#takeover');
+$('#openVisibleBtn').addEventListener('click', () => setMode('visible'));
+$('#doneVerifyBtn').addEventListener('click', () => {
+  takeover.classList.add('out');
+  setTimeout(() => { takeover.style.display = 'none'; }, MOTION.compOut);
+  setPrim('extract', 'ok', 'tr_after');
+});
+$('#replayTakeoverBtn').addEventListener('click', () => {
+  takeover.style.display = ''; takeover.classList.remove('out');
+});
+</script>
+</body>
+</html>

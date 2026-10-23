@@ -1,0 +1,816 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<!-- 渐进式 CSP 纵深（与 index.template.html 一致：单文件全内联架构） -->
+<meta http-equiv="Content-Security-Policy" content="object-src 'none'; base-uri 'none'; form-action 'none'">
+<title>原型 · Intent Preview 计划卡 — Harbor v1.9.0</title>
+<!--
+  ============================================================
+  设计系统：Harbor 设计系统 v4（deliverables/design/v4）
+  升级依据：deliverables/design/v19/token-upgrade-plan.md（彩格调）
+  原型类型：web-prototype · Plan-Act 域（M2.3 / M2.5）
+  纪律：v4 令牌块（:root 亮色 + body.dark 暗色）原样继承；
+        新类纯增（plan-eta / plan-riskbar / plan-scope / plan-ctx /
+        plan-auto / plan-btn / prov-strip），不改既有选择器；
+        JS 不硬编码 ms（MOTION 单一事实源，读 CSS 令牌）。
+  ============================================================
+-->
+<style>
+/* ============================================================
+   ① 令牌块 —— v4 保留值（禁删改）+ v1.9.0 新增（彩格调 §1）
+   ============================================================ */
+:root{
+  /* ===== v2 保留（值不变，禁止删改）===== */
+  --bg:#f6f7f9; --sidebar-bg:#ffffff; --main-bg:#f6f7f9; --header-bg:rgba(255,255,255,.78);
+  --card-bg:#ffffff; --surface-2:#f1f3f7;
+  --border:#e4e6ec; --border-strong:#d2d6e0;
+  --text:#14161c; --text-2:#5f6674; --text-3:#656b7a;
+  --primary:#4560e0; --primary-hover:#3a51cc; --primary-soft:#eef1fe;
+  --user-bubble:#4f6ef7; --user-bubble-text:#ffffff; --ai-bubble:#ffffff;
+  --hover:#f1f3f7; --active:#eef1fe; --chip-bg:#f1f3f7;
+  --ok:#146b40; --warn:#8f5a0a; --err:#bd2a1c;
+  --ok-bg:#e8f6ee; --warn-bg:#fdf5e6; --err-bg:#fdecea;
+  --shadow-sm:0 1px 2px rgba(16,18,28,.05),0 1px 3px rgba(16,18,28,.07);
+  --shadow-md:0 2px 8px rgba(16,18,28,.07),0 4px 12px rgba(16,18,28,.06);
+  --shadow-lg:0 12px 28px rgba(16,18,28,.12),0 24px 48px rgba(16,18,28,.10);
+  --edge-hi:inset 0 1px 0 rgba(255,255,255,.65);
+  --edge-hi-soft:inset 0 1px 0 rgba(255,255,255,.45);
+  --glow-inset:inset 0 1px 0 rgba(255,255,255,.35);
+  --radius-xs:4px; --radius-sm:6px; --radius-md:9px; --radius-lg:12px; --radius-xl:16px; --radius-full:999px;
+  --font-sans:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei","Noto Sans SC",sans-serif;
+  --font-mono:"JetBrains Mono","Cascadia Code",Consolas,"SFMono-Regular",Menlo,monospace;
+  --dur-fast:120ms; --dur-base:180ms; --dur-slow:280ms;
+  --ease:cubic-bezier(.4,0,.2,1); --ease-out:cubic-bezier(.16,1,.3,1);
+  --content-w:920px;
+  --brand-gradient:linear-gradient(135deg,#6b84ff,#4560e0);
+
+  /* ===== v4 玻璃层（值保留 v3）===== */
+  --glass-bg:rgba(255,255,255,.62);
+  --glass-bg-2:rgba(255,255,255,.80);
+  --glass-border:rgba(255,255,255,.72);
+  --glass-blur:18px;
+  --glass-fallback:#f4f6fb;
+  --glass-saturate:1.15;
+
+  /* ===== v4 极光（青/紫双斑漂移；品红退役）===== */
+  --aurora-1:#22d3ee;
+  --aurora-3:#8b5cf6;
+  --aurora-opacity:.12;
+  --aurora-bg-opacity:.50;
+  --aurora-blur:64px;
+
+  /* ===== v4 发光（收紧使用范围）===== */
+  --glow-color:rgba(79,110,247,.50);
+  --glow:0 0 0 1px var(--glass-border),0 0 22px -6px var(--glow-color);
+  --glow-focus:0 0 0 3px var(--primary-soft),0 0 20px -4px var(--glow-color);
+
+  /* ===== v4 动效时长 · 四层模型 ===== */
+  --dur-press:90ms; --dur-micro:130ms; --dur-micro-out:90ms;
+  --dur-comp:200ms; --dur-comp-out:140ms;
+  --dur-panel:240ms; --dur-panel-out:200ms;
+  --dur-narr:220ms; --dur-theme:280ms;
+  --dur-ambient:34s; --dur-ambient-2:52s;
+  --dur-breathe:2.6s; --dur-stream:1.4s;
+
+  /* ===== v4 动效缓动 ===== */
+  --ease-out-soft:cubic-bezier(.25,.8,.35,1);
+  --ease-in-soft:cubic-bezier(.42,0,1,1);
+  --ease-spring:cubic-bezier(.34,1.3,.5,1);
+  --ease-emphasized:cubic-bezier(.2,0,0,1);
+  --ease-anticipate:cubic-bezier(.34,1.45,.64,1);
+
+  /* ===== v4 编排 / 位移令牌 ===== */
+  --stagger-xs:40ms; --stagger-sm:60ms; --stagger-max:160ms;
+  --shift-tip:4px; --shift-comp:6px; --shift-panel:12px;
+
+  /* ===== v4 字阶（五级语义化）===== */
+  --fs-display:19px; --fs-title:13.5px; --fs-body:13.5px; --fs-caption:12px; --fs-micro:11px;
+  --main-veil:rgba(246,247,249,.88);
+
+  /* ===== v1.9.0 新增令牌（token-upgrade-plan §1，亮色值）===== */
+  --aurora-5:rgba(69,96,224,.10);            /* 品牌蓝第 5 光斑 */
+  --aurora-op-focus:.18;                     /* 任务态挂载：极光加深一档 */
+  --edge-hi-strong:inset 0 1px 0 rgba(255,255,255,.9); /* 模态玻璃受光边第三档 */
+  --bg-deep:#0d0f16;                         /* 夜态窗口外圈环境色 */
+  --skylight-strength:.5;                    /* 聊天天光纱 */
+  --untrusted:#8f5a0a;                       /* 安全信任色（复用 warn 校准值） */
+  --untrusted-bg:#fdf5e6;
+  --prov-line:1px dashed var(--border-strong); /* 审计哈希链虚线 */
+}
+body.dark{
+  /* ===== v2 保留（值不变，禁止删改）===== */
+  --bg:#101114; --sidebar-bg:#16181d; --main-bg:#101114; --header-bg:rgba(22,24,29,.78);
+  --card-bg:#1a1c22; --surface-2:#212429;
+  --border:#272a32; --border-strong:#343843;
+  --text:#e6e7ea; --text-2:#8b909c; --text-3:#9298a6;
+  --primary:#6b84ff; --primary-hover:#8098ff; --primary-soft:#1d2337;
+  --user-bubble:#4c5fd4; --user-bubble-text:#ffffff; --ai-bubble:#1a1c22;
+  --hover:#212429; --active:#232a3f; --chip-bg:#212429;
+  --ok:#4ade80; --warn:#fbbf24; --err:#f87171;
+  --ok-bg:#12251b; --warn-bg:#2a2213; --err-bg:#2b1618;
+  --shadow-sm:0 1px 2px rgba(0,0,0,.35),0 1px 3px rgba(0,0,0,.45);
+  --shadow-md:0 2px 10px rgba(0,0,0,.42),0 4px 14px rgba(0,0,0,.38);
+  --shadow-lg:0 16px 40px rgba(0,0,0,.55),0 24px 56px rgba(0,0,0,.5);
+  --edge-hi:inset 0 1px 0 rgba(255,255,255,.06);
+  --edge-hi-soft:inset 0 1px 0 rgba(255,255,255,.04);
+  --glow-inset:inset 0 1px 0 rgba(255,255,255,.03);
+
+  /* ===== v4 玻璃层（深色）===== */
+  --glass-bg:rgba(26,28,34,.60);
+  --glass-bg-2:rgba(30,33,41,.78);
+  --glass-border:rgba(255,255,255,.10);
+  --glass-blur:20px;
+  --glass-fallback:#171a21;
+  --glass-saturate:1.15;
+
+  /* ===== v4 极光（深色同色相，夜态沉浸）===== */
+  --aurora-1:#22d3ee; --aurora-3:#8b5cf6;
+  --aurora-opacity:.15; --aurora-bg-opacity:.62; --aurora-blur:64px;
+
+  /* ===== v4 发光（深色）===== */
+  --glow-color:rgba(107,132,255,.55);
+  --glow:0 0 0 1px var(--glass-border),0 0 22px -6px var(--glow-color);
+  --glow-focus:0 0 0 3px var(--primary-soft),0 0 20px -4px var(--glow-color);
+
+  --main-veil:rgba(16,17,20,.88);
+
+  /* ===== v1.9.0 新增令牌（暗色值）===== */
+  --aurora-5:rgba(69,96,224,.18);
+  --aurora-op-focus:.26;
+  --edge-hi-strong:inset 0 1px 0 rgba(255,255,255,.10);
+  --bg-deep:#07080d;
+  --skylight-strength:.7;
+  --untrusted:#fbbf24;
+  --untrusted-bg:#2a2213;
+}
+
+/* ============================================================
+   ② 基座 / 无障碍降级矩阵（v4 port-spec §2.17）
+   ============================================================ */
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:var(--font-sans);background:var(--bg);min-height:100vh;color:var(--text);
+  font-size:14px;line-height:1.6;
+  transition:background var(--dur-theme) var(--ease-out-soft),color var(--dur-theme) var(--ease-out-soft);}
+:focus-visible{outline:2px solid var(--primary);outline-offset:2px;}
+::selection{background:var(--primary-soft);color:var(--primary);}
+/* fx-off 变量级降级：引用令牌的 transition 自动瞬时 */
+body.fx-off{
+  --dur-press:1ms; --dur-micro:1ms; --dur-micro-out:1ms;
+  --dur-comp:1ms; --dur-comp-out:1ms;
+  --dur-panel:1ms; --dur-panel-out:1ms; --dur-narr:1ms; --dur-theme:1ms;
+  --stagger-xs:0ms; --stagger-sm:0ms; --stagger-max:0ms;
+}
+/* 无限循环必须显式停（变量覆盖对 infinite 无效） */
+body.fx-off #auroraBg .au,
+body.fx-off .brw-pulse,
+body.fx-off .plan-step.doing .st{animation:none;}
+body.fx-off .plan-step.doing .st{border-top-color:var(--primary);}
+body.fx-off .brw-pulse{box-shadow:0 0 0 3px var(--warn-bg);}
+@media (prefers-reduced-motion: reduce){
+  *,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;
+    transition-duration:.01ms!important;}
+  #auroraBg .au{animation:none!important;}
+}
+@media (prefers-reduced-transparency: reduce){
+  :root{--glass-bg:#f4f6fb; --glass-bg-2:#ffffff; --glass-blur:0px;}
+  body.dark{--glass-bg:#171a21; --glass-bg-2:#1a1c22; --glass-blur:0px;}
+}
+
+/* ============================================================
+   ③ 极光背景层（v4 E1 范式 + v1.9 aurora-5 品牌蓝第三斑）
+   ============================================================ */
+#auroraBg{position:fixed;inset:0;z-index:-1;overflow:hidden;pointer-events:none;
+  opacity:var(--aurora-bg-opacity);background:var(--bg);
+  transition:opacity var(--dur-panel) var(--ease-out-soft);}
+#auroraBg .au{position:absolute;width:58vmax;height:58vmax;border-radius:50%;
+  filter:blur(var(--aurora-blur));will-change:transform;}
+#auroraBg .au-1{top:-20vmax;left:-14vmax;opacity:.66;
+  background:radial-gradient(circle at 50% 50%,var(--aurora-1),transparent 62%);
+  animation:v4AuroraA var(--dur-ambient) ease-in-out infinite alternate;}
+#auroraBg .au-2{bottom:-22vmax;right:-16vmax;opacity:.62;
+  background:radial-gradient(circle at 50% 50%,var(--aurora-3),transparent 62%);
+  animation:v4AuroraB var(--dur-ambient-2) ease-in-out infinite alternate;}
+#auroraBg .au-5{top:26vmax;right:6vmax;width:44vmax;height:44vmax;opacity:.8;
+  background:radial-gradient(circle at 50% 50%,var(--aurora-5),transparent 62%);
+  animation:v4AuroraC var(--dur-ambient) ease-in-out infinite alternate;}
+@keyframes v4AuroraA{from{transform:translate3d(0,0,0)}to{transform:translate3d(8vmax,5vmax,0)}}
+@keyframes v4AuroraB{from{transform:translate3d(0,0,0)}to{transform:translate3d(-7vmax,-6vmax,0)}}
+@keyframes v4AuroraC{from{transform:translate3d(0,0,0)}to{transform:translate3d(-5vmax,4vmax,0)}}
+/* 任务态挂载：计划卡/检查点可见期间，极光加深一档（fx-off 停列已覆盖） */
+body.task-mount #auroraBg{opacity:calc(var(--aurora-bg-opacity) + var(--aurora-op-focus));}
+
+/* ============================================================
+   ④ 原型外框（proto-* 为评审台脚手架，非产品 UI）
+   ============================================================ */
+.proto-bar{position:sticky;top:0;z-index:50;display:flex;align-items:center;gap:10px;
+  padding:10px 18px;border-bottom:1px solid var(--glass-border);
+  background:linear-gradient(var(--glass-bg),var(--glass-bg)),var(--glass-fallback);
+  backdrop-filter:blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  -webkit-backdrop-filter:blur(var(--glass-blur)) saturate(var(--glass-saturate));}
+.proto-bar-title{font-size:13px;font-weight:600;letter-spacing:-.1px;white-space:nowrap;}
+.proto-bar-sub{font-size:var(--fs-micro);color:var(--text-3);font-family:var(--font-mono);white-space:nowrap;}
+.proto-bar-acts{margin-left:auto;display:flex;gap:8px;align-items:center;}
+.proto-stage{max-width:var(--content-w);margin:0 auto;padding:28px 20px 12px;position:relative;}
+.proto-foot{max-width:var(--content-w);margin:0 auto;padding:18px 20px 48px;font-size:var(--fs-micro);
+  color:var(--text-3);line-height:1.9;}
+.proto-foot b{color:var(--text-2);font-weight:600;}
+.proto-foot code{font-family:var(--font-mono);background:var(--surface-2);border:1px solid var(--border);
+  border-radius:var(--radius-xs);padding:0 5px;}
+
+/* 通用小钮（评审台控件，复用 pill-btn 范式） */
+.pill-btn{height:30px;padding:0 12px;border:1px solid var(--border);border-radius:var(--radius-md);
+  background:var(--card-bg);cursor:pointer;font-size:12px;font-family:inherit;color:var(--text);
+  display:inline-flex;align-items:center;gap:6px;white-space:nowrap;
+  transition:background-color var(--dur-micro) var(--ease-out-soft),color var(--dur-micro) var(--ease-out-soft),
+    border-color var(--dur-micro) var(--ease-out-soft),box-shadow var(--dur-micro) var(--ease-out-soft),
+    transform var(--dur-press) var(--ease-out-soft);}
+.pill-btn:hover{border-color:var(--primary);color:var(--primary);background:var(--primary-soft);}
+.pill-btn:active{transform:scale(.97);}
+.pill-btn svg{width:14px;height:14px;flex-shrink:0;}
+.pill-btn[aria-pressed="true"]{background:var(--primary-soft);border-color:var(--primary);color:var(--primary);font-weight:600;}
+.ghost-btn{height:30px;padding:0 12px;border:1px solid var(--border);border-radius:var(--radius-md);
+  background:transparent;cursor:pointer;font-size:12px;font-family:inherit;color:var(--text-2);
+  display:inline-flex;align-items:center;justify-content:center;gap:5px;white-space:nowrap;
+  text-decoration:none;
+  transition:background-color var(--dur-micro) var(--ease-out-soft),color var(--dur-micro) var(--ease-out-soft),
+    border-color var(--dur-micro) var(--ease-out-soft),box-shadow var(--dur-micro) var(--ease-out-soft);}
+.ghost-btn:hover{border-color:var(--primary);color:var(--primary);background:var(--primary-soft);}
+
+/* ============================================================
+   ⑤ 对话流容器（计划卡挂载上下文）
+   ============================================================ */
+.conv{display:flex;flex-direction:column;gap:14px;}
+.msg-user{align-self:flex-end;max-width:74%;background:var(--user-bubble);color:var(--user-bubble-text);
+  border-radius:var(--radius-lg) var(--radius-lg) var(--radius-xs) var(--radius-lg);
+  padding:10px 14px;font-size:var(--fs-body);line-height:1.65;box-shadow:var(--shadow-sm);
+  animation:v4MsgIn var(--dur-narr) var(--ease-out-soft);}
+.msg-sys{align-self:flex-start;max-width:74%;background:var(--ai-bubble);color:var(--text);
+  border:1px solid var(--border);border-radius:var(--radius-lg) var(--radius-lg) var(--radius-lg) var(--radius-xs);
+  padding:10px 14px;font-size:var(--fs-body);line-height:1.65;box-shadow:var(--shadow-sm);
+  animation:v4MsgIn var(--dur-narr) var(--ease-out-soft);animation-delay:calc(var(--stagger-xs) * 2);}
+.msg-sys .who{font-size:var(--fs-micro);color:var(--text-3);font-family:var(--font-mono);display:block;margin-bottom:3px;}
+.plan-scroller{display:flex;flex-direction:column;gap:16px;}
+@keyframes v4MsgIn{from{opacity:0;transform:translateY(var(--shift-comp))}to{opacity:1;transform:none}}
+
+/* ============================================================
+   ⑥ 计划卡（既有 v1.8 范式 + v1.9 纯增类）
+   ============================================================ */
+.plan-card{border:1px solid var(--border);border-radius:var(--radius-lg);background:var(--card-bg);
+  box-shadow:var(--shadow-md);overflow:hidden;animation:v4MsgIn var(--dur-narr) var(--ease-out-soft);}
+/* v1.9 升级变体修饰类（纯增，不改 .plan-card 本体） */
+.plan-card.plan-v19{position:relative;}
+.plan-head{display:flex;align-items:center;gap:8px;padding:11px 14px;border-bottom:1px solid var(--border);}
+.plan-badge{font-size:10.5px;padding:1px 9px;border-radius:var(--radius-full);font-weight:600;flex-shrink:0;
+  transition:background-color var(--dur-comp) var(--ease-out-soft),color var(--dur-comp) var(--ease-out-soft),
+    opacity var(--dur-micro) var(--ease-out-soft);}
+.plan-badge.pending{background:var(--warn-bg);color:var(--warn)}
+.plan-badge.running{background:var(--primary-soft);color:var(--primary)}
+.plan-badge.done{background:var(--ok-bg);color:var(--ok)}
+.plan-title{font-size:var(--fs-title);font-weight:600;flex:1;min-width:0;overflow:hidden;
+  text-overflow:ellipsis;white-space:nowrap;}
+.plan-files{padding:8px 14px;font-size:var(--fs-micro);color:var(--text-3);font-family:var(--font-mono);
+  border-bottom:1px solid var(--border);line-height:1.7;}
+.plan-steps{display:flex;flex-direction:column;}
+.plan-step{display:flex;align-items:flex-start;gap:10px;padding:9px 14px;border-bottom:1px solid var(--border);
+  animation:v4PlanStepIn var(--dur-comp) var(--ease-out-soft) both;
+  animation-delay:calc(var(--stagger-sm) * var(--i, 0));}
+@keyframes v4PlanStepIn{from{opacity:0;transform:translateY(-2px)}to{opacity:1;transform:none}}
+.plan-step .st{width:16px;height:16px;border-radius:50%;border:1.5px solid var(--border-strong);flex-shrink:0;
+  margin-top:1px;display:flex;align-items:center;justify-content:center;font-size:10px;color:transparent;}
+.plan-step.pending .st{border-color:var(--border-strong)}
+.plan-step.doing .st{border-color:var(--primary);border-top-color:var(--primary-soft);
+  animation:v4Spin var(--dur-stream) linear infinite;}
+.plan-step.done .st{border-color:var(--ok);background:var(--ok);color:#fff}
+.plan-step.done .st::after{content:"\2713";animation:v4CheckPop var(--dur-comp) var(--ease-spring);}
+@keyframes v4CheckPop{from{transform:scale(.4);opacity:0}to{transform:scale(1);opacity:1}}
+.plan-step.blocked .st{border-color:var(--err)}
+.plan-step.skipped .st{border-color:var(--border)}
+.plan-step.blocked .txt{color:var(--err)}
+.plan-step.skipped .txt{color:var(--text-3);text-decoration:line-through;text-decoration-color:var(--border-strong);}
+.plan-step .txt{font-size:12.5px;color:var(--text);line-height:1.5;flex:1;min-width:0;}
+.plan-step.done .txt{color:var(--text-3);transition:color var(--dur-comp) var(--ease-out-soft);}
+.plan-step .risk{font-size:10px;padding:0 7px;border-radius:var(--radius-full);flex-shrink:0;margin-top:2px;font-weight:600;}
+.plan-step .risk.l0{background:var(--err-bg);color:var(--err)}
+.plan-step .risk.l2{background:var(--warn-bg);color:var(--warn)}
+@keyframes v4Spin{to{transform:rotate(360deg)}}
+
+/* ---- v1.9 新增：plan-eta（mono 时间估计徽标）---- */
+.plan-eta{font-family:var(--font-mono);font-size:var(--fs-caption);color:var(--text-2);
+  background:var(--surface-2);border:1px solid var(--border);border-radius:var(--radius-full);
+  padding:2px 10px;white-space:nowrap;flex-shrink:0;font-variant-numeric:tabular-nums;
+  transition:opacity var(--dur-micro-out) var(--ease-in-soft),transform var(--dur-micro-out) var(--ease-in-soft);}
+.plan-eta.gone{opacity:0;transform:translateY(calc(-1 * var(--shift-tip)));}
+
+/* ---- v1.9 新增：plan-riskbar（卡左侧 3px 风险色条，取最高步骤风险）---- */
+.plan-riskbar{position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--warn);}
+.plan-riskbar[data-risk="l0"]{background:var(--err);}
+.plan-riskbar[data-risk="l2"]{background:var(--warn);}
+
+/* ---- v1.9 新增：plan-scope（边界声明区，dashed 边框）---- */
+.plan-scope{margin:10px 14px;border:1px dashed var(--border-strong);border-radius:var(--radius-md);
+  display:grid;grid-template-columns:1fr 1px 1fr;overflow:hidden;}
+.plan-scope-sep{background:repeating-linear-gradient(180deg,var(--border-strong) 0 4px,transparent 4px 8px);}
+.plan-scope-col{padding:9px 12px;min-width:0;}
+.plan-scope-col h2{font-size:var(--fs-micro);font-weight:600;letter-spacing:.08em;color:var(--text-3);
+  margin-bottom:5px;text-transform:uppercase;}
+.plan-scope-col.will h2{color:var(--ok);}
+.plan-scope-col ul{list-style:none;}
+.plan-scope-col li{font-size:var(--fs-caption);color:var(--text-2);line-height:1.75;font-family:var(--font-mono);
+  display:flex;gap:6px;}
+.plan-scope-col li::before{flex-shrink:0;font-weight:700;}
+.plan-scope-col.will li::before{content:"\2713";color:var(--ok);}
+.plan-scope-col.wont li{color:var(--text-3);}
+.plan-scope-col.wont li::before{content:"\00D7";color:var(--text-3);}
+
+/* ---- v1.9 新增：plan-ctx（累计上下文，mono 细进度条）---- */
+.plan-ctx{display:flex;align-items:center;gap:9px;padding:9px 14px;border-bottom:1px solid var(--border);}
+.plan-ctx-label{font-size:var(--fs-micro);color:var(--text-3);white-space:nowrap;font-weight:600;letter-spacing:.04em;}
+.plan-ctx-bar{flex:1;height:3px;border-radius:var(--radius-full);background:var(--border);overflow:hidden;}
+.plan-ctx-fill{height:100%;background:var(--primary);transform:scaleX(.62);transform-origin:left;
+  transition:transform var(--dur-comp) var(--ease-out-soft);}
+.plan-ctx-num{font-size:var(--fs-micro);color:var(--text-3);font-family:var(--font-mono);
+  font-variant-numeric:tabular-nums;white-space:nowrap;}
+
+/* ---- v1.9 新增：plan-btn 三钮（批准 primary+glow / 编辑 ghost / 拒绝 err-soft）---- */
+.plan-acts{display:flex;gap:8px;padding:11px 14px;align-items:center;
+  transition:opacity var(--dur-comp-out) var(--ease-in-soft);}
+.plan-acts.gone{opacity:0;pointer-events:none;}
+.plan-btn{height:32px;padding:0 16px;border-radius:var(--radius-md);font-size:12.5px;font-weight:600;
+  font-family:inherit;cursor:pointer;display:inline-flex;align-items:center;gap:6px;border:1px solid transparent;
+  transition:background-color var(--dur-micro) var(--ease-out-soft),color var(--dur-micro) var(--ease-out-soft),
+    border-color var(--dur-micro) var(--ease-out-soft),box-shadow var(--dur-micro) var(--ease-out-soft),
+    transform var(--dur-press) var(--ease-out-soft);}
+.plan-btn:active{transform:scale(.97);}
+.plan-btn svg{width:14px;height:14px;}
+.plan-approve{background:var(--primary);color:#fff;}
+.plan-approve:hover{background:var(--primary-hover);box-shadow:var(--glow);} /* glow 白名单：计划卡批准钮 hover */
+.plan-approve.anticipate{animation:planApproveAnticipate var(--dur-comp) var(--ease-anticipate);}
+@keyframes planApproveAnticipate{0%{transform:scale(1)}45%{transform:scale(.94)}100%{transform:scale(1)}}
+.plan-edit{background:transparent;color:var(--text-2);border-color:var(--border);}
+.plan-edit:hover{border-color:var(--primary);color:var(--primary);background:var(--primary-soft);}
+.plan-deny{background:var(--err-bg);color:var(--err);}
+.plan-deny:hover{border-color:var(--err);}
+.plan-deny.anticipate{animation:planDenyAnticipate var(--dur-comp) var(--ease-anticipate);}
+@keyframes planDenyAnticipate{0%{transform:scale(1)}45%{transform:scale(.96)}100%{transform:scale(1)}}
+
+/* ---- 计划摘要（执行后）---- */
+.plan-summary{padding:11px 14px;font-size:var(--fs-caption);color:var(--text-2);border-top:1px solid var(--border);
+  background:var(--surface-2);display:none;line-height:1.7;}
+.plan-summary.show{display:block;animation:v4LineIn var(--dur-comp) var(--ease-out-soft);}
+.plan-summary .sum-line{display:flex;gap:6px;flex-wrap:wrap;}
+.plan-summary .sum-line b{color:var(--text);font-weight:600;}
+.plan-rollback{color:var(--primary);cursor:pointer;text-decoration:none;font-weight:500;}
+.plan-rollback:hover{text-decoration:underline;}
+@keyframes v4LineIn{from{opacity:0;transform:translateY(var(--shift-tip))}to{opacity:1;transform:none}}
+
+/* ---- 拒绝态 ---- */
+.plan-card.denying{animation:planDenyOut var(--dur-panel) var(--ease-in-soft) forwards;}
+@keyframes planDenyOut{0%{transform:scale(1);opacity:1}35%{transform:scale(.98);opacity:1}100%{transform:scale(.98) translateY(var(--shift-comp));opacity:0}}
+.plan-denied-note{display:none;align-items:center;gap:10px;padding:11px 14px;border:1px dashed var(--border-strong);
+  border-radius:var(--radius-lg);background:var(--surface-2);font-size:var(--fs-caption);color:var(--text-2);}
+.plan-denied-note.show{display:flex;animation:v4LineIn var(--dur-comp) var(--ease-out-soft);}
+.plan-denied-note b{color:var(--text);font-weight:600;}
+
+/* ---- 编辑态（编辑后批准）---- */
+.plan-step .pick{display:none;width:14px;height:14px;accent-color:var(--primary);cursor:pointer;
+  margin-top:2px;flex-shrink:0;}
+.plan-card.editing .plan-step .pick{display:block;}
+.plan-card.editing .plan-step{cursor:default;}
+.plan-edit-form{display:none;padding:2px 14px 12px;}
+.plan-card.editing .plan-edit-form{display:block;animation:v4LineIn var(--dur-comp) var(--ease-out-soft);}
+.plan-edit-form label{display:block;font-size:var(--fs-caption);color:var(--text-2);margin-bottom:6px;font-weight:500;}
+.plan-edit-form textarea{width:100%;min-height:56px;padding:8px 11px;border:1px solid var(--border);
+  border-radius:var(--radius-md);font-size:12.5px;font-family:inherit;background:var(--bg);color:var(--text);
+  outline:none;resize:vertical;line-height:1.6;
+  transition:border-color var(--dur-micro) var(--ease-out-soft),box-shadow var(--dur-micro) var(--ease-out-soft);}
+.plan-edit-form textarea:focus{border-color:var(--primary);box-shadow:var(--glow-focus);}
+.plan-edit-form .ef-hint{font-size:var(--fs-micro);color:var(--text-3);margin-top:6px;}
+.plan-edit-form .ef-acts{display:flex;gap:8px;margin-top:10px;}
+.ef-save{height:30px;padding:0 14px;border:none;border-radius:var(--radius-md);background:var(--primary);
+  color:#fff;font-size:12px;font-weight:600;font-family:inherit;cursor:pointer;
+  transition:background-color var(--dur-micro) var(--ease-out-soft),box-shadow var(--dur-micro) var(--ease-out-soft),
+    transform var(--dur-press) var(--ease-out-soft);}
+.ef-save:hover{background:var(--primary-hover);box-shadow:var(--glow);}
+.ef-save:active{transform:scale(.97);}
+
+/* ---- v1.9 新增：plan-auto（L2 授权中全 low 自动批准态）---- */
+.plan-auto .plan-head{background:linear-gradient(var(--glass-bg),var(--glass-bg)),var(--glass-fallback);}
+.plan-auto-badge{animation:v4ChipIn var(--dur-comp) var(--ease-anticipate);}
+.plan-auto-badge.fade{opacity:0;transform:translateY(calc(-1 * var(--shift-tip)));
+  transition:opacity var(--dur-narr) var(--ease-in-soft),transform var(--dur-narr) var(--ease-in-soft);}
+@keyframes v4ChipIn{from{opacity:0;transform:scale(.8)}to{opacity:1;transform:scale(1)}}
+.plan-auto-note{padding:10px 14px;font-size:var(--fs-caption);color:var(--text-2);line-height:1.7;
+  border-bottom:1px solid var(--border);background:var(--surface-2);}
+.plan-auto-note b{color:var(--text);font-weight:600;}
+.plan-auto .grant-inline{display:flex;align-items:center;gap:9px;padding:9px 14px;border-bottom:1px solid var(--border);
+  font-size:var(--fs-micro);color:var(--text-3);font-family:var(--font-mono);}
+.plan-auto .plan-steps .plan-step{padding-left:14px;}
+
+/* ---- v1.9 新增：UNTRUSTED 演示条（琥珀 45° 斜纹边 + mono 来源标注）---- */
+.prov-strip{margin:10px 14px;padding:2px;border-radius:var(--radius-md);
+  background:repeating-linear-gradient(45deg,var(--untrusted) 0 5px,transparent 5px 10px);}
+.prov-strip-inner{background:var(--card-bg);border-radius:calc(var(--radius-md) - 2px);padding:9px 12px;}
+.prov-head{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
+.prov-tag{font-size:var(--fs-micro);font-weight:700;letter-spacing:.08em;color:var(--untrusted);
+  border:1px solid var(--untrusted);border-radius:var(--radius-xs);padding:0 6px;font-family:var(--font-mono);}
+.prov-cap{font-size:var(--fs-micro);color:var(--text-3);font-family:var(--font-mono);}
+.prov-body{font-size:var(--fs-caption);color:var(--text-2);line-height:1.7;margin-top:5px;}
+.prov-body i{color:var(--text-3);font-style:normal;}
+/* 审计哈希链（--prov-line 虚线 + 4px 节点圆点；断链转 err） */
+.prov-chain{display:flex;align-items:center;margin-top:8px;}
+.prov-chain-line{flex:1;border-top:var(--prov-line);position:relative;min-width:12px;}
+.prov-chain-line::after{content:"";position:absolute;left:50%;top:50%;width:4px;height:4px;border-radius:50%;
+  background:var(--border-strong);transform:translate(-50%,-50%);}
+.prov-chain.broken .prov-chain-line:last-of-type{border-top-color:var(--err);}
+.prov-chain.broken .prov-chain-line:last-of-type::after{background:var(--err);}
+.prov-node{font-size:var(--fs-micro);font-family:var(--font-mono);color:var(--text-3);white-space:nowrap;padding:0 6px;}
+.prov-node.broken{color:var(--err);}
+
+/* ============================================================
+   ⑦ 评审台演示控制条
+   ============================================================ */
+.demo-ctl{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:20px;padding:12px 14px;
+  border:1px dashed var(--border-strong);border-radius:var(--radius-lg);background:var(--surface-2);}
+.demo-ctl-label{font-size:var(--fs-micro);color:var(--text-3);font-weight:600;letter-spacing:.08em;}
+.demo-ctl .spacer{flex:1;}
+.demo-note{font-size:var(--fs-micro);color:var(--text-3);font-family:var(--font-mono);}
+
+/* ============================================================
+   ⑧ 主题切换表面白名单（.theming，仅列名表面过渡）
+   ============================================================ */
+body.theming .proto-bar,body.theming .plan-card,body.theming .plan-step,body.theming .plan-badge,
+body.theming .plan-eta,body.theming .plan-scope,body.theming .plan-scope-sep,body.theming .plan-ctx,
+body.theming .plan-btn,body.theming .plan-summary,body.theming .plan-auto-note,body.theming .grant-inline,
+body.theming .prov-strip,body.theming .prov-strip-inner,body.theming .msg-user,body.theming .msg-sys,
+body.theming .demo-ctl,body.theming .plan-denied-note,body.theming .plan-edit-form textarea,
+body.theming #auroraBg,body.theming .pill-btn,body.theming .ghost-btn{
+  transition-property:background-color,color,border-color,box-shadow,opacity;
+  transition-duration:var(--dur-theme);
+  transition-timing-function:var(--ease-out-soft);}
+
+@media (max-width:720px){
+  .plan-scope{grid-template-columns:1fr;grid-template-rows:auto auto;}
+  .plan-scope-sep{display:none;}
+  .plan-scope-col + .plan-scope-col{border-top:1px dashed var(--border-strong);}
+  .msg-user,.msg-sys{max-width:92%;}
+  .proto-bar-sub{display:none;}
+}
+/* 授权条内嵌 dots（与 grant-budget 原型同源组件） */
+.grant-dots{display:inline-flex;gap:4px;align-items:center;}
+.grant-dot{width:6px;height:6px;border-radius:50%;background:var(--border-strong);}
+.grant-dot.on{background:var(--primary);}
+</style>
+</head>
+<body>
+<div id="auroraBg" aria-hidden="true"><div class="au au-1"></div><div class="au au-2"></div><div class="au au-5"></div></div>
+
+<header class="proto-bar">
+  <span class="proto-bar-title">Intent Preview 计划卡</span>
+  <span class="proto-bar-sub">M2.3 / M2.5 · token-upgrade-plan §2.1</span>
+  <div class="proto-bar-acts">
+    <a class="ghost-btn" href="index.html">← 原型总览</a>
+    <button class="pill-btn" id="fxBtn" aria-pressed="true" title="动效开关（fx-off 停列 + prefers-reduced-motion 降级）">
+      <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2l1.6 4.6L18 8.2l-4.4 1.6L12 14.4l-1.6-4.6L6 8.2l4.4-1.6L12 2z"/><path d="M19 11l.9 2.5L22.4 14.4l-2.5.9L19 17.8l-.9-2.5-2.5-.9 2.5-.9L19 11z" opacity=".6"/></svg>
+      <span id="fxLabel">动效 开</span>
+    </button>
+    <button class="pill-btn" id="themeBtn" aria-pressed="false" title="亮/暗双主题（body.dark）">
+      <svg id="themeIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8Z"/></svg>
+      <span id="themeLabel">暗色</span>
+    </button>
+  </div>
+</header>
+
+<main class="proto-stage">
+  <div class="conv">
+    <div class="msg-user">把前端请求层重构一下，抽出统一的 apiClient，会话面板和工具分发先用。</div>
+    <div class="msg-sys"><span class="who">Harbor · plan_service</span>计划已生成。批准后才会执行；你可以先编辑步骤或直接拒绝。</div>
+
+    <div class="plan-scroller">
+      <!-- ============ 主计划卡（五态 checklist 全演示） ============ -->
+      <section class="plan-card plan-v19" id="planCard" aria-label="Intent Preview 计划卡">
+        <div class="plan-riskbar" data-risk="l2" aria-hidden="true"></div>
+        <header class="plan-head">
+          <span class="plan-badge pending" id="planBadge">待批准</span>
+          <h1 class="plan-title">重构前端请求层：抽出统一 apiClient</h1>
+          <span class="plan-eta" id="planEta">≈3 步 · 2 分钟</span>
+        </header>
+        <div class="plan-files">frontend/api-client.js（新增） · frontend/index.html · frontend/25-tool-exec.js · frontend/26-guard.js</div>
+
+        <ol class="plan-steps" id="planSteps">
+          <li class="plan-step done" style="--i:0">
+            <input type="checkbox" class="pick" checked aria-label="包含步骤：梳理调用点">
+            <span class="st" aria-hidden="true"></span>
+            <span class="txt">梳理现有 callApi 调用点（42 处，静态扫描，只读）</span>
+          </li>
+          <li class="plan-step doing" style="--i:1">
+            <input type="checkbox" class="pick" checked aria-label="包含步骤：抽取 apiClient 骨架">
+            <span class="st" aria-hidden="true"></span>
+            <span class="txt">抽取 apiClient 骨架：统一超时、重试与错误归一</span>
+            <span class="risk l2">L2</span>
+          </li>
+          <li class="plan-step pending" style="--i:2">
+            <input type="checkbox" class="pick" checked aria-label="包含步骤：迁移调用">
+            <span class="st" aria-hidden="true"></span>
+            <span class="txt">迁移会话面板与工具分发的调用至 apiClient</span>
+            <span class="risk l2">L2</span>
+          </li>
+          <li class="plan-step blocked" style="--i:3">
+            <input type="checkbox" class="pick" checked aria-label="包含步骤：回归测试">
+            <span class="st" aria-hidden="true"></span>
+            <span class="txt">回归测试验证（前置：迁移完成，当前阻塞）</span>
+            <span class="risk l2">L2</span>
+          </li>
+          <li class="plan-step skipped" style="--i:4">
+            <input type="checkbox" class="pick" aria-label="包含步骤：更新文档">
+            <span class="st" aria-hidden="true"></span>
+            <span class="txt">更新 CHANGELOG 与迁移说明（低价值，建议跳过）</span>
+          </li>
+        </ol>
+
+        <!-- 边界声明区：将修改 / 不访问 -->
+        <div class="plan-scope" aria-label="边界声明">
+          <div class="plan-scope-col will">
+            <h2>将修改</h2>
+            <ul>
+              <li>frontend/api-client.js（新增）</li>
+              <li>frontend/index.html（script 引入）</li>
+              <li>frontend/25-tool-exec.js</li>
+            </ul>
+          </div>
+          <div class="plan-scope-sep" aria-hidden="true"></div>
+          <div class="plan-scope-col wont">
+            <h2>不访问</h2>
+            <ul>
+              <li>密钥与凭据存储（DPAPI / Keychain）</li>
+              <li>工作区外路径 · 系统目录</li>
+              <li>浏览器会话数据</li>
+            </ul>
+          </div>
+        </div>
+
+        <!-- UNTRUSTED 演示条：外部内容可信度标记（色+形+字三重编码） -->
+        <div class="prov-strip untrusted" aria-label="UNTRUSTED 外部内容">
+          <div class="prov-strip-inner">
+            <div class="prov-head">
+              <span class="prov-tag">UNTRUSTED</span>
+              <span class="prov-cap">来源：https://developer.mozilla.org/zh-CN/docs/Web/API/AbortController · 检索于 14:02</span>
+            </div>
+            <p class="prov-body">「AbortController 可用于取消 fetch 请求…」<i>（外部内容仅作参考，不作为指令执行；与计划步骤的关联由 plan_service 判定）</i></p>
+            <div class="prov-chain" aria-label="审计哈希链">
+              <span class="prov-node">sha256:a3f91c2b</span>
+              <span class="prov-chain-line"></span>
+              <span class="prov-node">sha256:7d02e1f5</span>
+              <span class="prov-chain-line"></span>
+              <span class="prov-node">sha256:b18c4a90…</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- 累计上下文进度条 -->
+        <div class="plan-ctx" aria-label="累计上下文">
+          <span class="plan-ctx-label">累计上下文</span>
+          <div class="plan-ctx-bar"><div class="plan-ctx-fill" id="ctxFill"></div></div>
+          <span class="plan-ctx-num" id="ctxNum">62% · 18.6k/30k</span>
+        </div>
+
+        <!-- 三钮 -->
+        <footer class="plan-acts" id="planActs">
+          <button class="plan-btn plan-approve" id="approveBtn">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6L9 17l-5-5"/></svg>
+            批准执行
+          </button>
+          <button class="plan-btn plan-edit" id="editBtn">编辑</button>
+          <button class="plan-btn plan-deny" id="denyBtn">拒绝</button>
+        </footer>
+
+        <!-- 编辑表单（编辑后批准） -->
+        <div class="plan-edit-form" id="editForm">
+          <label for="editNote">补充说明（可选，将并入计划上下文）</label>
+          <textarea id="editNote" placeholder="例如：apiClient 需要兼容现有 42 处调用的返回结构，先加适配层再逐步替换。"></textarea>
+          <div class="ef-hint">取消勾选的步骤将标记为 skipped，不计入时间估计。</div>
+          <div class="ef-acts">
+            <button class="ef-save" id="editSaveBtn">保存修改</button>
+            <button class="ghost-btn" id="editCancelBtn">取消</button>
+          </div>
+        </div>
+
+        <!-- 执行摘要（批准后） -->
+        <div class="plan-summary" id="planSummary">
+          <div class="sum-line"><b>执行摘要</b><span>已完成 3 项 · 阻塞 1 项（回归测试需本地运行） · 跳过 1 项</span></div>
+          <div class="sum-line" style="margin-top:4px;">trace_id <code style="font-family:var(--font-mono)">tr_9f2c41</code> · 审计五维已落链 · <a class="plan-rollback" href="#" id="rollbackLink">回滚到检查点 #2</a></div>
+        </div>
+      </section>
+
+      <!-- 拒绝态注释条 -->
+      <div class="plan-denied-note" id="deniedNote">
+        <b>已拒绝</b><span>计划未执行 · 输入框焦点已恢复 · 可修改意图后重新发起</span>
+        <button class="ghost-btn" id="resetBtn" style="margin-left:auto;">重新审议计划</button>
+      </div>
+
+      <!-- ============ 变体：L2 授权中全 low 自动批准态 ============ -->
+      <section class="plan-card plan-v19 plan-auto" id="autoCard" aria-label="L2 自动批准变体">
+        <div class="plan-riskbar" data-risk="l2" aria-hidden="true"></div>
+        <header class="plan-head">
+          <span class="plan-badge done plan-auto-badge" id="autoBadge">已自动批准 · 授权范围内</span>
+          <h1 class="plan-title">整理会话导出格式（Markdown / JSON）</h1>
+          <span class="plan-eta">≈2 步 · 1 分钟</span>
+        </header>
+        <div class="plan-auto-note"><b>L2 任务授权中</b> · 计划内步骤均为低风险（读取 + 本地格式化），落在授权范围内 → 未弹出确认，徽标 3s 后淡出。</div>
+        <div class="grant-inline" aria-label="授权条内嵌审批预算">
+          <span>L2 授权中</span><span aria-hidden="true">·</span><span>审批 3/5</span>
+          <span class="grant-dots" aria-hidden="true">
+            <span class="grant-dot on"></span><span class="grant-dot on"></span><span class="grant-dot on"></span><span class="grant-dot"></span><span class="grant-dot"></span>
+          </span>
+          <span style="margin-left:auto;">授权剩余 11 分钟 · 可一键收回</span>
+        </div>
+        <ol class="plan-steps">
+          <li class="plan-step done" style="--i:0"><span class="st" aria-hidden="true"></span><span class="txt">读取会话历史（本地，只读）</span></li>
+          <li class="plan-step done" style="--i:1"><span class="st" aria-hidden="true"></span><span class="txt">按模板导出 Markdown / JSON 至工作区</span></li>
+        </ol>
+      </section>
+    </div>
+  </div>
+
+  <!-- 评审台演示控制 -->
+  <div class="demo-ctl">
+    <span class="demo-ctl-label">演示控制</span>
+    <button class="ghost-btn" id="replayApproveBtn">重播批准链</button>
+    <button class="ghost-btn" id="replayAutoBtn">重播自动批准</button>
+    <button class="ghost-btn" id="resetAllBtn">恢复初始态</button>
+    <span class="spacer"></span>
+    <span class="demo-note">MOTION 读 CSS 令牌 · fx-off 即时完结</span>
+  </div>
+</main>
+
+<footer class="proto-foot">
+  <b>实现要点</b>：plan-eta 徽标（mono「≈3 步 · 2 分钟」）· plan-riskbar 左侧 3px 取最高步骤风险（L2=warn）· plan-scope dashed 边界声明 · plan-ctx 累计上下文 62% 细进度条 ·
+  三钮（批准 anticipate+glow 白名单 / 编辑 ghost / 拒绝 err-soft）· plan-auto 变体 ok 徽标 3s 淡出 · UNTRUSTED 琥珀斜纹边 + mono 来源 + 哈希链（首 8 位 + 省略号）。<br>
+  <b>令牌来源</b>：<code>deliverables/design/v19/token-upgrade-plan.md</code> §1-§3；既有范式继承 <code>frontend/index.template.html</code> plan-card/plan-step/plan-badge 域。
+</footer>
+
+<script>
+/* ============================================================
+   MOTION 单一事实源：全部时长/缓动读 CSS 令牌（禁硬编码 ms）
+   ============================================================ */
+const MOTION = (() => {
+  const cs = getComputedStyle(document.documentElement);
+  const ms = k => { const v = cs.getPropertyValue(k).trim(); return v.endsWith('ms') ? parseFloat(v) : parseFloat(v) * 1000; };
+  return {
+    press: ms('--dur-press'), micro: ms('--dur-micro'), microOut: ms('--dur-micro-out'),
+    comp: ms('--dur-comp'), compOut: ms('--dur-comp-out'), panel: ms('--dur-panel'),
+    narr: ms('--dur-narr'), theme: ms('--dur-theme'),
+    staggerXs: ms('--stagger-xs'), staggerSm: ms('--stagger-sm')
+  };
+})();
+/* 演示节奏常量（非动效令牌：步骤推进 dwell，规格外编排） */
+const DEMO = { stepDwell: 900, autoDwell: 3000 };
+
+const $ = s => document.querySelector(s);
+const body = document.body;
+
+/* ---------- 主题 / 动效开关（双主题 + fx-off 演示） ---------- */
+const themeBtn = $('#themeBtn'), themeLabel = $('#themeLabel'), themeIcon = $('#themeIcon');
+const SUN = '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>';
+const MOON = '<path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8Z"/>';
+function setTheme(dark){
+  body.classList.add('theming');
+  body.classList.toggle('dark', dark);
+  themeBtn.setAttribute('aria-pressed', String(dark));
+  themeLabel.textContent = dark ? '亮色' : '暗色';
+  themeIcon.innerHTML = dark ? SUN : MOON;
+  try{ localStorage.setItem('proto-theme', dark ? 'dark' : 'light'); }catch(e){}
+  setTimeout(() => body.classList.remove('theming'), MOTION.theme + 60);
+}
+themeBtn.addEventListener('click', () => setTheme(!body.classList.contains('dark')));
+try{ if (localStorage.getItem('proto-theme') === 'dark') setTheme(true); }catch(e){}
+
+const fxBtn = $('#fxBtn'), fxLabel = $('#fxLabel');
+function setFx(on){
+  body.classList.toggle('fx-off', !on);
+  fxBtn.setAttribute('aria-pressed', String(on));
+  fxLabel.textContent = on ? '动效 开' : '动效 关';
+}
+fxBtn.addEventListener('click', () => setFx(body.classList.contains('fx-off')));
+
+/* ---------- 计划卡：批准链 ---------- */
+const planCard = $('#planCard'), planBadge = $('#planBadge'), planEta = $('#planEta'),
+      planActs = $('#planActs'), planSteps = $('#planSteps'), planSummary = $('#planSummary'),
+      deniedNote = $('#deniedNote'), editForm = $('#editForm');
+let running = false, timers = [];
+const later = (fn, t) => { timers.push(setTimeout(fn, t)); };
+const clearTimers = () => { timers.forEach(clearTimeout); timers = []; };
+
+function swapBadge(cls, text){
+  planBadge.style.opacity = '0';
+  later(() => { planBadge.className = 'plan-badge ' + cls; planBadge.textContent = text; planBadge.style.opacity = '1'; }, MOTION.microOut);
+}
+function replaySteps(){
+  planSteps.querySelectorAll('.plan-step').forEach(el => { el.style.animation = 'none'; void el.offsetWidth; el.style.animation = ''; });
+}
+
+function resetPlan(){
+  clearTimers(); running = false;
+  planCard.classList.remove('denying', 'editing');
+  planCard.style.display = '';
+  deniedNote.classList.remove('show');
+  planSummary.classList.remove('show');
+  planActs.classList.remove('gone');
+  planEta.classList.remove('gone');
+  planBadge.className = 'plan-badge pending'; planBadge.textContent = '待批准'; planBadge.style.opacity = '1';
+  const states = ['done','doing','pending','blocked','skipped'];
+  planSteps.querySelectorAll('.plan-step').forEach((el, i) => {
+    el.className = 'plan-step ' + states[i]; el.style.animation = 'none'; void el.offsetWidth; el.style.animation = '';
+  });
+  document.querySelectorAll('#planSteps .pick').forEach(p => p.checked = true);
+  $('#ctxFill').style.transform = 'scaleX(.62)';
+  $('#ctxNum').textContent = '62% · 18.6k/30k';
+}
+
+function approve(){
+  if (running) return; running = true;
+  const btn = $('#approveBtn');
+  btn.classList.add('anticipate');
+  later(() => btn.classList.remove('anticipate'), MOTION.comp);
+  planActs.classList.add('gone');                                    /* 三钮 comp-out 140 淡出 */
+  later(() => swapBadge('running', '执行中'), MOTION.compOut);        /* badge 交叠 micro 130 */
+  replaySteps();                                                     /* steps stagger 60 入场 */
+  planEta.classList.add('gone');                                     /* eta micro 出场 */
+  const steps = [...planSteps.querySelectorAll('.plan-step')];
+  let i = 1;                                                          /* 第 0 项已 done */
+  (function advance(){
+    const cur = steps[i];
+    if (!cur){ finishPlan(); return; }
+    if (cur.classList.contains('skipped')){ i++; return advance(); }   /* 跳过项不入场 */
+    if (cur.classList.contains('blocked')){                            /* 阻塞项保持 blocked */
+      later(() => {
+        swapBadge('done', '已完成');
+        planSummary.classList.add('show');
+        running = false;
+      }, MOTION.comp);
+      return;
+    }
+    cur.classList.remove('pending', 'blocked'); cur.classList.add('doing');
+    later(() => {
+      cur.classList.remove('doing'); cur.classList.add('done');
+      i++; advance();
+    }, DEMO.stepDwell);
+  })();
+}
+function finishPlan(){
+  swapBadge('done', '已完成');
+  planSummary.classList.add('show');
+  running = false;
+}
+
+function deny(){
+  if (running) return;
+  const btn = $('#denyBtn');
+  btn.classList.add('anticipate');
+  later(() => btn.classList.remove('anticipate'), MOTION.comp);
+  later(() => {
+    planCard.classList.add('denying');
+    later(() => { planCard.style.display = 'none'; deniedNote.classList.add('show'); }, MOTION.panel);
+  }, MOTION.comp);
+}
+
+/* ---------- 编辑态 ---------- */
+$('#editBtn').addEventListener('click', () => planCard.classList.add('editing'));
+$('#editCancelBtn').addEventListener('click', () => planCard.classList.remove('editing'));
+$('#editSaveBtn').addEventListener('click', () => {
+  planSteps.querySelectorAll('.plan-step').forEach((el, i) => {
+    const pick = el.querySelector('.pick');
+    if (pick && !pick.checked && !el.classList.contains('done')){
+      el.classList.remove('pending', 'doing', 'blocked'); el.classList.add('skipped');
+    }
+  });
+  planCard.classList.remove('editing');
+  planEta.textContent = '≈3 步 · 1 分钟';
+});
+
+/* ---------- L2 自动批准变体：ok 徽标 3s 淡出 ---------- */
+const autoBadge = $('#autoBadge');
+let autoTimer = null;
+function replayAuto(){
+  clearTimeout(autoTimer);
+  autoBadge.classList.remove('fade');
+  autoBadge.style.animation = 'none'; void autoBadge.offsetWidth; autoBadge.style.animation = '';
+  autoTimer = setTimeout(() => autoBadge.classList.add('fade'), DEMO.autoDwell);
+}
+replayAuto();
+
+/* ---------- 演示控制 ---------- */
+$('#approveBtn').addEventListener('click', approve);
+$('#denyBtn').addEventListener('click', deny);
+$('#replayApproveBtn').addEventListener('click', () => { resetPlan(); later(approve, 120); });
+$('#replayAutoBtn').addEventListener('click', replayAuto);
+$('#resetAllBtn').addEventListener('click', resetPlan);
+$('#resetBtn').addEventListener('click', resetPlan);
+$('#rollbackLink').addEventListener('click', e => e.preventDefault());
+
+/* ---------- 任务态挂载：极光加深一档（计划卡可见期间） ---------- */
+body.classList.add('task-mount');
+</script>
+</body>
+</html>

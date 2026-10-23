@@ -98,6 +98,10 @@ _V12_EXTRA = frozenset({
     # 不静默夹逼；get_api_info 零漂移同款隐身）
     'memory_delete', 'prompt_get', 'trace_new', 'local_readiness',
     'history_dir_get', 'history_dir_set', 'session_purge', 'memory_retrieve',
+    # v1.9.0 M1.9 占位（master-plan §6.2；转正时只改实现不改登记）
+    'browser_navigate', 'browser_extract', 'browser_click', 'browser_fill',
+    'browser_screenshot', 'browser_close', 'get_platform_info',
+    'guard_approval_budget', 'search_reader_stats',
     'pick_save_path', 'save_export_file',
 })
 
@@ -253,6 +257,53 @@ class Api:
                        'bytes': len(text.encode('utf-8'))})
         except Exception as e:
             return err('写入失败: %s' % e)
+
+    # ============ v1.9.0 M1.9：新 js_api 占位（先登记后实现，防契约漂移）============
+    # master-plan §6.2 + frontend-handover-v19 §4.1 契约为唯一事实源。
+    # 口径：占位期返回 NOT_IMPLEMENTED 结构化错误（前端可发调用、按 milestone
+    # 显示「未就绪」降级态，开发不互阻）；转正时改签名行为不变、_V12_EXTRA
+    # 不动。checkpoint 三兄弟/plan_get/trace_new 为 v1.8 已交付项，不占位。
+    def _not_implemented(self, name, milestone):
+        return ok({'ok': False,
+                   'error': {'code': 'NOT_IMPLEMENTED',
+                             'message': '%s 尚未实现（v1.9.0 %s 转正）' % (name, milestone),
+                             'milestone': milestone}})
+
+    def browser_navigate(self, url, wait_selector='', timeout=60):
+        """M3 Win/M4 Mac：通用导航（任意 URL + 等待选择器/硬超时）。"""
+        return self._not_implemented('browser_navigate', 'M3/M4')
+
+    def browser_extract(self, selector='', mode='markdown'):
+        """M3/M4 + M2.1：正文提取（readability 风格 → markdown + links）。"""
+        return self._not_implemented('browser_extract', 'M3/M4')
+
+    def browser_click(self, target):
+        """M3/M4（guard=always）：点击（selector|text；前后态截图审计）。"""
+        return self._not_implemented('browser_click', 'M3/M4')
+
+    def browser_fill(self, selector, text):
+        """M3/M4（guard=always）：填充（回传 masked:true，禁回显原文）。"""
+        return self._not_implemented('browser_fill', 'M3/M4')
+
+    def browser_screenshot(self, full_page=False):
+        """M3/M4：当前页截图（point 坐标系 b64）。"""
+        return self._not_implemented('browser_screenshot', 'M3/M4')
+
+    def browser_close(self, session_id=''):
+        """M3/M4：会话池回收（browser_sessions.json 状态同步）。"""
+        return self._not_implemented('browser_close', 'M3/M4')
+
+    def get_platform_info(self):
+        """M6.10：平台探测（os/arch/version/services 七接口就绪度）。"""
+        return self._not_implemented('get_platform_info', 'M6.10')
+
+    def guard_approval_budget(self, limit=None):
+        """M2.4：会话级审批预算（{used, limit, escalated}；超限升级任务授权）。"""
+        return self._not_implemented('guard_approval_budget', 'M2.4')
+
+    def search_reader_stats(self):
+        """M2.1：dual-LLM-lite 读取器统计（reader_calls/schema_fail/degrade_count）。"""
+        return self._not_implemented('search_reader_stats', 'M2.1')
 
     def session_purge(self, sid, task_ids_json='[]'):
         """真删一条会话的全部痕迹：sessions.json 条目 + session_ws 绑定 +
@@ -1154,8 +1205,13 @@ class Api:
             return ok(r)
         return r if r.get('ok') else err(r.get('error', '回滚失败'))
 
-    def checkpoint_list(self, task_id):
-        """M3-D1：检查点清单（回滚确认浮层展示「将恢复的文件」）。"""
+    def checkpoint_list(self, task_id=''):
+        """M3-D1：检查点清单（回滚确认浮层展示「将恢复的文件」）。
+
+        v1.9 契约对齐（2026-10-23 核对发现）：前端契约为无参 （列全部），
+        原签名 task_id 必填——改为缺省兼容：缺省列全部（v19 检查点面板/
+        checkpoints.json 数据源），传 task_id 时按任务过滤（M3-D1 原语义，
+        既有调用方零改动）。"""
         return ok(self._plan.checkpoint_list(task_id))
 
     def clarify_collect(self, questions, answers):

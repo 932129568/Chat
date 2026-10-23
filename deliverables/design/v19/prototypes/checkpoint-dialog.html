@@ -1,0 +1,491 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta http-equiv="Content-Security-Policy" content="object-src 'none'; base-uri 'none'; form-action 'none'">
+<title>原型 · 检查点对话框 — Harbor v1.9.0</title>
+<!--
+  ============================================================
+  设计系统：Harbor 设计系统 v4（deliverables/design/v4）
+  升级依据：deliverables/design/v19/token-upgrade-plan.md（彩格调）
+  原型类型：web-prototype · Plan-Act 域（M2.7 / M2.8）
+  纪律：inline 卡（禁模态叠模态）；三态 清单→确认→校验；
+        回滚用 in-soft（收缩到位感），校验提示 narr 220 淡入；
+        ckpt-list stagger 40 逐项入场；高风险档禁快捷确认。
+  ============================================================
+-->
+<style>
+/* ============================================================
+   ① 令牌块 —— v4 保留值 + v1.9.0 新增
+   ============================================================ */
+:root{
+  --bg:#f6f7f9; --sidebar-bg:#ffffff; --main-bg:#f6f7f9; --header-bg:rgba(255,255,255,.78);
+  --card-bg:#ffffff; --surface-2:#f1f3f7;
+  --border:#e4e6ec; --border-strong:#d2d6e0;
+  --text:#14161c; --text-2:#5f6674; --text-3:#656b7a;
+  --primary:#4560e0; --primary-hover:#3a51cc; --primary-soft:#eef1fe;
+  --user-bubble:#4f6ef7; --user-bubble-text:#ffffff; --ai-bubble:#ffffff;
+  --hover:#f1f3f7; --active:#eef1fe; --chip-bg:#f1f3f7;
+  --ok:#146b40; --warn:#8f5a0a; --err:#bd2a1c;
+  --ok-bg:#e8f6ee; --warn-bg:#fdf5e6; --err-bg:#fdecea;
+  --shadow-sm:0 1px 2px rgba(16,18,28,.05),0 1px 3px rgba(16,18,28,.07);
+  --shadow-md:0 2px 8px rgba(16,18,28,.07),0 4px 12px rgba(16,18,28,.06);
+  --shadow-lg:0 12px 28px rgba(16,18,28,.12),0 24px 48px rgba(16,18,28,.10);
+  --edge-hi:inset 0 1px 0 rgba(255,255,255,.65);
+  --radius-xs:4px; --radius-sm:6px; --radius-md:9px; --radius-lg:12px; --radius-xl:16px; --radius-full:999px;
+  --font-sans:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei","Noto Sans SC",sans-serif;
+  --font-mono:"JetBrains Mono","Cascadia Code",Consolas,"SFMono-Regular",Menlo,monospace;
+  --dur-fast:120ms; --dur-base:180ms; --dur-slow:280ms;
+  --ease:cubic-bezier(.4,0,.2,1); --ease-out:cubic-bezier(.16,1,.3,1);
+  --content-w:920px;
+  --brand-gradient:linear-gradient(135deg,#6b84ff,#4560e0);
+  --glass-bg:rgba(255,255,255,.62); --glass-bg-2:rgba(255,255,255,.80);
+  --glass-border:rgba(255,255,255,.72); --glass-blur:18px; --glass-fallback:#f4f6fb; --glass-saturate:1.15;
+  --aurora-1:#22d3ee; --aurora-3:#8b5cf6;
+  --aurora-opacity:.12; --aurora-bg-opacity:.50; --aurora-blur:64px;
+  --glow-color:rgba(79,110,247,.50);
+  --glow:0 0 0 1px var(--glass-border),0 0 22px -6px var(--glow-color);
+  --glow-focus:0 0 0 3px var(--primary-soft),0 0 20px -4px var(--glow-color);
+  --dur-press:90ms; --dur-micro:130ms; --dur-micro-out:90ms;
+  --dur-comp:200ms; --dur-comp-out:140ms;
+  --dur-panel:240ms; --dur-panel-out:200ms;
+  --dur-narr:220ms; --dur-theme:280ms;
+  --dur-ambient:34s; --dur-ambient-2:52s;
+  --dur-stream:1.4s;
+  --ease-out-soft:cubic-bezier(.25,.8,.35,1);
+  --ease-in-soft:cubic-bezier(.42,0,1,1);
+  --ease-spring:cubic-bezier(.34,1.3,.5,1);
+  --ease-anticipate:cubic-bezier(.34,1.45,.64,1);
+  --stagger-xs:40ms; --stagger-sm:60ms; --stagger-max:160ms;
+  --shift-tip:4px; --shift-comp:6px; --shift-panel:12px;
+  --fs-display:19px; --fs-title:13.5px; --fs-body:13.5px; --fs-caption:12px; --fs-micro:11px;
+  /* ===== v1.9.0 新增令牌（亮色）===== */
+  --aurora-5:rgba(69,96,224,.10);
+  --aurora-op-focus:.18;
+  --edge-hi-strong:inset 0 1px 0 rgba(255,255,255,.9);
+  --bg-deep:#0d0f16;
+  --skylight-strength:.5;
+  --untrusted:#8f5a0a;
+  --untrusted-bg:#fdf5e6;
+  --prov-line:1px dashed var(--border-strong);
+}
+body.dark{
+  --bg:#101114; --sidebar-bg:#16181d; --main-bg:#101114; --header-bg:rgba(22,24,29,.78);
+  --card-bg:#1a1c22; --surface-2:#212429;
+  --border:#272a32; --border-strong:#343843;
+  --text:#e6e7ea; --text-2:#8b909c; --text-3:#9298a6;
+  --primary:#6b84ff; --primary-hover:#8098ff; --primary-soft:#1d2337;
+  --user-bubble:#4c5fd4; --user-bubble-text:#ffffff; --ai-bubble:#1a1c22;
+  --hover:#212429; --active:#232a3f; --chip-bg:#212429;
+  --ok:#4ade80; --warn:#fbbf24; --err:#f87171;
+  --ok-bg:#12251b; --warn-bg:#2a2213; --err-bg:#2b1618;
+  --shadow-sm:0 1px 2px rgba(0,0,0,.35),0 1px 3px rgba(0,0,0,.45);
+  --shadow-md:0 2px 10px rgba(0,0,0,.42),0 4px 14px rgba(0,0,0,.38);
+  --shadow-lg:0 16px 40px rgba(0,0,0,.55),0 24px 56px rgba(0,0,0,.5);
+  --edge-hi:inset 0 1px 0 rgba(255,255,255,.06);
+  --glass-bg:rgba(26,28,34,.60); --glass-bg-2:rgba(30,33,41,.78);
+  --glass-border:rgba(255,255,255,.10); --glass-blur:20px; --glass-fallback:#171a21; --glass-saturate:1.15;
+  --aurora-1:#22d3ee; --aurora-3:#8b5cf6;
+  --aurora-opacity:.15; --aurora-bg-opacity:.62; --aurora-blur:64px;
+  --glow-color:rgba(107,132,255,.55);
+  --glow:0 0 0 1px var(--glass-border),0 0 22px -6px var(--glow-color);
+  --glow-focus:0 0 0 3px var(--primary-soft),0 0 20px -4px var(--glow-color);
+  /* ===== v1.9.0 新增令牌（暗色）===== */
+  --aurora-5:rgba(69,96,224,.18);
+  --aurora-op-focus:.26;
+  --edge-hi-strong:inset 0 1px 0 rgba(255,255,255,.10);
+  --bg-deep:#07080d;
+  --skylight-strength:.7;
+  --untrusted:#fbbf24;
+  --untrusted-bg:#2a2213;
+}
+
+/* ============================================================
+   ② 基座 / 降级矩阵
+   ============================================================ */
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:var(--font-sans);background:var(--bg);min-height:100vh;color:var(--text);
+  font-size:14px;line-height:1.6;
+  transition:background var(--dur-theme) var(--ease-out-soft),color var(--dur-theme) var(--ease-out-soft);}
+:focus-visible{outline:2px solid var(--primary);outline-offset:2px;}
+::selection{background:var(--primary-soft);color:var(--primary);}
+body.fx-off{
+  --dur-press:1ms; --dur-micro:1ms; --dur-micro-out:1ms;
+  --dur-comp:1ms; --dur-comp-out:1ms;
+  --dur-panel:1ms; --dur-panel-out:1ms; --dur-narr:1ms; --dur-theme:1ms;
+  --stagger-xs:0ms; --stagger-sm:0ms; --stagger-max:0ms;
+}
+body.fx-off #auroraBg .au,
+body.fx-off .ckpt-prog.indet .ckpt-fill{animation:none;}
+body.fx-off .ckpt-prog.indet .ckpt-fill{transform:scaleX(.4);}
+@media (prefers-reduced-motion: reduce){
+  *,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;
+    transition-duration:.01ms!important;}
+  #auroraBg .au{animation:none!important;}
+}
+@media (prefers-reduced-transparency: reduce){
+  :root{--glass-bg:#f4f6fb; --glass-bg-2:#ffffff; --glass-blur:0px;}
+  body.dark{--glass-bg:#171a21; --glass-bg-2:#1a1c22; --glass-blur:0px;}
+}
+
+/* ============================================================
+   ③ 极光背景层
+   ============================================================ */
+#auroraBg{position:fixed;inset:0;z-index:-1;overflow:hidden;pointer-events:none;
+  opacity:var(--aurora-bg-opacity);background:var(--bg);
+  transition:opacity var(--dur-panel) var(--ease-out-soft);}
+#auroraBg .au{position:absolute;width:58vmax;height:58vmax;border-radius:50%;
+  filter:blur(var(--aurora-blur));will-change:transform;}
+#auroraBg .au-1{top:-20vmax;left:-14vmax;opacity:.66;
+  background:radial-gradient(circle at 50% 50%,var(--aurora-1),transparent 62%);
+  animation:v4AuroraA var(--dur-ambient) ease-in-out infinite alternate;}
+#auroraBg .au-2{bottom:-22vmax;right:-16vmax;opacity:.62;
+  background:radial-gradient(circle at 50% 50%,var(--aurora-3),transparent 62%);
+  animation:v4AuroraB var(--dur-ambient-2) ease-in-out infinite alternate;}
+#auroraBg .au-5{top:26vmax;right:6vmax;width:44vmax;height:44vmax;opacity:.8;
+  background:radial-gradient(circle at 50% 50%,var(--aurora-5),transparent 62%);
+  animation:v4AuroraC var(--dur-ambient) ease-in-out infinite alternate;}
+@keyframes v4AuroraA{from{transform:translate3d(0,0,0)}to{transform:translate3d(8vmax,5vmax,0)}}
+@keyframes v4AuroraB{from{transform:translate3d(0,0,0)}to{transform:translate3d(-7vmax,-6vmax,0)}}
+@keyframes v4AuroraC{from{transform:translate3d(0,0,0)}to{transform:translate3d(-5vmax,4vmax,0)}}
+body.task-mount #auroraBg{opacity:calc(var(--aurora-bg-opacity) + var(--aurora-op-focus));}
+
+/* ============================================================
+   ④ 原型外框
+   ============================================================ */
+.proto-bar{position:sticky;top:0;z-index:50;display:flex;align-items:center;gap:10px;
+  padding:10px 18px;border-bottom:1px solid var(--glass-border);
+  background:linear-gradient(var(--glass-bg),var(--glass-bg)),var(--glass-fallback);
+  backdrop-filter:blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  -webkit-backdrop-filter:blur(var(--glass-blur)) saturate(var(--glass-saturate));}
+.proto-bar-title{font-size:13px;font-weight:600;letter-spacing:-.1px;white-space:nowrap;}
+.proto-bar-sub{font-size:var(--fs-micro);color:var(--text-3);font-family:var(--font-mono);white-space:nowrap;}
+.proto-bar-acts{margin-left:auto;display:flex;gap:8px;align-items:center;}
+.proto-stage{max-width:var(--content-w);margin:0 auto;padding:28px 20px 12px;position:relative;}
+.proto-foot{max-width:var(--content-w);margin:0 auto;padding:18px 20px 48px;font-size:var(--fs-micro);
+  color:var(--text-3);line-height:1.9;}
+.proto-foot b{color:var(--text-2);font-weight:600;}
+.proto-foot code{font-family:var(--font-mono);background:var(--surface-2);border:1px solid var(--border);
+  border-radius:var(--radius-xs);padding:0 5px;}
+.pill-btn{height:30px;padding:0 12px;border:1px solid var(--border);border-radius:var(--radius-md);
+  background:var(--card-bg);cursor:pointer;font-size:12px;font-family:inherit;color:var(--text);
+  display:inline-flex;align-items:center;gap:6px;white-space:nowrap;
+  transition:background-color var(--dur-micro) var(--ease-out-soft),color var(--dur-micro) var(--ease-out-soft),
+    border-color var(--dur-micro) var(--ease-out-soft),box-shadow var(--dur-micro) var(--ease-out-soft),
+    transform var(--dur-press) var(--ease-out-soft);}
+.pill-btn:hover{border-color:var(--primary);color:var(--primary);background:var(--primary-soft);}
+.pill-btn:active{transform:scale(.97);}
+.pill-btn svg{width:14px;height:14px;flex-shrink:0;}
+.pill-btn[aria-pressed="true"]{background:var(--primary-soft);border-color:var(--primary);color:var(--primary);font-weight:600;}
+.ghost-btn{height:30px;padding:0 12px;border:1px solid var(--border);border-radius:var(--radius-md);
+  background:transparent;cursor:pointer;font-size:12px;font-family:inherit;color:var(--text-2);
+  display:inline-flex;align-items:center;justify-content:center;gap:5px;white-space:nowrap;text-decoration:none;
+  transition:background-color var(--dur-micro) var(--ease-out-soft),color var(--dur-micro) var(--ease-out-soft),
+    border-color var(--dur-micro) var(--ease-out-soft),box-shadow var(--dur-micro) var(--ease-out-soft);}
+.ghost-btn:hover{border-color:var(--primary);color:var(--primary);background:var(--primary-soft);}
+
+/* ============================================================
+   ⑤ 对话上下文
+   ============================================================ */
+.conv{display:flex;flex-direction:column;gap:14px;}
+.msg-user{align-self:flex-end;max-width:74%;background:var(--user-bubble);color:var(--user-bubble-text);
+  border-radius:var(--radius-lg) var(--radius-lg) var(--radius-xs) var(--radius-lg);
+  padding:10px 14px;font-size:var(--fs-body);line-height:1.65;box-shadow:var(--shadow-sm);
+  animation:v4MsgIn var(--dur-narr) var(--ease-out-soft);}
+.msg-sys{align-self:flex-start;max-width:80%;background:var(--ai-bubble);color:var(--text);
+  border:1px solid var(--border);border-radius:var(--radius-lg) var(--radius-lg) var(--radius-lg) var(--radius-xs);
+  padding:10px 14px;font-size:var(--fs-body);line-height:1.65;box-shadow:var(--shadow-sm);
+  animation:v4MsgIn var(--dur-narr) var(--ease-out-soft);animation-delay:calc(var(--stagger-xs) * 2);}
+.msg-sys .who{font-size:var(--fs-micro);color:var(--text-3);font-family:var(--font-mono);display:block;margin-bottom:3px;}
+@keyframes v4MsgIn{from{opacity:0;transform:translateY(var(--shift-comp))}to{opacity:1;transform:none}}
+
+/* ============================================================
+   ⑥ 检查点 inline 卡（禁模态叠模态）
+   ============================================================ */
+.ckpt-card{border:1px solid var(--border);border-radius:var(--radius-lg);background:var(--card-bg);
+  box-shadow:var(--shadow-md);overflow:hidden;position:relative;
+  animation:v4MsgIn var(--dur-narr) var(--ease-out-soft);animation-delay:calc(var(--stagger-xs) * 3);}
+/* 状态切换：in-soft 收缩到位感（后退用入场缓动） */
+.ckpt-card.switching{animation:v4CkptSwitch var(--dur-comp) var(--ease-in-soft);}
+@keyframes v4CkptSwitch{from{transform:scale(.985);opacity:.55}to{transform:scale(1);opacity:1}}
+.ckpt-head{display:flex;align-items:center;gap:9px;padding:11px 14px;border-bottom:1px solid var(--border);flex-wrap:wrap;}
+.ckpt-tag{font-size:var(--fs-micro);font-weight:700;letter-spacing:.08em;font-family:var(--font-mono);
+  color:var(--primary);background:var(--primary-soft);border-radius:var(--radius-xs);padding:2px 7px;flex-shrink:0;}
+.ckpt-head h1{font-size:var(--fs-title);font-weight:600;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.ckpt-meta{font-size:var(--fs-micro);color:var(--text-3);font-family:var(--font-mono);
+  font-variant-numeric:tabular-nums;white-space:nowrap;}
+.ckpt-state{padding:12px 14px;}
+.ckpt-state[hidden]{display:none;}
+.ckpt-hint{font-size:var(--fs-caption);color:var(--text-2);line-height:1.75;margin-bottom:10px;}
+.ckpt-hint b{color:var(--text);font-weight:600;}
+/* 清单态：ckpt-list stagger 40 逐项入场 */
+.ckpt-list{display:flex;flex-direction:column;gap:4px;}
+.ckpt-row{display:flex;align-items:center;gap:8px;font-size:var(--fs-caption);padding:6px 10px;
+  border-radius:var(--radius-sm);background:var(--surface-2);font-family:var(--font-mono);
+  animation:v4PlanStepIn var(--dur-comp) var(--ease-out-soft) both;
+  animation-delay:calc(var(--stagger-xs) * var(--i, 0));}
+@keyframes v4PlanStepIn{from{opacity:0;transform:translateY(-2px)}to{opacity:1;transform:none}}
+.ckpt-row .ckpt-file{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text);}
+.ckpt-row .ckpt-size{color:var(--text-3);font-variant-numeric:tabular-nums;white-space:nowrap;}
+.ckpt-row .ckpt-op{font-size:var(--fs-micro);padding:0 7px;border-radius:var(--radius-full);
+  background:var(--chip-bg);color:var(--text-2);flex-shrink:0;}
+.ckpt-row .ckpt-op.mod{background:var(--warn-bg);color:var(--warn);}
+.ckpt-row .ckpt-op.add{background:var(--ok-bg);color:var(--ok);}
+.ckpt-row .ckpt-op.del{background:var(--err-bg);color:var(--err);}
+/* 进度条（清单核对 / 恢复进度） */
+.ckpt-prog{display:flex;align-items:center;gap:10px;padding:9px 0 2px;}
+.ckpt-bar{flex:1;height:4px;border-radius:var(--radius-full);background:var(--border);overflow:hidden;}
+.ckpt-fill{height:100%;background:var(--primary);transform:scaleX(0);transform-origin:left;
+  transition:transform var(--dur-comp) var(--ease-out-soft),background-color var(--dur-comp) var(--ease-out-soft);}
+.ckpt-prog.indet .ckpt-fill{animation:v4CkptSweep var(--dur-stream) var(--ease-out-soft) infinite;}
+@keyframes v4CkptSweep{0%{transform:scaleX(.15) translateX(-30%)}50%{transform:scaleX(.55) translateX(30%)}100%{transform:scaleX(.15) translateX(110%)}}
+.ckpt-prog.done .ckpt-fill{background:var(--ok);transform:scaleX(1);}
+.ckpt-count{font-size:var(--fs-micro);color:var(--text-3);font-family:var(--font-mono);white-space:nowrap;font-variant-numeric:tabular-nums;}
+/* 操作区 */
+.ckpt-acts{display:flex;gap:8px;padding:12px 0 2px;align-items:center;}
+.ckpt-note{font-size:var(--fs-micro);color:var(--text-3);margin-right:auto;}
+.plan-btn{height:32px;padding:0 16px;border-radius:var(--radius-md);font-size:12.5px;font-weight:600;
+  font-family:inherit;cursor:pointer;display:inline-flex;align-items:center;gap:6px;border:1px solid transparent;
+  transition:background-color var(--dur-micro) var(--ease-out-soft),color var(--dur-micro) var(--ease-out-soft),
+    border-color var(--dur-micro) var(--ease-out-soft),box-shadow var(--dur-micro) var(--ease-out-soft),
+    transform var(--dur-press) var(--ease-out-soft);}
+.plan-btn:active{transform:scale(.97);}
+.plan-btn svg{width:14px;height:14px;}
+.plan-approve{background:var(--primary);color:#fff;}
+.plan-approve:hover{background:var(--primary-hover);box-shadow:var(--glow);}
+.plan-edit{background:transparent;color:var(--text-2);border-color:var(--border);}
+.plan-edit:hover{border-color:var(--primary);color:var(--primary);background:var(--primary-soft);}
+.plan-rollback{color:var(--primary);cursor:pointer;text-decoration:none;font-size:var(--fs-caption);font-weight:500;}
+.plan-rollback:hover{text-decoration:underline;}
+/* 确认态：高风险档提示 */
+.ckpt-risk-note{display:flex;align-items:center;gap:7px;font-size:var(--fs-micro);color:var(--warn);
+  background:var(--warn-bg);border:1px dashed var(--warn);border-radius:var(--radius-sm);
+  padding:6px 10px;margin-bottom:4px;}
+/* 校验态 */
+.ckpt-verify{display:flex;flex-direction:column;gap:4px;margin-top:10px;}
+.ckpt-vrow{display:flex;align-items:center;gap:8px;font-size:var(--fs-caption);padding:7px 10px;
+  border-radius:var(--radius-sm);background:var(--surface-2);color:var(--text-2);
+  animation:v4PlanStepIn var(--dur-comp) var(--ease-out-soft) both;
+  animation-delay:calc(var(--stagger-xs) * var(--i, 0));}
+.ckpt-vrow::before{content:"";width:14px;height:14px;border-radius:50%;flex-shrink:0;
+  background-position:center;background-repeat:no-repeat;background-size:10px;}
+.ckpt-vrow.ok::before{content:"\2713";background:var(--ok);color:#fff;font-size:9px;display:flex;
+  align-items:center;justify-content:center;font-weight:700;}
+.ckpt-vrow.err{color:var(--err);}
+.ckpt-vrow.err::before{content:"\2715";background:var(--err);color:#fff;font-size:8px;display:flex;
+  align-items:center;justify-content:center;font-weight:700;}
+.ckpt-done{display:flex;flex-direction:column;gap:2px;margin-top:12px;padding:11px 14px;
+  border-radius:var(--radius-md);background:var(--ok-bg);border:1px solid var(--ok);
+  font-size:var(--fs-title);font-weight:600;color:var(--ok);
+  opacity:0;transform:translateY(var(--shift-tip));}
+.ckpt-done.show{opacity:1;transform:none;transition:opacity var(--dur-narr) var(--ease-out-soft),
+  transform var(--dur-narr) var(--ease-out-soft);}   /* 校验提示 narr 220 淡入 */
+.ckpt-done span{font-size:var(--fs-micro);color:var(--text-2);font-weight:400;font-family:var(--font-mono);}
+/* 六军规脚注 */
+.ckpt-foot{padding:10px 14px;border-top:1px solid var(--border);background:var(--surface-2);
+  font-size:var(--fs-micro);color:var(--text-3);line-height:1.8;}
+.ckpt-foot b{color:var(--text-2);font-weight:600;}
+
+/* ============================================================
+   ⑦ 演示控制
+   ============================================================ */
+.demo-ctl{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:20px;padding:12px 14px;
+  border:1px dashed var(--border-strong);border-radius:var(--radius-lg);background:var(--surface-2);}
+.demo-ctl-label{font-size:var(--fs-micro);color:var(--text-3);font-weight:600;letter-spacing:.08em;}
+.demo-ctl .spacer{flex:1;}
+.demo-note{font-size:var(--fs-micro);color:var(--text-3);font-family:var(--font-mono);}
+
+body.theming .proto-bar,body.theming .ckpt-card,body.theming .ckpt-row,body.theming .ckpt-vrow,
+body.theming .ckpt-done,body.theming .ckpt-foot,body.theming .ckpt-risk-note,body.theming .msg-user,
+body.theming .msg-sys,body.theming .demo-ctl,body.theming #auroraBg,body.theming .pill-btn,body.theming .ghost-btn{
+  transition-property:background-color,color,border-color,box-shadow,opacity;
+  transition-duration:var(--dur-theme);
+  transition-timing-function:var(--ease-out-soft);}
+
+@media (max-width:720px){
+  .msg-user,.msg-sys{max-width:92%;}
+  .proto-bar-sub{display:none;}
+  .ckpt-meta{display:none;}
+}
+</style>
+</head>
+<body>
+<div id="auroraBg" aria-hidden="true"><div class="au au-1"></div><div class="au au-2"></div><div class="au au-5"></div></div>
+
+<header class="proto-bar">
+  <span class="proto-bar-title">检查点对话框（inline 三态）</span>
+  <span class="proto-bar-sub">M2.7 / M2.8 · token-upgrade-plan §2.2</span>
+  <div class="proto-bar-acts">
+    <a class="ghost-btn" href="index.html">← 原型总览</a>
+    <button class="pill-btn" id="fxBtn" aria-pressed="true" title="动效开关（fx-off 停列 + prefers-reduced-motion 降级）">
+      <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2l1.6 4.6L18 8.2l-4.4 1.6L12 14.4l-1.6-4.6L6 8.2l4.4-1.6L12 2z"/><path d="M19 11l.9 2.5L22.4 14.4l-2.5.9L19 17.8l-.9-2.5-2.5-.9 2.5-.9L19 11z" opacity=".6"/></svg>
+      <span id="fxLabel">动效 开</span>
+    </button>
+    <button class="pill-btn" id="themeBtn" aria-pressed="false" title="亮/暗双主题（body.dark）">
+      <svg id="themeIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8Z"/></svg>
+      <span id="themeLabel">暗色</span>
+    </button>
+  </div>
+</header>
+
+<main class="proto-stage">
+  <div class="conv">
+    <div class="msg-user">先回滚到执行前的检查点，我想看看改动差异。</div>
+    <div class="msg-sys"><span class="who">Harbor · checkpoint_service</span>检查点 #3 已就绪（git + files 双轨）。回滚前会先给清单，确认后才执行；恢复后自动校验。</div>
+
+    <!-- ============ 检查点 inline 卡 ============ -->
+    <section class="ckpt-card" id="ckptCard" aria-label="检查点回滚对话框">
+      <header class="ckpt-head">
+        <span class="ckpt-tag">CHECKPOINT #3</span>
+        <h1>回滚到检查点 #3</h1>
+        <span class="ckpt-meta">12.4 MB · 7 个文件 · 14:37 创建</span>
+      </header>
+
+      <!-- ① 清单态 -->
+      <div class="ckpt-state" id="stateList">
+        <p class="ckpt-hint">以下文件将恢复至检查点 #3 时的状态。<b>差异恢复</b>：仅还原有差异的文件；检查点之后新增且未备份的文件<b>绝不删除</b>，会原样保留。</p>
+        <div class="ckpt-list" id="ckptList">
+          <div class="ckpt-row" style="--i:0"><span class="ckpt-file">frontend/api-client.js</span><span class="ckpt-op mod">已修改</span><span class="ckpt-size">4.2 KB</span></div>
+          <div class="ckpt-row" style="--i:1"><span class="ckpt-file">frontend/index.html</span><span class="ckpt-op mod">已修改</span><span class="ckpt-size">68.1 KB</span></div>
+          <div class="ckpt-row" style="--i:2"><span class="ckpt-file">frontend/25-tool-exec.js</span><span class="ckpt-op mod">已修改</span><span class="ckpt-size">22.7 KB</span></div>
+          <div class="ckpt-row" style="--i:3"><span class="ckpt-file">frontend/26-guard.js</span><span class="ckpt-op add">新增</span><span class="ckpt-size">9.4 KB</span></div>
+          <div class="ckpt-row" style="--i:4"><span class="ckpt-file">frontend/67-plan-card.js</span><span class="ckpt-op mod">已修改</span><span class="ckpt-size">15.3 KB</span></div>
+          <div class="ckpt-row" style="--i:5"><span class="ckpt-file">styles/harbor-v4.css</span><span class="ckpt-op del">待删</span><span class="ckpt-size">31.8 KB</span></div>
+          <div class="ckpt-row" style="--i:6"><span class="ckpt-file">package.json</span><span class="ckpt-op mod">已修改</span><span class="ckpt-size">1.1 KB</span></div>
+        </div>
+        <div class="ckpt-prog" id="listProg"><div class="ckpt-bar"><div class="ckpt-fill"></div></div><span class="ckpt-count">清单 7 项 · 上限 ≤200MB / 500 文件 / 保留 3 份</span></div>
+        <footer class="ckpt-acts">
+          <span class="ckpt-note">清单即确认依据 · 恢复后自动校验</span>
+          <button class="plan-btn plan-edit" id="toConfirmBtn">开始回滚…</button>
+        </footer>
+      </div>
+
+      <!-- ② 确认态 -->
+      <div class="ckpt-state" id="stateConfirm" hidden>
+        <p class="ckpt-hint">确认回滚到检查点 #3？当前未提交改动将存入<b>自有影子仓库</b>（可再恢复），执行前后各做一次 shell 快照。</p>
+        <div class="ckpt-risk-note">高风险档：禁快捷确认 · 仅 press 90 反馈，不抢跑</div>
+        <footer class="ckpt-acts">
+          <a class="plan-rollback" id="cancelLink">取消并返回</a>
+          <button class="plan-btn plan-approve" id="confirmBtn">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6L9 17l-5-5"/></svg>
+            确认回滚
+          </button>
+        </footer>
+      </div>
+
+      <!-- ③ 校验态 -->
+      <div class="ckpt-state" id="stateVerify" hidden>
+        <div class="ckpt-prog" id="verifyProg"><div class="ckpt-bar"><div class="ckpt-fill"></div></div><span class="ckpt-count" id="verifyCount">恢复中…</span></div>
+        <div class="ckpt-verify" id="verifyList">
+          <div class="ckpt-vrow ok" style="--i:0">文件完整性校验通过（7/7 · sha256 比对）</div>
+          <div class="ckpt-vrow ok" style="--i:1">索引与模块缓存已重建</div>
+          <div class="ckpt-vrow err" style="--i:2">1 个文件版本不一致 — 已按影子仓库快照恢复</div>
+        </div>
+        <div class="ckpt-done" id="ckptDone">已恢复至检查点 #3<span>耗时 1.8s · 24h 内可撤销此次恢复</span></div>
+      </div>
+
+      <footer class="ckpt-foot"><b>六军规</b>：差异恢复 · 绝不删未备份 · 自有影子仓库 · shell 前后快照 · 清单+确认 · 恢复后校验</footer>
+    </section>
+  </div>
+
+  <!-- 评审台演示控制 -->
+  <div class="demo-ctl">
+    <span class="demo-ctl-label">演示控制</span>
+    <button class="ghost-btn" id="tabListBtn">清单态</button>
+    <button class="ghost-btn" id="tabConfirmBtn">确认态</button>
+    <button class="ghost-btn" id="tabVerifyBtn">校验态</button>
+    <button class="ghost-btn" id="autoFlowBtn">自动跑一遍</button>
+    <span class="spacer"></span>
+    <span class="demo-note">回滚 in-soft · 校验 narr 220 · stagger 40</span>
+  </div>
+</main>
+
+<footer class="proto-foot">
+  <b>实现要点</b>：inline 卡样式（禁模态叠模态）· 清单态 <code>ckpt-list</code> stagger 40 逐项入场 · 确认态回滚链接 + 高风险档禁快捷确认（press 90 only）·
+  校验态 <code>ckpt-verify</code> ok/err 行 + 「已恢复至检查点 N」narr 220 淡入 · 状态切换 in-soft 收缩到位感。<br>
+  <b>令牌来源</b>：<code>deliverables/design/v19/token-upgrade-plan.md</code> §2.2/§3；既有范式继承 <code>frontend/index.template.html</code> ckpt-prog/ckpt-row/plan-rollback 域。
+</footer>
+
+<script>
+/* ============================================================
+   MOTION 单一事实源（读 CSS 令牌，禁硬编码 ms）
+   ============================================================ */
+const MOTION = (() => {
+  const cs = getComputedStyle(document.documentElement);
+  const ms = k => { const v = cs.getPropertyValue(k).trim(); return v.endsWith('ms') ? parseFloat(v) : parseFloat(v) * 1000; };
+  return { press: ms('--dur-press'), micro: ms('--dur-micro'), microOut: ms('--dur-micro-out'),
+    comp: ms('--dur-comp'), compOut: ms('--dur-comp-out'), panel: ms('--dur-panel'),
+    narr: ms('--dur-narr'), theme: ms('--dur-theme'), staggerXs: ms('--stagger-xs') };
+})();
+const DEMO = { restoreDwell: 1200 };   /* 演示节奏：恢复中 sweep 时长（非动效令牌） */
+
+const $ = s => document.querySelector(s);
+const body = document.body;
+
+/* ---------- 主题 / 动效开关 ---------- */
+const themeBtn = $('#themeBtn'), themeLabel = $('#themeLabel'), themeIcon = $('#themeIcon');
+const SUN = '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>';
+const MOON = '<path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8Z"/>';
+function setTheme(dark){
+  body.classList.add('theming');
+  body.classList.toggle('dark', dark);
+  themeBtn.setAttribute('aria-pressed', String(dark));
+  themeLabel.textContent = dark ? '亮色' : '暗色';
+  themeIcon.innerHTML = dark ? SUN : MOON;
+  try{ localStorage.setItem('proto-theme', dark ? 'dark' : 'light'); }catch(e){}
+  setTimeout(() => body.classList.remove('theming'), MOTION.theme + 60);
+}
+themeBtn.addEventListener('click', () => setTheme(!body.classList.contains('dark')));
+try{ if (localStorage.getItem('proto-theme') === 'dark') setTheme(true); }catch(e){}
+const fxBtn = $('#fxBtn'), fxLabel = $('#fxLabel');
+function setFx(on){
+  body.classList.toggle('fx-off', !on);
+  fxBtn.setAttribute('aria-pressed', String(on));
+  fxLabel.textContent = on ? '动效 开' : '动效 关';
+}
+fxBtn.addEventListener('click', () => setFx(body.classList.contains('fx-off')));
+
+/* ---------- 三态状态机 ---------- */
+const ckptCard = $('#ckptCard');
+const stateList = $('#stateList'), stateConfirm = $('#stateConfirm'), stateVerify = $('#stateVerify');
+const verifyProg = $('#verifyProg'), verifyCount = $('#verifyCount'), ckptDone = $('#ckptDone');
+let timers = [];
+const later = (fn, t) => { timers.push(setTimeout(fn, t)); };
+const clearTimers = () => { timers.forEach(clearTimeout); timers = []; };
+
+function show(state){
+  clearTimers();
+  [stateList, stateConfirm, stateVerify].forEach(el => el.hidden = (el !== state));
+  ckptCard.classList.remove('switching'); void ckptCard.offsetWidth; ckptCard.classList.add('switching');
+  if (state === stateVerify) runVerify();
+}
+function runVerify(){
+  verifyProg.classList.remove('done'); verifyProg.classList.add('indet');
+  verifyCount.textContent = '恢复中…';
+  ckptDone.classList.remove('show');
+  $('#verifyList').querySelectorAll('.ckpt-vrow').forEach(el => { el.style.animation = 'none'; void el.offsetWidth; el.style.animation = ''; });
+  later(() => {
+    verifyProg.classList.remove('indet'); verifyProg.classList.add('done');
+    verifyCount.textContent = '7 / 7 已恢复';
+    later(() => ckptDone.classList.add('show'), MOTION.comp + MOTION.staggerXs * 3);  /* narr 220 淡入 */
+  }, DEMO.restoreDwell);
+}
+
+/* ---------- 交互 ---------- */
+$('#toConfirmBtn').addEventListener('click', () => show(stateConfirm));
+$('#cancelLink').addEventListener('click', e => { e.preventDefault(); show(stateList); });
+$('#confirmBtn').addEventListener('click', () => show(stateVerify));   /* press 90 only：无 anticipate */
+$('#tabListBtn').addEventListener('click', () => show(stateList));
+$('#tabConfirmBtn').addEventListener('click', () => show(stateConfirm));
+$('#tabVerifyBtn').addEventListener('click', () => show(stateVerify));
+$('#autoFlowBtn').addEventListener('click', () => {
+  show(stateList);
+  later(() => show(stateConfirm), 1400);
+  later(() => show(stateVerify), 3000);
+});
+
+body.classList.add('task-mount');   /* 任务态挂载：极光加深一档 */
+</script>
+</body>
+</html>

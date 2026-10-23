@@ -5,7 +5,7 @@
 > - **契约面**：`get_api_info` 列出的方法（与 v1.0.0 legacy 逐字节一致，`tests/test_api_contract.py` 门禁）
 > - **隐身面**：`_V12_EXTRA` 登记的新方法（自省不列出，防契约漂移；前端经 pywebview 桥直接调用）
 
-**方法总数**：契约面 51 + 隐身面 71 = 122
+**方法总数**：契约面 51 + 隐身面 80 = 131
 
 ## 契约面 · get_api_info 列名（v1.0.0 起逐字节锁定）
 
@@ -67,7 +67,13 @@
 |---|---|---|
 | `apply_update` | `()` | （v1.0.0 legacy 契约方法） |
 | `begin_task` | `()` | 修复 W2（三轮）：任务开始重置后端命令去重器——原进程级存活（仅 clear_caches |
+| `browser_click` | `(target)` | M3/M4（guard=always）：点击（selector\|text；前后态截图审计）。 |
+| `browser_close` | `(session_id='')` | M3/M4：会话池回收（browser_sessions.json 状态同步）。 |
+| `browser_extract` | `(selector='', mode='markdown')` | M3/M4 + M2.1：正文提取（readability 风格 → markdown + links）。 |
+| `browser_fill` | `(selector, text)` | M3/M4（guard=always）：填充（回传 masked:true，禁回显原文）。 |
+| `browser_navigate` | `(url, wait_selector='', timeout=60)` | M3 Win/M4 Mac：通用导航（任意 URL + 等待选择器/硬超时）。 |
 | `browser_open` | `(params=None)` | B2：打开 URL 提取正文（selector 覆盖/密度提取；超长截断落 toolcache， |
+| `browser_screenshot` | `(full_page=False)` | M3/M4：当前页截图（point 坐标系 b64）。 |
 | `browser_search` | `(params=None, token=None)` | B1：浏览器搜索——检索式构造 → 缓存层（TTL 30min）→ 双通道取数 |
 | `browser_takeover` | `(takeover_id, action)` | B5：人工接管续跑/放弃（ux-flows 流程 2 步骤 4a/4b）。 |
 | `check_update` | `(manifest_url=None)` | （v1.0.0 legacy 契约方法） |
@@ -77,7 +83,9 @@
 | `clarify_collect` | `(questions, answers)` | M3-C1：批量澄清答案收集（缺项用默认值；返回 [{q, answer}]）。 |
 | `get_audit_log` | `(limit=200, offset=0)` | 审计日志查看器数据源：倒序返回最新 limit 条（纯本地文件，无网络）。 |
 | `get_local_proxy` | `()` | HF-P0：本地 CORS 代理基址——前端 local 模式 fetch 改打代理， |
+| `get_platform_info` | `()` | M6.10：平台探测（os/arch/version/services 七接口就绪度）。 |
 | `get_update_progress` | `()` | （v1.0.0 legacy 契约方法） |
+| `guard_approval_budget` | `(limit=None)` | M2.4：会话级审批预算（{used, limit, escalated}；超限升级任务授权）。 |
 | `guard_audit` | `(op, detail_json='{}', decision='allow')` | 前端上报用户决策（allow/deny/session-trust），落审计日志。 |
 | `guard_check` | `(op, detail_json='{}')` | 三档判定：返回 {action: allow/confirm/block, reason?}。前端据 action 弹确认框或阻断。 |
 | `guard_confirm_token` | `(op, detail_json='{}')` | 修复 S4①：前端确认框「允许」后换取一次性 confirm token（TTL 60s，绑定 op+detail 摘要）。 |
@@ -123,6 +131,7 @@
 | `sandbox_status` | `()` | 可用性（平台/创建能力）+ 启用态 + 进程级统计。 |
 | `save_export_file` | `(path, content)` | 把导出内容写盘（UTF-8）→ {ok, path, bytes}。 |
 | `search_cache_stats` | `()` | B3：搜索缓存统计 {entries, hits, misses, ttl_minutes, size_kb}。 |
+| `search_reader_stats` | `()` | M2.1：dual-LLM-lite 读取器统计（reader_calls/schema_fail/degrade_count）。 |
 | `search_status` | `(task_id='')` | B4：搜索进度回报通道（面板 1s 轮询，规范 §2.4 方案 A）。 |
 | `session_purge` | `(sid, task_ids_json='[]')` | 真删一条会话的全部痕迹：sessions.json 条目 + session_ws 绑定 + |
 | `software_call` | `(params=None, token=None)` | S3：外部软件调用三形态（CLI 沙箱执行 / GUI 标题核验 / URI 协议）。 |

@@ -1,0 +1,436 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta http-equiv="Content-Security-Policy" content="object-src 'none'; base-uri 'none'; form-action 'none'">
+<title>Harbor v1.9.0 · 新界面原型集</title>
+<!--
+  ============================================================
+  设计系统：Harbor 设计系统 v4（deliverables/design/v4）
+  升级依据：deliverables/design/v19/token-upgrade-plan.md（彩格调）
+  原型类型：web-prototype · 原型集总览（index）
+  ============================================================
+-->
+<style>
+/* ============================================================
+   令牌块 —— v4 保留值 + v1.9.0 新增
+   ============================================================ */
+:root{
+  --bg:#f6f7f9; --sidebar-bg:#ffffff; --main-bg:#f6f7f9; --header-bg:rgba(255,255,255,.78);
+  --card-bg:#ffffff; --surface-2:#f1f3f7;
+  --border:#e4e6ec; --border-strong:#d2d6e0;
+  --text:#14161c; --text-2:#5f6674; --text-3:#656b7a;
+  --primary:#4560e0; --primary-hover:#3a51cc; --primary-soft:#eef1fe;
+  --hover:#f1f3f7; --active:#eef1fe; --chip-bg:#f1f3f7;
+  --ok:#146b40; --warn:#8f5a0a; --err:#bd2a1c;
+  --ok-bg:#e8f6ee; --warn-bg:#fdf5e6; --err-bg:#fdecea;
+  --shadow-sm:0 1px 2px rgba(16,18,28,.05),0 1px 3px rgba(16,18,28,.07);
+  --shadow-md:0 2px 8px rgba(16,18,28,.07),0 4px 12px rgba(16,18,28,.06);
+  --shadow-lg:0 12px 28px rgba(16,18,28,.12),0 24px 48px rgba(16,18,28,.10);
+  --edge-hi:inset 0 1px 0 rgba(255,255,255,.65);
+  --radius-xs:4px; --radius-sm:6px; --radius-md:9px; --radius-lg:12px; --radius-xl:16px; --radius-full:999px;
+  --font-sans:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei","Noto Sans SC",sans-serif;
+  --font-mono:"JetBrains Mono","Cascadia Code",Consolas,"SFMono-Regular",Menlo,monospace;
+  --dur-fast:120ms; --dur-base:180ms; --dur-slow:280ms;
+  --ease:cubic-bezier(.4,0,.2,1); --ease-out:cubic-bezier(.16,1,.3,1);
+  --content-w:1080px;
+  --brand-gradient:linear-gradient(135deg,#6b84ff,#4560e0);
+  --glass-bg:rgba(255,255,255,.62); --glass-bg-2:rgba(255,255,255,.80);
+  --glass-border:rgba(255,255,255,.72); --glass-blur:18px; --glass-fallback:#f4f6fb; --glass-saturate:1.15;
+  --aurora-1:#22d3ee; --aurora-3:#8b5cf6;
+  --aurora-opacity:.12; --aurora-bg-opacity:.50; --aurora-blur:64px;
+  --glow-color:rgba(79,110,247,.50);
+  --glow:0 0 0 1px var(--glass-border),0 0 22px -6px var(--glow-color);
+  --dur-press:90ms; --dur-micro:130ms; --dur-micro-out:90ms;
+  --dur-comp:200ms; --dur-comp-out:140ms;
+  --dur-panel:240ms; --dur-panel-out:200ms;
+  --dur-narr:220ms; --dur-theme:280ms;
+  --dur-ambient:34s; --dur-ambient-2:52s;
+  --ease-out-soft:cubic-bezier(.25,.8,.35,1);
+  --ease-in-soft:cubic-bezier(.42,0,1,1);
+  --ease-spring:cubic-bezier(.34,1.3,.5,1);
+  --ease-anticipate:cubic-bezier(.34,1.45,.64,1);
+  --stagger-xs:40ms; --stagger-sm:60ms; --stagger-max:160ms;
+  --shift-tip:4px; --shift-comp:6px; --shift-panel:12px;
+  --fs-display:19px; --fs-title:13.5px; --fs-body:13.5px; --fs-caption:12px; --fs-micro:11px;
+  /* ===== v1.9.0 新增令牌（亮色）===== */
+  --aurora-5:rgba(69,96,224,.10);
+  --aurora-op-focus:.18;
+  --edge-hi-strong:inset 0 1px 0 rgba(255,255,255,.9);
+  --bg-deep:#0d0f16;
+  --skylight-strength:.5;
+  --untrusted:#8f5a0a;
+  --untrusted-bg:#fdf5e6;
+  --prov-line:1px dashed var(--border-strong);
+}
+body.dark{
+  --bg:#101114; --sidebar-bg:#16181d; --main-bg:#101114; --header-bg:rgba(22,24,29,.78);
+  --card-bg:#1a1c22; --surface-2:#212429;
+  --border:#272a32; --border-strong:#343843;
+  --text:#e6e7ea; --text-2:#8b909c; --text-3:#9298a6;
+  --primary:#6b84ff; --primary-hover:#8098ff; --primary-soft:#1d2337;
+  --hover:#212429; --active:#232a3f; --chip-bg:#212429;
+  --ok:#4ade80; --warn:#fbbf24; --err:#f87171;
+  --ok-bg:#12251b; --warn-bg:#2a2213; --err-bg:#2b1618;
+  --shadow-sm:0 1px 2px rgba(0,0,0,.35),0 1px 3px rgba(0,0,0,.45);
+  --shadow-md:0 2px 10px rgba(0,0,0,.42),0 4px 14px rgba(0,0,0,.38);
+  --shadow-lg:0 16px 40px rgba(0,0,0,.55),0 24px 56px rgba(0,0,0,.5);
+  --edge-hi:inset 0 1px 0 rgba(255,255,255,.06);
+  --glass-bg:rgba(26,28,34,.60); --glass-bg-2:rgba(30,33,41,.78);
+  --glass-border:rgba(255,255,255,.10); --glass-blur:20px; --glass-fallback:#171a21; --glass-saturate:1.15;
+  --aurora-1:#22d3ee; --aurora-3:#8b5cf6;
+  --aurora-opacity:.15; --aurora-bg-opacity:.62; --aurora-blur:64px;
+  --glow-color:rgba(107,132,255,.55);
+  --glow:0 0 0 1px var(--glass-border),0 0 22px -6px var(--glow-color);
+  /* ===== v1.9.0 新增令牌（暗色）===== */
+  --aurora-5:rgba(69,96,224,.18);
+  --aurora-op-focus:.26;
+  --edge-hi-strong:inset 0 1px 0 rgba(255,255,255,.10);
+  --bg-deep:#07080d;
+  --skylight-strength:.7;
+  --untrusted:#fbbf24;
+  --untrusted-bg:#2a2213;
+}
+
+/* ============================================================
+   基座 / 降级矩阵
+   ============================================================ */
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:var(--font-sans);background:var(--bg);min-height:100vh;color:var(--text);
+  font-size:14px;line-height:1.6;
+  transition:background var(--dur-theme) var(--ease-out-soft),color var(--dur-theme) var(--ease-out-soft);}
+:focus-visible{outline:2px solid var(--primary);outline-offset:2px;}
+::selection{background:var(--primary-soft);color:var(--primary);}
+body.fx-off{--dur-press:1ms;--dur-micro:1ms;--dur-micro-out:1ms;--dur-comp:1ms;--dur-comp-out:1ms;
+  --dur-panel:1ms;--dur-panel-out:1ms;--dur-narr:1ms;--dur-theme:1ms;--stagger-xs:0ms;--stagger-sm:0ms;--stagger-max:0ms;}
+body.fx-off #auroraBg .au{animation:none;}
+@media (prefers-reduced-motion: reduce){
+  *,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;
+    transition-duration:.01ms!important;}
+  #auroraBg .au{animation:none!important;}
+}
+@media (prefers-reduced-transparency: reduce){
+  :root{--glass-bg:#f4f6fb; --glass-bg-2:#ffffff; --glass-blur:0px;}
+  body.dark{--glass-bg:#171a21; --glass-bg-2:#1a1c22; --glass-blur:0px;}
+}
+
+/* ============================================================
+   极光背景层
+   ============================================================ */
+#auroraBg{position:fixed;inset:0;z-index:-1;overflow:hidden;pointer-events:none;
+  opacity:var(--aurora-bg-opacity);background:var(--bg);
+  transition:opacity var(--dur-panel) var(--ease-out-soft);}
+#auroraBg .au{position:absolute;width:58vmax;height:58vmax;border-radius:50%;
+  filter:blur(var(--aurora-blur));will-change:transform;}
+#auroraBg .au-1{top:-20vmax;left:-14vmax;opacity:.66;
+  background:radial-gradient(circle at 50% 50%,var(--aurora-1),transparent 62%);
+  animation:v4AuroraA var(--dur-ambient) ease-in-out infinite alternate;}
+#auroraBg .au-2{bottom:-22vmax;right:-16vmax;opacity:.62;
+  background:radial-gradient(circle at 50% 50%,var(--aurora-3),transparent 62%);
+  animation:v4AuroraB var(--dur-ambient-2) ease-in-out infinite alternate;}
+#auroraBg .au-5{top:26vmax;right:6vmax;width:44vmax;height:44vmax;opacity:.8;
+  background:radial-gradient(circle at 50% 50%,var(--aurora-5),transparent 62%);
+  animation:v4AuroraC var(--dur-ambient) ease-in-out infinite alternate;}
+@keyframes v4AuroraA{from{transform:translate3d(0,0,0)}to{transform:translate3d(8vmax,5vmax,0)}}
+@keyframes v4AuroraB{from{transform:translate3d(0,0,0)}to{transform:translate3d(-7vmax,-6vmax,0)}}
+@keyframes v4AuroraC{from{transform:translate3d(0,0,0)}to{transform:translate3d(-5vmax,4vmax,0)}}
+
+/* ============================================================
+   页头 / 页脚
+   ============================================================ */
+.proto-bar{position:sticky;top:0;z-index:50;display:flex;align-items:center;gap:10px;
+  padding:10px 18px;border-bottom:1px solid var(--glass-border);
+  background:linear-gradient(var(--glass-bg),var(--glass-bg)),var(--glass-fallback);
+  backdrop-filter:blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  -webkit-backdrop-filter:blur(var(--glass-blur)) saturate(var(--glass-saturate));}
+.proto-bar-title{font-size:13px;font-weight:600;letter-spacing:-.1px;white-space:nowrap;}
+.proto-bar-sub{font-size:var(--fs-micro);color:var(--text-3);font-family:var(--font-mono);white-space:nowrap;}
+.proto-bar-acts{margin-left:auto;display:flex;gap:8px;align-items:center;}
+.pill-btn{height:30px;padding:0 12px;border:1px solid var(--border);border-radius:var(--radius-md);
+  background:var(--card-bg);cursor:pointer;font-size:12px;font-family:inherit;color:var(--text);
+  display:inline-flex;align-items:center;gap:6px;white-space:nowrap;
+  transition:background-color var(--dur-micro) var(--ease-out-soft),color var(--dur-micro) var(--ease-out-soft),
+    border-color var(--dur-micro) var(--ease-out-soft),box-shadow var(--dur-micro) var(--ease-out-soft),
+    transform var(--dur-press) var(--ease-out-soft);}
+.pill-btn:hover{border-color:var(--primary);color:var(--primary);background:var(--primary-soft);}
+.pill-btn:active{transform:scale(.97);}
+.pill-btn svg{width:14px;height:14px;flex-shrink:0;}
+.pill-btn[aria-pressed="true"]{background:var(--primary-soft);border-color:var(--primary);color:var(--primary);font-weight:600;}
+
+.proto-stage{max-width:var(--content-w);margin:0 auto;padding:30px 20px 12px;position:relative;}
+.proto-foot{max-width:var(--content-w);margin:0 auto;padding:18px 20px 48px;font-size:var(--fs-micro);
+  color:var(--text-3);line-height:1.9;}
+.proto-foot b{color:var(--text-2);font-weight:600;}
+.proto-foot code{font-family:var(--font-mono);background:var(--surface-2);border:1px solid var(--border);
+  border-radius:var(--radius-xs);padding:0 5px;}
+
+/* ============================================================
+   总览头
+   ============================================================ */
+.hero{display:flex;flex-direction:column;gap:10px;margin-bottom:22px;
+  animation:v4MsgIn var(--dur-narr) var(--ease-out-soft);}
+@keyframes v4MsgIn{from{opacity:0;transform:translateY(var(--shift-comp))}to{opacity:1;transform:none}}
+.hero-brand{display:flex;align-items:center;gap:11px;}
+.brand-logo{width:36px;height:36px;border-radius:var(--radius-md);background:var(--brand-gradient);
+  display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:16px;
+  letter-spacing:-.5px;flex-shrink:0;box-shadow:0 0 18px -4px var(--glow-color);}
+.hero h1{font-size:var(--fs-display);font-weight:650;letter-spacing:-.3px;}
+.hero .sub{font-size:var(--fs-caption);color:var(--text-2);line-height:1.8;max-width:760px;}
+.hero .meta{display:flex;flex-wrap:wrap;gap:6px;}
+.hero .meta span{font-size:var(--fs-micro);font-family:var(--font-mono);color:var(--text-3);
+  background:var(--surface-2);border:1px solid var(--border);border-radius:var(--radius-full);
+  padding:2px 10px;font-variant-numeric:tabular-nums;}
+
+/* ============================================================
+   原型入口卡片
+   ============================================================ */
+.card-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:16px;}
+.proto-card{display:flex;flex-direction:column;gap:9px;padding:16px;text-decoration:none;color:inherit;
+  background:linear-gradient(var(--glass-bg),var(--glass-bg)),var(--glass-fallback);
+  backdrop-filter:blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  -webkit-backdrop-filter:blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  border:1px solid var(--glass-border);border-radius:var(--radius-lg);
+  box-shadow:var(--shadow-md),var(--edge-hi);
+  transition:transform var(--dur-comp) var(--ease-out-soft),box-shadow var(--dur-comp) var(--ease-out-soft),
+    border-color var(--dur-micro) var(--ease-out-soft);
+  animation:v4CardIn var(--dur-narr) var(--ease-out-soft) both;
+  animation-delay:calc(var(--stagger-xs) * var(--i, 0));}
+@keyframes v4CardIn{from{opacity:0;transform:translateY(var(--shift-comp))}to{opacity:1;transform:none}}
+.proto-card:hover{transform:translateY(-2px);box-shadow:var(--shadow-lg),var(--edge-hi);border-color:var(--primary);}
+body.fx-off .proto-card:hover{transform:none;}
+.proto-card-head{display:flex;align-items:center;gap:9px;}
+.proto-card-ic{width:30px;height:30px;border-radius:var(--radius-md);background:var(--primary-soft);
+  color:var(--primary);display:flex;align-items:center;justify-content:center;flex-shrink:0;}
+.proto-card-ic svg{width:15px;height:15px;}
+.proto-card-head h2{font-size:var(--fs-title);font-weight:650;flex:1;min-width:0;}
+.proto-card-tag{font-size:var(--fs-micro);font-family:var(--font-mono);color:var(--text-3);
+  background:var(--surface-2);border:1px solid var(--border);border-radius:var(--radius-xs);
+  padding:1px 7px;flex-shrink:0;white-space:nowrap;}
+.proto-card p{font-size:var(--fs-caption);color:var(--text-2);line-height:1.75;}
+.proto-card ul{list-style:none;display:flex;flex-direction:column;gap:3px;}
+.proto-card li{font-size:var(--fs-micro);color:var(--text-3);line-height:1.7;display:flex;gap:6px;}
+.proto-card li::before{content:"·";color:var(--primary);font-weight:700;flex-shrink:0;}
+.proto-card .go{margin-top:auto;font-size:var(--fs-caption);font-weight:600;color:var(--primary);
+  display:inline-flex;align-items:center;gap:5px;}
+.proto-card .go svg{width:13px;height:13px;transition:transform var(--dur-comp) var(--ease-out-soft);}
+.proto-card:hover .go svg{transform:translateX(3px);}
+.proto-card.prio .proto-card-ic{background:var(--primary);color:#fff;box-shadow:0 0 16px -4px var(--glow-color);}
+
+/* ============================================================
+   说明区
+   ============================================================ */
+.notes{margin-top:24px;display:grid;grid-template-columns:1fr 1fr;gap:16px;}
+.note-block{border:1px solid var(--border);border-radius:var(--radius-lg);background:var(--card-bg);
+  box-shadow:var(--shadow-sm);padding:15px 16px;}
+.note-block h3{font-size:var(--fs-title);font-weight:650;margin-bottom:9px;display:flex;align-items:center;gap:7px;}
+.note-block h3::before{content:"";width:3px;height:12px;border-radius:var(--radius-full);background:var(--primary);}
+.note-block ul{list-style:none;display:flex;flex-direction:column;gap:5px;}
+.note-block li{font-size:var(--fs-caption);color:var(--text-2);line-height:1.75;display:flex;gap:7px;}
+.note-block li::before{content:"—";color:var(--text-3);flex-shrink:0;}
+.note-block li b{color:var(--text);font-weight:600;}
+.note-block li code{font-family:var(--font-mono);font-size:var(--fs-micro);background:var(--surface-2);
+  border:1px solid var(--border);border-radius:var(--radius-xs);padding:0 5px;}
+
+body.theming .proto-bar,body.theming .proto-card,body.theming .note-block,body.theming .hero .meta span,
+body.theming #auroraBg,body.theming .pill-btn{
+  transition-property:background-color,color,border-color,box-shadow,opacity;
+  transition-duration:var(--dur-theme);
+  transition-timing-function:var(--ease-out-soft);}
+
+@media (max-width:960px){ .notes{grid-template-columns:1fr;} }
+@media (max-width:720px){ .proto-bar-sub{display:none;} }
+</style>
+</head>
+<body>
+<div id="auroraBg" aria-hidden="true"><div class="au au-1"></div><div class="au au-2"></div><div class="au au-5"></div></div>
+
+<header class="proto-bar">
+  <span class="proto-bar-title">Harbor v1.9.0 · 新界面原型集</span>
+  <span class="proto-bar-sub">design/v19/prototypes · 5 个原型</span>
+  <div class="proto-bar-acts">
+    <a class="pill-btn" href="../../../dev-plan/frontend-handover-v19-2026-10-23.html" title="返回 v1.9.0 前端交接报告（design/v19 上游依据 + 契约 + 移植规范）">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M9 13h6M9 17h6"/></svg>
+      交接报告
+    </a>
+    <button class="pill-btn" id="fxBtn" aria-pressed="true" title="动效开关（fx-off 停列 + prefers-reduced-motion 降级）">
+      <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2l1.6 4.6L18 8.2l-4.4 1.6L12 14.4l-1.6-4.6L6 8.2l4.4-1.6L12 2z"/><path d="M19 11l.9 2.5L22.4 14.4l-2.5.9L19 17.8l-.9-2.5-2.5-.9 2.5-.9L19 11z" opacity=".6"/></svg>
+      <span id="fxLabel">动效 开</span>
+    </button>
+    <button class="pill-btn" id="themeBtn" aria-pressed="false" title="亮/暗双主题（body.dark）">
+      <svg id="themeIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8Z"/></svg>
+      <span id="themeLabel">暗色</span>
+    </button>
+  </div>
+</header>
+
+<main class="proto-stage">
+  <!-- 总览头 -->
+  <section class="hero">
+    <div class="hero-brand">
+      <span class="brand-logo">H</span>
+      <h1>v1.9.0 前端重构 · 关键新界面原型</h1>
+    </div>
+    <p class="sub">按《v1.9.0 设计令牌升级方案（彩格调）》产出的高保真静态原型，用于设计评审与后续移植参考。全部继承 Harbor v4 玻璃拟态 + 编辑部排版体系；新类纯增（plan-eta / plan-riskbar / plan-scope / plan-auto / ckpt-list / ckpt-verify / brw-mode / brw-row / brw-takeover / grant-budget / mac-kbd / mac-badge），既有选择器零改动。</p>
+    <div class="meta">
+      <span>设计系统 v4</span>
+      <span>令牌方案 token-upgrade-plan.md</span>
+      <span>双主题亮/暗</span>
+      <span>fx-off 停列</span>
+      <span>prefers-reduced-motion / transparency 降级</span>
+      <span>零外部依赖 · 双击可开</span>
+    </div>
+  </section>
+
+  <!-- 入口卡片 -->
+  <section class="card-grid">
+    <a class="proto-card prio" href="plan-intent-preview.html" style="--i:0">
+      <div class="proto-card-head">
+        <span class="proto-card-ic">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3 8-8"/><path d="M20 12v6a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h9"/></svg>
+        </span>
+        <h2>Intent Preview 计划卡</h2>
+        <span class="proto-card-tag">M2.3 / M2.5</span>
+      </div>
+      <p>计划先行主关卡：步骤 checklist 五态全演示 + 风险色条 + 边界声明 + 三钮批准链 + L2 自动批准变体。</p>
+      <ul>
+        <li>plan-eta「≈3 步 · 2 分钟」· plan-riskbar 3px 取最高步骤风险</li>
+        <li>plan-scope dashed「将修改 / 不访问」· plan-ctx 累计上下文 62%</li>
+        <li>批准 anticipate + glow 白名单 · 拒绝 err-soft · 编辑后批准</li>
+        <li>UNTRUSTED 琥珀斜纹边 + mono 来源 + 审计哈希链</li>
+      </ul>
+      <span class="go">进入原型 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg></span>
+    </a>
+
+    <a class="proto-card" href="checkpoint-dialog.html" style="--i:1">
+      <div class="proto-card-head">
+        <span class="proto-card-ic">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/></svg>
+        </span>
+        <h2>检查点对话框</h2>
+        <span class="proto-card-tag">M2.7 / M2.8</span>
+      </div>
+      <p>inline 卡三态流转（禁模态叠模态）：清单 → 确认 → 校验，回滚 in-soft，校验 narr 220 淡入。</p>
+      <ul>
+        <li>ckpt-list stagger 40 逐项入场 · 差异恢复清单</li>
+        <li>确认态：回滚链接 + 高风险档禁快捷确认</li>
+        <li>ckpt-verify ok/err 行 + 「已恢复至检查点 #3」</li>
+      </ul>
+      <span class="go">进入原型 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg></span>
+    </a>
+
+    <a class="proto-card" href="browser-driver-panel.html" style="--i:2">
+      <div class="proto-card-head">
+        <span class="proto-card-ic">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a15 15 0 0 1 0 18M12 3a15 15 0 0 0 0 18"/></svg>
+        </span>
+        <h2>浏览器驱动面板</h2>
+        <span class="proto-card-tag">M3.8 / M5</span>
+      </div>
+      <p>六原语状态行 + 可见/隐藏驱动模式 + 反爬人工接管，含 UNTRUSTED 提取结果标记。</p>
+      <ul>
+        <li>brw-mode spring 滑块 200ms · 可见模式弹出浏览器预览</li>
+        <li>brw-row ×6：12px 点 ok 待命 / warn 运行 / err 失败</li>
+        <li>brw-takeover：warn 边 + 1.4s 脉冲点「需手动完成验证」</li>
+      </ul>
+      <span class="go">进入原型 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg></span>
+    </a>
+
+    <a class="proto-card" href="grant-budget.html" style="--i:3">
+      <div class="proto-card-head">
+        <span class="proto-card-ic">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l8 3v6c0 5-3.5 9.3-8 11-4.5-1.7-8-6-8-11V5l8-3z"/><path d="M9 12l2 2 4-4"/></svg>
+        </span>
+        <h2>审批预算指示器</h2>
+        <span class="proto-card-tag">M2.4 / M2.5</span>
+      </div>
+      <p>会话级审批计数：授权条内嵌 mono「审批 3/5」+ 5 格 dot，超限转 err 并升级任务授权邀请。</p>
+      <ul>
+        <li>grant-budget 内嵌形态 / .over 超限态双样张</li>
+        <li>一键收回钮 hover 品牌蓝 glow（禁扩散）</li>
+        <li>超限升级为任务授权邀请而非继续弹窗 · L0 禁快捷确认</li>
+      </ul>
+      <span class="go">进入原型 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg></span>
+    </a>
+
+    <a class="proto-card" href="macos-adaptation.html" style="--i:4">
+      <div class="proto-card-head">
+        <span class="proto-card-ic">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M17.05 12.54c-.02-2.2 1.79-3.26 1.87-3.31-1.02-1.5-2.61-1.7-3.17-1.72-1.34-.14-2.62.78-3.3.78-.69 0-1.73-.76-2.85-.74-1.47.02-2.82.85-3.58 2.16-1.53 2.65-.39 6.58 1.1 8.73.73 1.06 1.6 2.24 2.75 2.2 1.1-.04 1.52-.71 2.85-.71 1.33 0 1.71.71 2.86.69 1.2-.02 1.95-1.06 2.68-2.12.84-1.23 1.19-2.42 1.21-2.48-.03-.01-2.32-.89-2.34-3.54zM14.66 5.9c.6-.73 1.01-1.75.9-2.76-.87.04-1.93.58-2.56 1.31-.56.65-1.05 1.69-.92 2.68.97.08 1.97-.5 2.58-1.23z"/></svg>
+        </span>
+        <h2>macOS 适配层</h2>
+        <span class="proto-card-tag">M6.10-6.12</span>
+      </div>
+      <p>同一组件（计划卡 + 设置）Win / macOS 双形态并排，平台注入实况台 + 差异对照表。</p>
+      <ul>
+        <li>SF 字体栈 / overlay 滚动条 / 圆角 8-6 / 焦点环双环 3px</li>
+        <li>.mac-kbd ⌘K/Ctrl+K 双映射 · .mac-badge 平台徽标</li>
+        <li>mac 圆钮 switch 32×18 spring · traffic lights + App Menu</li>
+      </ul>
+      <span class="go">进入原型 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg></span>
+    </a>
+  </section>
+
+  <!-- 说明区 -->
+  <section class="notes">
+    <div class="note-block">
+      <h3>使用方式</h3>
+      <ul>
+        <li>每个原型<b>自包含</b>（内联 CSS/JS，零外部依赖），双击即可在浏览器打开。</li>
+        <li>页头右上角可切换<b>亮/暗主题</b>（<code>body.dark</code>）与<b>动效开关</b>（<code>body.fx-off</code> 停列）。</li>
+        <li>页面底部「演示控制」可重播关键动效链（批准链 / 自动批准 / 检查点三态 / 执行一轮 / 预算推演）。</li>
+        <li>系统开启「减弱动态效果」时全部装饰动效自动降级（<code>prefers-reduced-motion</code>）。</li>
+      </ul>
+    </div>
+    <div class="note-block">
+      <h3>实现纪律</h3>
+      <ul>
+        <li>令牌全部走 <code>var()</code>：v4 既有值原样继承 + 彩格调新令牌（<code>--aurora-5</code> / <code>--edge-hi-strong</code> / <code>--untrusted</code> / <code>--bg-deep</code> 等）。</li>
+        <li>新类<b>纯增</b>，不改既有选择器与权重；JS 不硬编码 ms（<code>MOTION</code> 单一事实源读 CSS 令牌）。</li>
+        <li>动效按方案 §3 分配：模式切换 spring / 批准 anticipate / 回滚 in-soft / stagger 40-60ms 阶梯。</li>
+        <li>glow 白名单：仅批准钮与收回钮 hover；UNTRUSTED 三重编码（色 + 斜纹边 + mono 标注）。</li>
+      </ul>
+    </div>
+  </section>
+</main>
+
+<footer class="proto-foot">
+  <b>产物路径</b>：<code>deliverables/design/v19/prototypes/</code>（本页 + 5 个原型）· <b>依据</b>：<code>token-upgrade-plan.md</code>（彩格调）· <code>frontend/index.template.html</code>（v4 既有范式）· <code>master-plan-v19</code> §4 M2.3-2.8 / M5 / M6.10。<br>
+  原型为评审稿：交互为演示级脚本（非产品逻辑），数据为示意内容；移植时以 <code>index.template.html</code> 的 41 DOM id / 43 callApi / 39 CSS 类名契约为准，UI 契约只增不改。
+</footer>
+
+<script>
+/* MOTION 单一事实源（读 CSS 令牌） */
+const MOTION = (() => {
+  const cs = getComputedStyle(document.documentElement);
+  const ms = k => { const v = cs.getPropertyValue(k).trim(); return v.endsWith('ms') ? parseFloat(v) : parseFloat(v) * 1000; };
+  return { theme: ms('--dur-theme') };
+})();
+const $ = s => document.querySelector(s);
+const body = document.body;
+
+/* ---------- 主题 / 动效开关 ---------- */
+const themeBtn = $('#themeBtn'), themeLabel = $('#themeLabel'), themeIcon = $('#themeIcon');
+const SUN = '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>';
+const MOON = '<path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8Z"/>';
+function setTheme(dark){
+  body.classList.add('theming');
+  body.classList.toggle('dark', dark);
+  themeBtn.setAttribute('aria-pressed', String(dark));
+  themeLabel.textContent = dark ? '亮色' : '暗色';
+  themeIcon.innerHTML = dark ? SUN : MOON;
+  try{ localStorage.setItem('proto-theme', dark ? 'dark' : 'light'); }catch(e){}
+  setTimeout(() => body.classList.remove('theming'), MOTION.theme + 60);
+}
+themeBtn.addEventListener('click', () => setTheme(!body.classList.contains('dark')));
+try{ if (localStorage.getItem('proto-theme') === 'dark') setTheme(true); }catch(e){}
+const fxBtn = $('#fxBtn'), fxLabel = $('#fxLabel');
+function setFx(on){
+  body.classList.toggle('fx-off', !on);
+  fxBtn.setAttribute('aria-pressed', String(on));
+  fxLabel.textContent = on ? '动效 开' : '动效 关';
+}
+fxBtn.addEventListener('click', () => setFx(body.classList.contains('fx-off')));
+</script>
+</body>
+</html>
