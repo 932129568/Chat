@@ -28,6 +28,7 @@ from .services.file_service import FileService
 from .services.guard_service import GuardService
 from .services.hybrid_router import HybridRouter
 from .services.plan_service import PlanService
+from .services.search_reader import SearchReader
 from .services.local_model_service import LocalModelService
 from .services.local_model_service import readiness as local_readiness_score
 from .services.local_proxy import get_proxy
@@ -102,6 +103,7 @@ _V12_EXTRA = frozenset({
     'browser_navigate', 'browser_extract', 'browser_click', 'browser_fill',
     'browser_screenshot', 'browser_close', 'get_platform_info',
     'guard_approval_budget', 'search_reader_stats',
+    'reader_config_get', 'reader_config_save',
     'pick_save_path', 'save_export_file',
 })
 
@@ -150,7 +152,6 @@ class Api:
         # 类名/五方法契约不变——鸭子类型只依赖通道 open_url）
         self._search = SearchService(guard=self._guard)
         # v1.9.0 装配预留挂点（T03/T04/T05 按序落，本轮只锚注释不装配）：
-        #   self._reader = SearchReader(...)        # T03：dual-LLM-lite 读取器（search_reader_stats 转正）
         #   self._checkpoint = CheckpointService()  # T05：检查点六军规（checkpoint_* 切委托）
         # v1.8.0 S 域·外部软件调用（software.json 独立文件；审计复用同一
         # GuardService 实例；沙箱档位经 sandbox_service.limits_for_profile）
@@ -161,6 +162,9 @@ class Api:
         self._hybrid = HybridRouter()
         # v1.8.0 M3 域·计划执行与检查点（plans//checkpoints/ 独立目录，config.json 零污染）
         self._plan = PlanService()
+        # v1.9.0 M2.1：dual-LLM-lite 本地读取器（reader.json 独立配置；
+        # search_reader_stats 转正 + reader_config_get/save）
+        self._reader = SearchReader(router=self._hybrid)
         # 导出保存路径登记（一次性消费集合：pick_save_path 登记 → save_export_file
         # pop 消费；线程安全——对话框回调与工具调用可能在不同线程）
         self._export_paths = set()
@@ -307,8 +311,24 @@ class Api:
         return self._not_implemented('guard_approval_budget', 'M2.4')
 
     def search_reader_stats(self):
-        """M2.1：dual-LLM-lite 读取器统计（reader_calls/schema_fail/degrade_count）。"""
-        return self._not_implemented('search_reader_stats', 'M2.1')
+        """M2.1 转正：读取器统计 {reader_calls, schema_fail, degrade_count,
+        local_available, configured, last_error, since}。读取类不落审计。"""
+        return ok(self._reader.stats())
+
+    def reader_config_get(self):
+        """M2.1：读取器配置读取（reader.json 合并缺省；未配置=缺省）。"""
+        return ok(self._reader.config())
+
+    def reader_config_save(self, config_json):
+        """M2.1：读取器配置保存（budget_s 1-60/schema_mode 枚举越界 BAD_PARAMS）。"""
+        try:
+            d = json.loads(config_json or '{}')
+        except Exception as e:
+            return err('reader 配置 JSON 解析失败: %s' % e)
+        r = self._reader.save_config(d)
+        if 'error' in r:
+            return err(r['error'])
+        return ok(r)
 
     def session_purge(self, sid, task_ids_json='[]'):
         """真删一条会话的全部痕迹：sessions.json 条目 + session_ws 绑定 +

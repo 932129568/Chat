@@ -409,7 +409,7 @@ class HybridRouter:
         return d
 
     # 本地阶段请求组包口径（§5.3 时延优化）：理解/校验小请求控量 + Ollama 常驻
-    STAGE_MAX_TOKENS = {'understand': 256, 'validate': 256}
+    STAGE_MAX_TOKENS = {'understand': 256, 'validate': 256, 'reader': 512}
 
     @staticmethod
     def stage_request(category, messages, base_url='', model=''):
@@ -466,6 +466,38 @@ class HybridRouter:
                     'unavailable': self.local_unavailable(),
                     'unavailable_for_s': max(
                         0, int(self._unavailable_until - self._clock()))}
+
+    # ================================================== 读取器路由（v1.9 M2.1）
+    def route_reader(self, local_available=True, budget_s=10):
+        """dual-LLM-lite 读取器路由决策（design §A3.4；不加 hybrid.json 键）。
+
+        语义与主循环 route 的关键差异：**读取器永不升云**——它是本地隐私前
+        处理（升云双倍成本且违背 dual-LLM-lite；主模型本身已云端，raw 文本
+        照样可用）。故 quality 策略仍 local 优先（用户选 quality 得
+        raw+云端主模型，语义正确）；本地不可用/3 连败窗口 → channel='skip'
+        （调用方降级 mode='raw'，禁阻断主管线）。
+
+        复用 strategy/降级链/report_local_result 状态机——本地端点整体宕机时
+        读取器与主循环两侧同时知息。
+
+        Returns:
+            dict: ``{ok, channel: 'local'|'skip', budget_s, degraded, reason}``。
+        """
+        with self._lock:
+            cfg = dict(self._cfg)
+        budget = int(budget_s or 10)
+        if self.local_unavailable():
+            return {'ok': True, 'channel': 'skip', 'budget_s': budget,
+                    'degraded': True,
+                    'reason': '本地端点 3 连败窗口内（读取器降级 raw）'}
+        if not local_available:
+            return {'ok': True, 'channel': 'skip', 'budget_s': budget,
+                    'degraded': True,
+                    'reason': '本地端点不可用（读取器降级 raw）'}
+        return {'ok': True, 'channel': 'local', 'budget_s': budget,
+                'degraded': False,
+                'reason': '读取器本地优先（%s 策略；隐私前处理不升云）'
+                          % cfg['strategy']}
 
     def local_unavailable(self):
         """本地是否处于 unavailable 窗口（3 连败后 60s 周期探测内）。"""
