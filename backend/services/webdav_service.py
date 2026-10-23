@@ -146,14 +146,26 @@ def file_sha256(path):
 
 
 def build_backup_plan(config_dir):
-    """导出计划（真实数据：逐文件 sha256/字节数）——export_backup 的前置展示。"""
+    """导出计划（真实数据：逐文件 sha256/字节数）——export_backup 的前置展示。
+
+    复核修正：getsize/sha256 竞态或权限错误不再裸抛（原调用点在 export
+    兜底 try 之外，裸异常穿透 js 桥）——失败项标 unreadable，sha 置空
+    （restore 侧「每项需含 sha256」会对空 sha 显式拒绝，不静默装坏档）。"""
     import os
     plan = []
     for rel in BACKUP_SCOPE:
         p = os.path.join(config_dir, rel)
         if os.path.isfile(p):
-            plan.append({'path': rel, 'sha256': file_sha256(p),
-                         'bytes': os.path.getsize(p)})
+            try:
+                sha = file_sha256(p)
+            except OSError:
+                sha = ''
+            try:
+                size = os.path.getsize(p)
+            except OSError:
+                size = 0
+            plan.append({'path': rel, 'sha256': sha, 'bytes': size,
+                         **({'unreadable': True} if not sha else {})})
         else:
             plan.append({'path': rel, 'missing': True})
     return plan
@@ -317,9 +329,15 @@ def _dav_error_text(status, data=b''):
 
 
 def _ensure_remote_dir(record):
-    """MKCOL 远端目录（409=已存在视为 OK）。"""
+    """MKCOL 远端目录（已存在视为 OK）。
+
+    复核修正（RFC 4918 语义）：目录已存在时 Sabre/DAV 系（Nextcloud、
+    Apache mod_dav、nginx dav）返回 **405**（原只认 409——409 实为「父目录
+    缺失」）——主流服务器上第二次导出必报「方法不被允许」而失败。405 与
+    201/204 同视为已存在放行；409 保守放行（后续 PROPFIND/PUT 会暴露真实
+    问题，不在入口误杀）。"""
     status, _, data = _dav_request(record, 'MKCOL', '', timeout=30)
-    if status in (201, 204, 409):        # 创建成功 / 已存在
+    if status in (200, 201, 204, 405, 409):     # 创建成功 / 已存在
         return None
     raise _DavError(_dav_error_text(status, data), status=status)
 

@@ -18,6 +18,11 @@ function fileToDataURL(file) {
 }
 async function readAttachmentText(f) {
   const buf = new Uint8Array(await f.arrayBuffer());
+  // 复核修正：NUL 字节检测——二进制文件（.exe/.dll 等被拖入 text 分支时）
+  // 解码出的乱码直入模型上下文（UTF-16/宽字符编码必含 0x00）
+  for (let i = 0; i < Math.min(buf.length, 8192); i++) {
+    if (buf[i] === 0) throw new Error('检测到二进制内容（含 NUL 字节），已拒绝作为文本读取');
+  }
   for (const enc of ['utf-8', 'gbk']) {
     try { return new TextDecoder(enc, { fatal: true }).decode(buf); } catch (e) {}
   }

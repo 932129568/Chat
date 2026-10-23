@@ -25,6 +25,14 @@ from installer_core import (app_version, default_install_dir, install,
 SILENT = any(a in ('/S', '/s', '--silent', '-S') for a in sys.argv[1:])
 UNINSTALL = any(a in ('/uninstall', '--uninstall', '-u') for a in sys.argv[1:])
 PURGE = '--purge' in sys.argv[1:]
+# 复核修正（P0）：卸载器与安装器同一入口——注册表 UninstallString/双击
+# Uninstall.exe 均不带 /uninstall 参数时原会落入安装向导并报「安装包损坏
+# （找不到载荷）」。按 exe 名自动识别卸载器形态（build_setup 构建产物名
+# Uninstall.exe；setup exe 名为 Harbor-Setup-*，不撞）。
+_EXE_BASE = os.path.basename(os.path.abspath(sys.executable or '')).lower()
+if not UNINSTALL and getattr(sys, 'frozen', False) and \
+        (_EXE_BASE.startswith('uninstall') or _EXE_BASE == 'uninstall.exe'):
+    UNINSTALL = True
 
 
 def _dir_arg(default=None):
@@ -166,6 +174,8 @@ def _gui_fallback():
 
 def main():
     if '--version' in sys.argv[1:] or '/V' in sys.argv:
+        # 复核修正：console=False 下 print 进 NullWriter——落日志文件保证可查
+        _log('[version] %s' % app_version())
         print(app_version())
         return 0
     if UNINSTALL:

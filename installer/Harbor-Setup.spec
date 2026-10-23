@@ -31,11 +31,17 @@ a = Analysis(
     pathex=[],
     binaries=[],
     datas=_datas,
-    hiddenimports=['webview'],
+    # 复核修正：webview 仅 GUI 安装路径延迟 import——卸载器构建不捆绑
+    # pywebview 全家桶（原 hiddenimports 恒含 'webview'）
+    hiddenimports=(['webview'] if _kind == 'setup' else []),
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=[],
+    # 复核修正：同 Harbor.spec——pywin32 族在 Py3.15 构建环境不可加载，
+    # 排除防 hook-pythoncom 崩溃（安装器不用 send2trash，双保险）
+    excludes=['pythoncom', 'pywintypes', 'win32api', 'win32com',
+              'win32com.client', 'win32timezone', 'win32con',
+              'win32gui', 'win32process', 'win32event'],
     noarchive=False,
     optimize=0,
 )
@@ -50,7 +56,7 @@ exe = EXE(
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
-    upx=True,
+    upx=False,
     upx_exclude=[],
     runtime_tmpdir=None,
     console=False,

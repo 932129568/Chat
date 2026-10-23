@@ -30,14 +30,16 @@ BrowserError 经 ``to_payload`` 结构化返回，禁异常穿透 js_api。
 import base64
 import json
 import os
+import shutil
 import threading
 import time
+import urllib.parse
 
 from ... import paths
 from ...fio import atomic_write_json
 from ...logging_setup import get_logger
 from . import create_session
-from .session_base import BrowserError, BrowserErrorCode
+from .session_base import BrowserError, BrowserErrorCode, _is_public_host
 from .session_win import build_wait_js, map_js_result
 
 # 会话池口径（master-plan §149 3.7：上限 3 / 空闲 60s 回收）
@@ -86,24 +88,38 @@ class Bridge:
     def __init__(self, logger=None, on_external=None, on_blocked=None):
         self._log = logger or get_logger()
         self._lock = threading.Lock()
-        self._extracts = []            # on_extract 收集（容量上限防 OOM）
+        self._extracts = []            # on_extract 收集（三重容量上限防 OOM）
+        self._extract_bytes = 0
         self._blocked = []             # 下载拦截记录
         self._on_external = on_external   # 外链回调（后端 webbrowser.open + 审计）
         self._on_blocked_cb = on_blocked
 
     # ---- 页面可调（js_api 表面）----
+    # 单条提取载荷字节上限（毒网页灌超大 JSON 防 OOM；64 条计数上限不变，
+    # 累计 4MB 封顶——双闸后提取队列内存有界）
+    _MAX_EXTRACT_ITEM = 256 * 1024
+    _MAX_EXTRACT_TOTAL = 4 * 1024 * 1024
+
     def on_extract(self, payload_json):
-        """页面提取回调：payload_json（JSON 串或 dict）→ 收集（上限 64 条）。"""
+        """页面提取回调：payload_json（JSON 串或 dict）→ 收集（条数 64 +
+        单条 256KB + 累计 4MB 三重上限）。"""
         try:
-            d = json.loads(payload_json) if isinstance(payload_json, str) \
+            raw = payload_json if isinstance(payload_json, str) \
+                else json.dumps(payload_json, ensure_ascii=False)
+            if len(raw) > self._MAX_EXTRACT_ITEM:
+                self._log.info('提取载荷超单条上限（%d 字节），已丢弃', len(raw))
+                return 'ok'
+            d = json.loads(raw) if isinstance(payload_json, str) \
                 else payload_json
             if not isinstance(d, dict):
                 return 'ok'
         except Exception:
             return 'ok'    # 畸形载荷丢弃（毒网页灌垃圾不炸桥）
         with self._lock:
-            if len(self._extracts) < 64:
+            if len(self._extracts) < 64 \
+                    and self._extract_bytes + len(raw) <= self._MAX_EXTRACT_TOTAL:
                 self._extracts.append(d)
+                self._extract_bytes += len(raw)
         return 'ok'
 
     def open_external(self, url):
@@ -150,6 +166,7 @@ class Bridge:
         with self._lock:
             out = self._extracts
             self._extracts = []
+            self._extract_bytes = 0
             return out
 
 
@@ -177,7 +194,6 @@ class DriverWindow:
         self._js_lock = threading.Lock()
         self._loaded_lock = threading.Lock()
         self._loaded_url = ''
-        self._policy_installed = False
         # evaluate_js 可泵送性（SearchBrowser._dom_pumpable 同款）：首次 join
         # 超时即退役——僵尸 worker 仍阻塞在 win.evaluate_js 内，若继续派发
         # 新 worker 会与僵尸并发（违反「线程不安全→单门串行」前提）且每超时
@@ -263,15 +279,36 @@ class DriverWindow:
             except Exception:
                 subscribed = False
         try:
-            win.load_url(u)
-        except Exception as e:
-            return {'ok': False, 'error': 'WINDOW_UNAVAILABLE',
-                    'message': '驱动次窗加载失败: %r' % e}
-        try:
+            try:
+                win.load_url(u)
+            except Exception as e:
+                return {'ok': False, 'error': 'WINDOW_UNAVAILABLE',
+                        'message': '驱动次窗加载失败: %r' % e}
             if not loaded.wait(min(8.0, max(1.0, float(timeout)))):
                 return {'ok': False, 'error': 'TIMEOUT',
                         'message': '页面加载超时（loaded 事件 %ss）'
                                    % int(min(8.0, max(1.0, float(timeout))))}
+            # 终态 URL 复检（SSRF 纵深防御）：WebView2 通道会跟随 302 重定向、
+            # 页内 JS 也可改址——初始 URL 的 _is_public_host 只护入口，loaded
+            # 后以 win.url 为准复检；非公网即 SSRF_BLOCKED（session_win 经
+            # map_error_code 映射 BrowserError，服务层关会话防内网页面回流）。
+            # 同时兜住「loaded 是窗口初始页事件」的竞态：win.url 仍是本地
+            # harbor.html（非 http(s)）时短暂等待真实导航落定（≤2s 有界）。
+            cur = ''
+            for _ in range(10):
+                try:
+                    cur = str(getattr(win, 'url', '') or '')
+                except Exception:
+                    cur = ''
+                if cur.lower().startswith(('http://', 'https://')):
+                    break
+                time.sleep(0.2)
+            if cur.lower().startswith(('http://', 'https://')) \
+                    and not _is_public_host(urllib.parse.urlsplit(cur).hostname):
+                return {'ok': False, 'error': 'SSRF_BLOCKED',
+                        'message': '导航终态落在内网/环回地址（重定向复检拦截）: %s'
+                                   % cur[:120],
+                        'hint': '目标站点将本页重定向到了内网地址，已按 SSRF 防护拦截'}
             ws = str(wait_selector or '').strip()
             deadline = time.monotonic() + max(1.0, float(timeout))
             if ws:
@@ -322,12 +359,12 @@ class DriverWindow:
                 time.sleep(_WAIT_POLL_S)
 
     def _install_policy(self, win):
-        """M3.6：导航后注入外链/下载拦截策略 JS（幂等标记 + 每会话一次）。"""
-        if self._policy_installed:
-            return
-        r = self.eval_js(_POLICY_JS, timeout=EVAL_JS_TIMEOUT)
-        if isinstance(r, str) and r == 'ok':
-            self._policy_installed = True
+        """M3.6：导航后注入外链/下载拦截策略 JS。
+
+        页内 ``__harbor_policy_installed`` 标记保证单文档幂等；Python 侧
+        **不设永久标记**——页内二次导航（点击链接等）产生的新文档没有策略
+        JS，永久跳过会让下载拦截/外链管控在会话剩余生命周期静默失效。"""
+        self.eval_js(_POLICY_JS, timeout=EVAL_JS_TIMEOUT)
 
     # ---- JS 派发（加锁单门）----
     def eval_js(self, code, timeout=EVAL_JS_TIMEOUT):
@@ -446,13 +483,15 @@ class BrowserService:
 
     def __init__(self, session_factory=None, pool_limit=POOL_LIMIT,
                  idle_seconds=IDLE_SECONDS, path=None, clock=None,
-                 sweep_tick=_SWEEP_TICK):
+                 sweep_tick=_SWEEP_TICK, on_external=None):
         """Args:
             session_factory: ``(mode) -> BrowserSession``（测试注入 fake；
                 缺省 win 平台 WinSession + DriverWindow 独立 profile 子目录）。
             path: browser_sessions.json 投影路径（缺省 paths.BROWSER_SESSIONS_FILE）。
             clock: time.monotonic 替身（测试注入）。
             sweep_tick: 回收扫描周期秒（测试可调小加速空闲回收验证）。
+            on_external: 外链回调（M3.6 外链策略接线——api.py 装配传
+                webbrowser.open + 审计；缺省 None 时公网 _blank 拦截后静默）。
         """
         self._log = get_logger()
         self._factory = session_factory or self._default_factory
@@ -461,6 +500,8 @@ class BrowserService:
         self._path = path or paths.BROWSER_SESSIONS_FILE
         self._clock = clock or time.monotonic
         self._sweep_tick = float(sweep_tick)
+        self._on_external = on_external
+        self._profile_seq = 0
         self._lock = threading.RLock()
         self._sessions = {}      # id -> {session, window, mode, created, last_url, last_used}
         self._cursor = ''
@@ -472,8 +513,10 @@ class BrowserService:
 
     # ---- 会话工厂 ----
     def _default_factory(self, mode):
-        """平台分支（M4）：win → WinSession+DriverWindow（独立 profile 子目录）；
-        mac → MacSession（WKWebView，PyObjC 就绪时；理论实现真机验证 M9.5）。"""
+        # 平台分支（M4）：win → WinSession+DriverWindow（独立 profile 子目录）；
+        # mac → MacSession（WKWebView，PyObjC 就绪时；理论实现真机验证 M9.5）。
+        # profile 目录带自增序号：同毫秒两次导航共享目录会撞 WebView2
+        # user-data-folder 锁（_default_factory 持池锁调用，序号递增无竞态）。
         from . import detect_platform
         plat = detect_platform()
         if plat == 'mac':
@@ -484,12 +527,14 @@ class BrowserService:
                     BrowserErrorCode.UNSUPPORTED_PLATFORM,
                     'macOS 浏览器后端需要 PyObjC 运行时'
                     '（pip install "pywebview[cocoa]"；真机链路验证排期 M9.5）')
-            return MacSession(webview_factory=_default_webview_factory,
-                              bridge=Bridge()), None
+            return MacSession(
+                webview_factory=_default_webview_factory,
+                bridge=Bridge(on_external=self._on_external)), None
+        self._profile_seq += 1
         win = DriverWindow(visible=(mode == 'visible'),
                            user_data_dir=os.path.join(
-                               paths.BROWSER_PROFILE_DIR, 'drv_%d'
-                               % int(self._clock() * 1000)))
+                               paths.BROWSER_PROFILE_DIR, 'drv_%d_%d'
+                               % (int(self._clock() * 1000), self._profile_seq)))
         return create_session('win', channel=win), win
 
     # ---- 六原语管线（api.py browser_* 数据源）----
@@ -517,6 +562,7 @@ class BrowserService:
             self._sessions[sid] = {
                 'session': session, 'window': window, 'mode': m,
                 'created': _utc_now_iso(), 'last_url': '', 'last_used': self._clock(),
+                'busy': True,      # 导航在途：sweeper/驱逐跳过（防飞行中回收）
             }
             self._cursor = sid
         for e in evicted:          # 锁外关闭被驱逐会话（_drop 已在锁内摘除）
@@ -536,21 +582,31 @@ class BrowserService:
             self._close_entry(dead)
             return BrowserError(BrowserErrorCode.INTERNAL,
                                 '导航失败: %s' % e).to_payload()
-        # 导航期间会话可能已被并发移除（空闲回收/池满驱逐）——禁 KeyError
-        # 穿透 js_api（get 后判空，B8.9 降级语义）
+        # 导航期间会话可能已被并发移除（显式 close/shutdown）——禁把已死 id
+        # 回填给调用方（否则无 id 原语会作用到另一个会话的页面，内容错配）
         with self._lock:
             entry = self._sessions.get(sid)
             if entry is not None:
                 entry['last_url'] = str(url or '')
                 entry['last_used'] = self._clock()
+                entry['busy'] = False
                 self._project()
+        if entry is None:
+            if isinstance(r, dict):
+                r.pop('session_id', None)
+            return BrowserError(
+                BrowserErrorCode.SESSION_CLOSED,
+                '会话在导航期间被关闭，请重试').to_payload()
         if isinstance(r, dict):
             r['session_id'] = sid
             r['mode'] = m
         return r
 
     def _prim(self, sid, fn):
-        """原语分发公共路径：解析会话 → 调原语 → 刷新 last_used + 投影。"""
+        """原语分发公共路径：解析会话 → 调原语 → 刷新 last_used + 投影。
+
+        busy 闸：原语执行期间（可达 timeout 上限）sweeper 不得回收——
+        原 last_used 只在出口刷新，60s 超时即把在飞会话连窗销毁。"""
         with self._lock:
             entry = self._resolve(sid)
             if entry is None:
@@ -558,6 +614,7 @@ class BrowserService:
                     BrowserErrorCode.BAD_PARAMS,
                     '没有可用浏览器会话（先 browser_navigate）',
                     '会话可能已被回收，请重新导航').to_payload()
+            entry['busy'] = True
             session = entry['session']
         try:
             r = fn(session)
@@ -568,6 +625,7 @@ class BrowserService:
                              '浏览器原语失败: %s' % e).to_payload()
         with self._lock:
             entry['last_used'] = self._clock()
+            entry['busy'] = False
             self._project()
         return r
 
@@ -579,7 +637,11 @@ class BrowserService:
         """M5.7 反爬检测：**先**检页面验证码特征（提取前——验证码页正文稀疏
         会先抛 EXTRACT_EMPTY 掩盖真因）→ 命中 → 结构化 CAPTCHA_REQUIRED
         （驱动管线提示用户切 mode='visible' 人工处理；搜索管线的
-        browser_takeover 接管机制属搜索管线，此处不越界复用）。"""
+        browser_takeover 接管机制属搜索管线，此处不越界复用）。
+
+        红线 4（M5.9 复核补接）：成功载荷 provenance 包裹（UNTRUSTED DATA
+        进模型上下文前）——browser_search/browser_open/software_call 均已
+        tag_payload，驱动管线此前漏接。"""
         try:
             from .service import _captcha_signal
             if _captcha_signal(self._last_html(session_id)):
@@ -589,7 +651,21 @@ class BrowserService:
                                   'hint': '可用 browser_navigate(mode="visible") 可见模式人工完成验证后重试'}}
         except Exception:
             pass        # 反爬检测 best-effort（B8.9 降级不阻断）
-        return self.extract(selector, mode, session_id)
+        r = self.extract(selector, mode, session_id)
+        if isinstance(r, dict) and r.get('ok'):
+            try:
+                from ..provenance import tag_payload
+                r = tag_payload(r, source_url=self._last_url(session_id),
+                                channel='driver-window')
+            except Exception:
+                pass    # provenance 失败不阻断（B8.9 降级语义）
+        return r
+
+    def _last_url(self, session_id=''):
+        """游标/指定会话的最近导航 URL（provenance source_url 数据源）。"""
+        with self._lock:
+            entry = self._resolve(session_id)
+            return str((entry or {}).get('last_url', '') or '')
 
     def _last_html(self, session_id=''):
         with self._lock:
@@ -720,9 +796,16 @@ class BrowserService:
 
     @staticmethod
     def _close_entry(entry):
-        """锁外关闭会话与窗口（best-effort 不抛）。"""
+        """锁外关闭会话与窗口（best-effort 不抛）；随后清理由本会话独占的
+        WebView2 profile 目录（drv_<ms>_<seq> 唯一归属——不清理则每会话
+        遗留数十 MB 磁盘，长运行无界增长；文件被退出中的 WebView2 短暂
+        锁定时 ignore_errors 容忍残渣，下一会话用新目录不受影响）。"""
         if entry is None:
             return
+        udd = ''
+        win_obj = entry.get('window')
+        if win_obj is not None:
+            udd = str(getattr(win_obj, '_user_data_dir', '') or '')
         for obj in (entry.get('session'), entry.get('window')):
             fn = getattr(obj, 'close', None) or getattr(obj, 'shutdown', None)
             if callable(fn):
@@ -730,13 +813,27 @@ class BrowserService:
                     fn()
                 except Exception:
                     pass
+        if udd and os.path.isdir(udd) \
+                and os.path.basename(udd).startswith('drv_'):
+            try:
+                shutil.rmtree(udd, ignore_errors=True)
+            except Exception:
+                pass
 
     def _evict_if_full(self):
-        """池满驱逐最旧空闲会话（持锁调用；驱逐条目存 _evicted 待调用方锁外关闭）。"""
+        """池满驱逐最旧空闲会话（持锁调用；驱逐条目存 _evicted 待调用方锁外关闭）。
+
+        busy 条目跳过（导航/原语在飞——驱逐即飞行中销窗）；全部 busy 时
+        放行本次超限（下一步原语结束后 last_used 刷新，下轮再收敛）。"""
         self._evicted = getattr(self, '_evicted', [])
         while len(self._sessions) >= self._limit:
-            oldest = min(self._sessions.items(),
-                         key=lambda kv: kv[1].get('last_used', 0))
+            evictable = [(sid, e) for sid, e in self._sessions.items()
+                         if not e.get('busy')]
+            if not evictable:
+                self._log.info('浏览器会话池满（%d）且全部在执行中，跳过驱逐',
+                               self._limit)
+                break
+            oldest = min(evictable, key=lambda kv: kv[1].get('last_used', 0))
             self._log.info('浏览器会话池满（%d），驱逐最旧空闲会话 %s',
                            self._limit, oldest[0])
             self._evicted.append(self._drop(oldest[0]))
@@ -773,7 +870,8 @@ class BrowserService:
                 stale_entries = []
                 with self._lock:
                     stale = [sid for sid, e in self._sessions.items()
-                             if now - e.get('last_used', 0) > self._idle]
+                             if now - e.get('last_used', 0) > self._idle
+                             and not e.get('busy')]
                     for sid in stale:
                         self._log.info('浏览器会话 %s 空闲 %ss，自动回收',
                                        sid, int(self._idle))

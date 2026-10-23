@@ -302,9 +302,17 @@ function planFinish(summaryText) {
   if (badge) { badge.className = 'plan-badge done'; badge.textContent = '已完成'; }
   const sum = pcEl('planSummary');
   if (sum) {
+    // 复核修正：弃内联 onclick（pcEsc 的 HTML 实体在内联事件 JS 字符串上下文
+    // 会先解码回引号，可破串注入）——改 data 属性 + 闭包绑定
     sum.innerHTML = pcEsc(summaryText || '任务完成') +
-      '<br><a class="plan-rollback" onclick="ckptRollbackFlow(\'' + pcEsc(planCurrent.task_id) +
-      '\');return false">回滚到此任务前 →</a>';
+      '<br><a class="plan-rollback" href="#">回滚到此任务前 →</a>';
+    const _rb = sum.querySelector('.plan-rollback');
+    if (_rb && planCurrent.task_id) {
+      _rb.addEventListener('click', (ev) => {
+        ev.preventDefault();
+        ckptRollbackFlow(planCurrent.task_id);
+      });
+    }
     sum.classList.add('show');
   }
   card.style.opacity = '.82';
@@ -318,7 +326,11 @@ function planFinish(summaryText) {
 /* ---------- 偏差暂停条（ux-flows 流程 8 偏差检测） ---------- */
 let planResolveDev = null;
 function planDeviationShow(desc) {
-  if (typeof document === 'undefined' || !planCardEl) return Promise.resolve('continue');
+  // 复核修正：补 parentNode 判定——reject 动画窗口内 planCardEl 非 null
+  // 但已 detach，原 insertBefore 对 null 父节点 TypeError 中断 agent loop
+  if (typeof document === 'undefined' || !planCardEl || !planCardEl.parentNode) {
+    return Promise.resolve('continue');
+  }
   // 在途保护：旧偏差条仍挂起 → 以 'continue' 收尾（防 agent loop 双挂起）
   if (planResolveDev) {
     const old = planResolveDev;
@@ -357,7 +369,11 @@ function planDeviationShow(desc) {
 /* ---------- 批量澄清表单（ux-flows 流程 9） ---------- */
 let planResolveClarify = null;   // 挂起的澄清 resolve（在途保护用）
 function clarifyShow(questions) {
-  if (typeof document === 'undefined' || !planCardEl) return Promise.resolve({});
+  if (typeof document === 'undefined' || !planCardEl || !planCardEl.parentNode) {
+    return Promise.resolve({});
+  }
+  // 复核修正：reject 动画窗口内 planCardEl 非 null 但已 detach——补 parentNode
+  // 判定（原 insertBefore 对 null 父节点 TypeError 中断 agent loop 回调）
   // 在途保护：旧澄清表单仍挂起 → 以 {} 收尾并移除旧表单
   // （不移则两颗同 id 表单并存，getElementById 只会给旧表单接线）
   if (planResolveClarify) {
@@ -490,8 +506,25 @@ function rbTwice(btn, taskId, box) {
     btn.disabled = true;
     btn.textContent = '恢复中…';
     const rows = box.querySelectorAll('.ckpt-row');
-    pcCall('checkpoint_rollback', [taskId], 60000)
+    // P0 复核修正：checkpoint_rollback 必须两段式（[tid,'',false] 预检 →
+    // [tid,'',true] 执行，ckptDoRollback 同款）——原单参调用命中后端
+    // confirm=False 默认拒（CONFIRM_REQUIRED），restored/failed 双空后
+    // 仍 toast「回滚完成」= 假成功（实际什么都没回滚）
+    pcCall('checkpoint_rollback', [taskId, '', false], 60000)
       .then(raw => {
+        let pre = {};
+        try { pre = JSON.parse(raw || '{}'); } catch (e) {}
+        if (pre && pre.ok === false && pre.error &&
+            pre.error.code !== 'CONFIRM_REQUIRED') {
+          box.remove();
+          pcToast('回滚预检失败：' + pcEsc(
+            (pre.error && (pre.error.message || pre.error.code)) || '未知错误'), 'err');
+          return null;
+        }
+        return pcCall('checkpoint_rollback', [taskId, '', true], 60000);
+      })
+      .then(raw => {
+        if (!raw) return;
         let d = {};
         try { d = JSON.parse(raw || '{}'); } catch (e) {}
         const restored = d.restored || [];
@@ -506,9 +539,14 @@ function rbTwice(btn, taskId, box) {
         }, i * 120));
         setTimeout(() => {
           box.remove();
-          if (failed.length && !restored.length) pcToast('回滚失败：' + failed[0], 'err');
-          else if (failed.length) pcToast('部分恢复成功（' + failed.length + ' 个失败，当前版已备份 .rollback-bak）', 'warn');
-          else pcToast('回滚完成 · 已恢复到任务开始前状态', 'ok');
+          if (d.ok !== true) {
+            pcToast('回滚未完全成功：' + pcEsc(
+              (d.error && (d.error.message || d.error)) || '部分文件恢复失败'), 'err');
+          } else if (failed.length) {
+            pcToast('部分恢复成功（' + failed.length + ' 个失败，当前版已备份 .rollback-bak）', 'warn');
+          } else {
+            pcToast('回滚完成 · 已恢复到任务开始前状态', 'ok');
+          }
         }, rows.length * 120 + 400);
       })
       .catch(e => {

@@ -408,6 +408,19 @@ def probe(ports=None, host='127.0.0.1', timeout=PROBE_PORT_TIMEOUT):
     """
     import concurrent.futures
     ports = list(ports) if ports else list(PROBE_PORTS)
+    # 复核修正：js_api local_probe 对 ports 无上限/去重/类型过滤，超长数组
+    # 经 max_workers=len(ports) 一次制造数万线程（探测风暴/内存耗尽）——
+    # 服务层收敛：int 过滤 + 去重 + 封顶 16
+    _seen, _clean = set(), []
+    for _p in ports:
+        try:
+            _pi = int(_p)
+        except (TypeError, ValueError):
+            continue
+        if 1 <= _pi <= 65535 and _pi not in _seen:
+            _seen.add(_pi)
+            _clean.append(_pi)
+    ports = _clean[:16] or list(PROBE_PORTS)
     timeout = max(0.2, float(timeout or PROBE_PORT_TIMEOUT))
     t0 = time.monotonic()
     reachable, unreachable = [], []

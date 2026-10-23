@@ -351,10 +351,18 @@ class HybridRouter:
                                       budget, False, False,
                                       'saver 策略：%s 类任务本地优先（硬预算 %ds）'
                                       % (category, budget))
+            if category in ('understand', 'validate'):
+                # 本地不可用回云 = 真降级（degraded=True，路由日志如实记录）
+                return self._decision('cloud', category, confidence, strategy,
+                                      None, True, False,
+                                      'saver 策略：本地不可用，回退云端'
+                                      '（省钱模式预期内，静默）')
+            # 复核修正：plan/compose 类在 saver 下本就恒走云端（策略语义，
+            # 不经本地分支）——原统一 degraded=True 污染「为何降级」追溯口径
             return self._decision('cloud', category, confidence, strategy,
-                                  None, True, False,
-                                  'saver 策略：本地不可用，回退云端'
-                                  '（省钱模式预期内，静默）')
+                                  None, False, False,
+                                  'saver 策略：%s 类任务恒走云端（省钱模式预期内）'
+                                  % category)
         # auto：分类路由 + 置信门
         if confidence < gate:
             return self._decision('cloud', category, confidence, strategy,

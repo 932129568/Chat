@@ -144,10 +144,10 @@ async function loadAll() {
           dt.items.add(file);
           if (file.type.startsWith('image/')) handleFiles(dt.files, 'image');
           else if (file.type.startsWith('video/')) handleFiles(dt.files, 'video');
-          else if (file.name.endsWith('.zip')) handleFiles(dt.files, 'zip');
+          else if (/\.(zip)$/i.test(file.name)) handleFiles(dt.files, 'zip');   // 复核修正：大小写不敏感（原 endsWith('.zip') 漏 X.ZIP）
           else if (/\.(rar|7z)$/i.test(file.name))
             toast('仅支持 zip 压包；rar/7z 请先转成 zip，或解压后用「添加文本文件」选取。', 'warn');
-          else handleFiles(dt.files, 'text');
+          else handleFiles(dt.files, 'text');   // 二进制兜底由 readAttachmentText 的 NUL 检测拦截
         }
       }
     }

@@ -6916,7 +6916,7 @@ async function connectIdentifyNow(fromClick) {
   let reason = '';
   try {
     const raw = await callApi('local_models', [base, key]);
-    if (seq !== connectIdentifySeq) { connectSetButtonLoading(btn, false); return; }   // last-wins
+    if (seq !== connectIdentifySeq) { return; }   // last-wins：旧请求失效（按钮归最新请求，禁提前复位）
     const r = JSON.parse(raw || '{}');
     if (r && r.ok && Array.isArray(r.models) && r.models.length) {
       // 实现 v1.6 T2：目录模型带 modalities 时进选项文案（GitHub catalog 富元数据；
@@ -6933,8 +6933,10 @@ async function connectIdentifyNow(fromClick) {
   } catch (e) {
     reason = (e && e.message) ? e.message : String(e);
   }
+  // 复核修正：复位前先判 last-wins——原旧返回把在途新请求的「识别中」
+  // 禁用态提前解锁，放行并发第三轮请求
+  if (seq !== connectIdentifySeq) return;
   connectSetButtonLoading(btn, false);
-  if (seq !== connectIdentifySeq) return;           // last-wins：旧请求彻底失效
   let hot = false;
   if (!models.length) {
     models = connectHotModels(base);                // 内置热门表兜底（设计书 §4.2）
@@ -11416,7 +11418,11 @@ const GG_SCOPES = [
   { v: 'app_launch', label: '打开应用/链接' }
 ];
 
-let grantReqSeq = 0;           // last-wins 请求序号
+let grantReqSeq = 0;           // last-wins 请求序号（用户操作：创建/加规则/收回）
+let ggStatusSeq = 0;           // 状态轮询独立序号（复核修正：原与用户操作共享
+                               // grantReqSeq，30s 校准 bump 序号会静默丢弃在途
+                               // 用户操作响应——成功分支被跳过时定时器不启动）
+let ggFailStreak = 0;          // 状态查询连续失败计数（≥5 停轮询，防 RPC 风暴）
 let ggState = 'idle';          // idle|pending|success|error
 let ggCountdownTimer = null;   // 本地 1s 递减句柄
 let ggCalibrateTimer = null;   // 30s 校准句柄
@@ -11594,12 +11600,13 @@ function guardGrantTick() {
 
 /* ---------- 三态 + last-wins：授权状态 ---------- */
 async function guardGrantRefreshStatus(calibrate) {
-  const seq = ++grantReqSeq;
+  const seq = ++ggStatusSeq;                     // 独立序号：不与用户操作互踩
   try {
     const raw = await ggCallApi('guard_task_status', [], GG_STATUS_TIMEOUT_MS);
-    if (seq !== grantReqSeq) return;               // ④last-wins
+    if (seq !== ggStatusSeq) return;               // ④last-wins
     const d = JSON.parse(raw || '{}');
     if (d && d.ok) {
+      ggFailStreak = 0;
       const prevActive = ggActive;
       ggActive = !!d.active;
       ggGrantId = d.grant_id || null;
@@ -11617,10 +11624,17 @@ async function guardGrantRefreshStatus(calibrate) {
       ggState = 'success';
     } else {
       ggState = 'error';
+      // 复核修正：连续失败 ≥5 次停轮询——原每秒/每 30s 无限重试，桥持续
+      // 异常时形成固定频率 RPC 风暴直至桥恢复
+      if (++ggFailStreak >= 5) {
+        guardGrantStopTimers();
+        ggToast('授权状态查询连续失败，已暂停轮询（重开面板或操作后恢复）', 'warn');
+      }
     }
   } catch (e) {
-    if (seq !== grantReqSeq) return;
+    if (seq !== ggStatusSeq) return;
     ggState = 'error';
+    if (++ggFailStreak >= 5) guardGrantStopTimers();
   }
 }
 function guardGrantRenderIndicator() {
@@ -12113,9 +12127,17 @@ function planFinish(summaryText) {
   if (badge) { badge.className = 'plan-badge done'; badge.textContent = '已完成'; }
   const sum = pcEl('planSummary');
   if (sum) {
+    // 复核修正：弃内联 onclick（pcEsc 的 HTML 实体在内联事件 JS 字符串上下文
+    // 会先解码回引号，可破串注入）——改 data 属性 + 闭包绑定
     sum.innerHTML = pcEsc(summaryText || '任务完成') +
-      '<br><a class="plan-rollback" onclick="ckptRollbackFlow(\'' + pcEsc(planCurrent.task_id) +
-      '\');return false">回滚到此任务前 →</a>';
+      '<br><a class="plan-rollback" href="#">回滚到此任务前 →</a>';
+    const _rb = sum.querySelector('.plan-rollback');
+    if (_rb && planCurrent.task_id) {
+      _rb.addEventListener('click', (ev) => {
+        ev.preventDefault();
+        ckptRollbackFlow(planCurrent.task_id);
+      });
+    }
     sum.classList.add('show');
   }
   card.style.opacity = '.82';
@@ -12129,7 +12151,11 @@ function planFinish(summaryText) {
 /* ---------- 偏差暂停条（ux-flows 流程 8 偏差检测） ---------- */
 let planResolveDev = null;
 function planDeviationShow(desc) {
-  if (typeof document === 'undefined' || !planCardEl) return Promise.resolve('continue');
+  // 复核修正：补 parentNode 判定——reject 动画窗口内 planCardEl 非 null
+  // 但已 detach，原 insertBefore 对 null 父节点 TypeError 中断 agent loop
+  if (typeof document === 'undefined' || !planCardEl || !planCardEl.parentNode) {
+    return Promise.resolve('continue');
+  }
   // 在途保护：旧偏差条仍挂起 → 以 'continue' 收尾（防 agent loop 双挂起）
   if (planResolveDev) {
     const old = planResolveDev;
@@ -12168,7 +12194,11 @@ function planDeviationShow(desc) {
 /* ---------- 批量澄清表单（ux-flows 流程 9） ---------- */
 let planResolveClarify = null;   // 挂起的澄清 resolve（在途保护用）
 function clarifyShow(questions) {
-  if (typeof document === 'undefined' || !planCardEl) return Promise.resolve({});
+  if (typeof document === 'undefined' || !planCardEl || !planCardEl.parentNode) {
+    return Promise.resolve({});
+  }
+  // 复核修正：reject 动画窗口内 planCardEl 非 null 但已 detach——补 parentNode
+  // 判定（原 insertBefore 对 null 父节点 TypeError 中断 agent loop 回调）
   // 在途保护：旧澄清表单仍挂起 → 以 {} 收尾并移除旧表单
   // （不移则两颗同 id 表单并存，getElementById 只会给旧表单接线）
   if (planResolveClarify) {
@@ -12301,8 +12331,25 @@ function rbTwice(btn, taskId, box) {
     btn.disabled = true;
     btn.textContent = '恢复中…';
     const rows = box.querySelectorAll('.ckpt-row');
-    pcCall('checkpoint_rollback', [taskId], 60000)
+    // P0 复核修正：checkpoint_rollback 必须两段式（[tid,'',false] 预检 →
+    // [tid,'',true] 执行，ckptDoRollback 同款）——原单参调用命中后端
+    // confirm=False 默认拒（CONFIRM_REQUIRED），restored/failed 双空后
+    // 仍 toast「回滚完成」= 假成功（实际什么都没回滚）
+    pcCall('checkpoint_rollback', [taskId, '', false], 60000)
       .then(raw => {
+        let pre = {};
+        try { pre = JSON.parse(raw || '{}'); } catch (e) {}
+        if (pre && pre.ok === false && pre.error &&
+            pre.error.code !== 'CONFIRM_REQUIRED') {
+          box.remove();
+          pcToast('回滚预检失败：' + pcEsc(
+            (pre.error && (pre.error.message || pre.error.code)) || '未知错误'), 'err');
+          return null;
+        }
+        return pcCall('checkpoint_rollback', [taskId, '', true], 60000);
+      })
+      .then(raw => {
+        if (!raw) return;
         let d = {};
         try { d = JSON.parse(raw || '{}'); } catch (e) {}
         const restored = d.restored || [];
@@ -12317,9 +12364,14 @@ function rbTwice(btn, taskId, box) {
         }, i * 120));
         setTimeout(() => {
           box.remove();
-          if (failed.length && !restored.length) pcToast('回滚失败：' + failed[0], 'err');
-          else if (failed.length) pcToast('部分恢复成功（' + failed.length + ' 个失败，当前版已备份 .rollback-bak）', 'warn');
-          else pcToast('回滚完成 · 已恢复到任务开始前状态', 'ok');
+          if (d.ok !== true) {
+            pcToast('回滚未完全成功：' + pcEsc(
+              (d.error && (d.error.message || d.error)) || '部分文件恢复失败'), 'err');
+          } else if (failed.length) {
+            pcToast('部分恢复成功（' + failed.length + ' 个失败，当前版已备份 .rollback-bak）', 'warn');
+          } else {
+            pcToast('回滚完成 · 已恢复到任务开始前状态', 'ok');
+          }
         }, rows.length * 120 + 400);
       })
       .catch(e => {
@@ -12851,8 +12903,12 @@ async function memoryPanelAdd() {
       mmToast('已添加记忆', 'ok');
       await memoryPanelRefresh();
     } else {
-      memoryPanelRenderError({ code: 'INTERNAL',
-        message: (d && d.error) || '添加失败' });
+      // 复核修正：err() 家族返回 {'error': '字符串'}——renderError 只读
+      // e.message，字符串塞进去恒显「[INTERNAL] 操作失败」丢真因（兼容两态）
+      const _err = d && d.error;
+      memoryPanelRenderError(typeof _err === 'string'
+        ? { code: 'INTERNAL', message: _err }
+        : _err || { code: 'INTERNAL', message: '添加失败' });
       memoryPanelSetState('error');
     }
   } catch (e) {
@@ -13939,7 +13995,10 @@ function ipModelRender() {
       const val = btn.getAttribute('data-val');
       if (sel) {
         sel.value = val;
-        if (typeof onModelChange === 'function') { try { onModelChange(val); } catch (err) {} }
+        // P1 复核修正：onModelChange 全项目不存在（typeof 守卫静默吞掉）——
+        // 原选模型不派发 change 事件 → 设置区下拉标签/header 品牌位失步且
+        // 选择不落盘；改派发 change 事件走 110-boot 绑定的正确链路
+        sel.dispatchEvent(new Event('change'));
       }
       ipModelRefresh();
       pop.classList.remove('on');
@@ -14758,42 +14817,59 @@ async function refreshWsCard() {
   try { if (typeof wsQuickRefresh === 'function') wsQuickRefresh(); } catch (e) {}
 }
 async function onFolderEnabled(on) {
-  await callApi('set_current_sid', [currentSessionId]);
-  await callApi('set_ws_enabled', [currentSessionId, on]);
-  addSysTip(on ? '文件能力已开启' : '文件能力已关闭');
-  refreshWsCard();
+  // 复核修正：callApi 全程 try/catch——原桥拒绝时 unhandled rejection 且
+  // refreshWsCard 不执行，复选框与后端失同步
+  try {
+    await callApi('set_current_sid', [currentSessionId]);
+    await callApi('set_ws_enabled', [currentSessionId, on]);
+    addSysTip(on ? '文件能力已开启' : '文件能力已关闭');
+  } catch (e) {
+    addSysTip('操作失败: ' + (e && e.message || e));
+  } finally {
+    refreshWsCard();                 // 按后端真实状态回填
+  }
 }
 async function onIndToggle(on) {
   ensureSession();                 // 没会话就先建一个,sid 永不为空
   saveSessions(); renderSessionList();
-  await callApi('set_current_sid', [currentSessionId]);
-  if (on) {
-    const v = document.getElementById('wsSel').value;
-    if (v && v !== '__browse__') {
-      const r = JSON.parse(await callApi('set_session_ws', [currentSessionId, v, true]) || '{}');
-      addSysTip(r.ok ? '已绑定到当前会话: ' + (r.ws || v) : '绑定失败: ' + (r.error || '未知'));
-    } else addSysTip('请先选择一个文件夹');
-  } else {
-    const r = JSON.parse(await callApi('set_session_ws', [currentSessionId, '', false]) || '{}');
-    addSysTip(r.ok ? '已解除绑定，本会话跟随全局' : '解绑失败: ' + (r.error || '未知'));
+  try {
+    await callApi('set_current_sid', [currentSessionId]);
+    if (on) {
+      const v = document.getElementById('wsSel').value;
+      if (v && v !== '__browse__') {
+        const r = JSON.parse(await callApi('set_session_ws', [currentSessionId, v, true]) || '{}');
+        addSysTip(r.ok ? '已绑定到当前会话: ' + (r.ws || v) : '绑定失败: ' + (r.error || '未知'));
+      } else addSysTip('请先选择一个文件夹');
+    } else {
+      const r = JSON.parse(await callApi('set_session_ws', [currentSessionId, '', false]) || '{}');
+      addSysTip(r.ok ? '已解除绑定，本会话跟随全局' : '解绑失败: ' + (r.error || '未知'));
+    }
+  } catch (e) {
+    addSysTip('操作失败: ' + (e && e.message || e));
+  } finally {
+    refreshWsCard();                 // 由它按后端真实状态回填勾选
   }
-  refreshWsCard();                 // 由它按后端真实状态回填勾选
 }
 async function onWsSelect(p) {
   if (p === '__browse__') { await browseWs(); return; }
   if (!p) return;
   const ind = document.getElementById('wsInd').checked;
-  if (ind) {
-    ensureSession();                 // 没会话就先建一个,sid 永不为空
-    saveSessions(); renderSessionList();
-    await callApi('set_current_sid', [currentSessionId]);
-    const r = JSON.parse(await callApi('set_session_ws', [currentSessionId, p, true]) || '{}');
-    addSysTip(r.ok ? '本会话目录已切换（全局未动）' : '切换失败: ' + (r.error || '未知'));
-  } else {
-    await callApi('set_ws_dir', [p]);
-    addSysTip('全局目录已切换');
+  try {
+    if (ind) {
+      ensureSession();                 // 没会话就先建一个,sid 永不为空
+      saveSessions(); renderSessionList();
+      await callApi('set_current_sid', [currentSessionId]);
+      const r = JSON.parse(await callApi('set_session_ws', [currentSessionId, p, true]) || '{}');
+      addSysTip(r.ok ? '本会话目录已切换（全局未动）' : '切换失败: ' + (r.error || '未知'));
+    } else {
+      await callApi('set_ws_dir', [p]);
+      addSysTip('全局目录已切换');
+    }
+  } catch (e) {
+    addSysTip('操作失败: ' + (e && e.message || e));
+  } finally {
+    refreshWsCard();
   }
-  refreshWsCard();
 }
 async function browseWs() {
   try {
@@ -14814,10 +14890,16 @@ async function browseWs() {
   } catch (e) { addSysTip('选择文件夹失败: ' + e); }
 }
 async function unbindSession() {
-  await callApi('set_current_sid', [currentSessionId]);
-  await callApi('set_session_ws', [currentSessionId, '', false]);
-  addSysTip('已解除绑定，本会话跟随全局');
-  refreshWsCard();
+  // 复核修正：全程 try/catch + finally 回填（原桥拒绝即 unhandled rejection）
+  try {
+    await callApi('set_current_sid', [currentSessionId]);
+    await callApi('set_session_ws', [currentSessionId, '', false]);
+    addSysTip('已解除绑定，本会话跟随全局');
+  } catch (e) {
+    addSysTip('解绑失败: ' + (e && e.message || e));
+  } finally {
+    refreshWsCard();
+  }
 }
 
 /* ===== 85-session-mgmt.js ===== */
@@ -15289,6 +15371,11 @@ function fileToDataURL(file) {
 }
 async function readAttachmentText(f) {
   const buf = new Uint8Array(await f.arrayBuffer());
+  // 复核修正：NUL 字节检测——二进制文件（.exe/.dll 等被拖入 text 分支时）
+  // 解码出的乱码直入模型上下文（UTF-16/宽字符编码必含 0x00）
+  for (let i = 0; i < Math.min(buf.length, 8192); i++) {
+    if (buf[i] === 0) throw new Error('检测到二进制内容（含 NUL 字节），已拒绝作为文本读取');
+  }
   for (const enc of ['utf-8', 'gbk']) {
     try { return new TextDecoder(enc, { fatal: true }).decode(buf); } catch (e) {}
   }
@@ -15543,6 +15630,12 @@ function saveCompactBackup(s, kind, replacedMsgs) {
 }
 /** 恢复原文：按 kind 把备份消息插回当前 messages（压缩段换回原文），重存 + 重渲染。 */
 function restoreCompactBackup(s, gen) {
+  // 复核修正：生成中禁止恢复——renderChatHistory 重建 DOM 会摘除在途流式
+  // 气泡（最终消息可能只在数据层不在界面）
+  if (typeof isStreaming !== 'undefined' && isStreaming) {
+    toast('AI 正在生成中，请先停止或等待完成再恢复原文', 'warn');
+    return false;
+  }
   const bk = s && s._compactBackup;
   if (!bk || bk.gen !== gen || bk.truncated || !Array.isArray(bk.msgs) || !bk.msgs.length) {
     toast('该压缩备份已被后续压缩覆盖或超限，无法恢复', 'warn');
@@ -15815,7 +15908,12 @@ async function sendMessage() {
     } catch (e) {}
   }
   try {
-    if (sumSessionTokens(s) > 200000 && s.messages.length >= 6) {
+    // 复核修正：上下文口径改 historyTokens（原 sumSessionTokens 累加每轮
+    // usage.total_tokens——每轮重复计入整个 prompt，随轮数近平方增长，
+    // 20 万阈值过早触发 force 压缩，破坏前缀缓存并丢历史）
+    const _ctxTok = (typeof historyTokens === 'function')
+      ? historyTokens(s.messages) : sumSessionTokens(s);
+    if (_ctxTok > 200000 && s.messages.length >= 6) {
       await compactNow(s, apiKey, { force: true, quiet: true });
     }
   } catch (e) {}
@@ -15825,8 +15923,16 @@ async function sendMessage() {
       isStreaming = false;   // 修复 S20：提前 return 路径复位
       addMessage('assistant', '刚刚已做过压缩，历史已是纪要态，无需重复。'); return;
     }
-    isStreaming = false;     // 修复 S20：/compact 不进入生成循环，复位后走压缩
-    await compactNow(s, apiKey); return;
+    // 复核修正：压缩期间保持流式锁——原提前复位使 30s 压缩窗口内可并发
+    // 发送，compactNow 整体替换 s.messages 会把并发写入的用户消息/在途
+    // 回复从历史与 UI 一并抹掉。force 绕过 compactNow 的 isStreaming 早退。
+    isStreaming = true;
+    try {
+      await compactNow(s, apiKey, { force: true });
+    } finally {
+      isStreaming = false;
+    }
+    return;
   }
   /* ================= v1.8.0 M3：/plan 计划模式入口 =================
    * /plan <任务> → 生成计划（LLM JSON / 模板兜底）→ 计划卡待批准 →
@@ -15903,11 +16009,15 @@ async function continueLastGeneration(s, apiKey) {
 async function regenerate() {
   const s = getCurrentSession();
   if (!s || isStreaming) return;
-  let lastAssistant = -1;
+  // 复核修正：截断到最后一条 user 消息之后——原 splice(lastAssistant) 会把
+  // Agent 循环早退/报错留下的悬挂 user 消息一并删掉（历史与 UI 同时丢消息）；
+  // 悬挂的 user 提问正是重生成应回应的对象，保留。
+  let lastUser = -1;
   for (let i = s.messages.length - 1; i >= 0; i--) {
-    if (s.messages[i].role === 'assistant') { lastAssistant = i; break; }
+    if (s.messages[i] && s.messages[i].role === 'user') { lastUser = i; break; }
   }
-  if (lastAssistant >= 0) s.messages.splice(lastAssistant);
+  if (lastUser < 0) return;                    // 无用户消息无从重生成
+  if (s.messages.length > lastUser + 1) s.messages.splice(lastUser + 1);
   // 修复 ㉘：重建全部历史消息（原只回放 user，历史 assistant 回复与工具摘要从界面消失）
   renderChatHistory(s);
   const apiKey = effectiveApiKey();
@@ -16321,10 +16431,10 @@ async function loadAll() {
           dt.items.add(file);
           if (file.type.startsWith('image/')) handleFiles(dt.files, 'image');
           else if (file.type.startsWith('video/')) handleFiles(dt.files, 'video');
-          else if (file.name.endsWith('.zip')) handleFiles(dt.files, 'zip');
+          else if (/\.(zip)$/i.test(file.name)) handleFiles(dt.files, 'zip');   // 复核修正：大小写不敏感（原 endsWith('.zip') 漏 X.ZIP）
           else if (/\.(rar|7z)$/i.test(file.name))
             toast('仅支持 zip 压包；rar/7z 请先转成 zip，或解压后用「添加文本文件」选取。', 'warn');
-          else handleFiles(dt.files, 'text');
+          else handleFiles(dt.files, 'text');   // 二进制兜底由 readAttachmentText 的 NUL 检测拦截
         }
       }
     }

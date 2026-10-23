@@ -60,7 +60,8 @@ _AGENT_BROWSER_DRIVER = (
         'description': '导航浏览器会话到URL并等待就绪|需要渲染页面或后续交互前的定位步骤|纯文本抓取用browser_open,仅支持http(s)公网页面',
         'parameters': {'type': 'object', 'properties': {
             'url': {'type': 'string'}, 'wait_selector': {'type': 'string'},
-            'timeout': {'type': 'integer'}},
+            'timeout': {'type': 'integer'},
+            'mode': {'type': 'string', 'enum': ['hidden', 'visible']}},
             'required': ['url'], 'additionalProperties': False}}},
     {'type': 'function', 'function': {'name': 'browser_extract',
         'description': '提取当前会话页面正文|导航后取结构化内容|未导航时先browser_navigate',

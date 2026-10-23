@@ -28,7 +28,12 @@ async function sendMessage() {
     } catch (e) {}
   }
   try {
-    if (sumSessionTokens(s) > 200000 && s.messages.length >= 6) {
+    // 复核修正：上下文口径改 historyTokens（原 sumSessionTokens 累加每轮
+    // usage.total_tokens——每轮重复计入整个 prompt，随轮数近平方增长，
+    // 20 万阈值过早触发 force 压缩，破坏前缀缓存并丢历史）
+    const _ctxTok = (typeof historyTokens === 'function')
+      ? historyTokens(s.messages) : sumSessionTokens(s);
+    if (_ctxTok > 200000 && s.messages.length >= 6) {
       await compactNow(s, apiKey, { force: true, quiet: true });
     }
   } catch (e) {}
@@ -38,8 +43,16 @@ async function sendMessage() {
       isStreaming = false;   // 修复 S20：提前 return 路径复位
       addMessage('assistant', '刚刚已做过压缩，历史已是纪要态，无需重复。'); return;
     }
-    isStreaming = false;     // 修复 S20：/compact 不进入生成循环，复位后走压缩
-    await compactNow(s, apiKey); return;
+    // 复核修正：压缩期间保持流式锁——原提前复位使 30s 压缩窗口内可并发
+    // 发送，compactNow 整体替换 s.messages 会把并发写入的用户消息/在途
+    // 回复从历史与 UI 一并抹掉。force 绕过 compactNow 的 isStreaming 早退。
+    isStreaming = true;
+    try {
+      await compactNow(s, apiKey, { force: true });
+    } finally {
+      isStreaming = false;
+    }
+    return;
   }
   /* ================= v1.8.0 M3：/plan 计划模式入口 =================
    * /plan <任务> → 生成计划（LLM JSON / 模板兜底）→ 计划卡待批准 →
@@ -116,11 +129,15 @@ async function continueLastGeneration(s, apiKey) {
 async function regenerate() {
   const s = getCurrentSession();
   if (!s || isStreaming) return;
-  let lastAssistant = -1;
+  // 复核修正：截断到最后一条 user 消息之后——原 splice(lastAssistant) 会把
+  // Agent 循环早退/报错留下的悬挂 user 消息一并删掉（历史与 UI 同时丢消息）；
+  // 悬挂的 user 提问正是重生成应回应的对象，保留。
+  let lastUser = -1;
   for (let i = s.messages.length - 1; i >= 0; i--) {
-    if (s.messages[i].role === 'assistant') { lastAssistant = i; break; }
+    if (s.messages[i] && s.messages[i].role === 'user') { lastUser = i; break; }
   }
-  if (lastAssistant >= 0) s.messages.splice(lastAssistant);
+  if (lastUser < 0) return;                    // 无用户消息无从重生成
+  if (s.messages.length > lastUser + 1) s.messages.splice(lastUser + 1);
   // 修复 ㉘：重建全部历史消息（原只回放 user，历史 assistant 回复与工具摘要从界面消失）
   renderChatHistory(s);
   const apiKey = effectiveApiKey();

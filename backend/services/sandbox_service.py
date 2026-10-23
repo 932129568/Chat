@@ -568,7 +568,10 @@ def run_in_sandbox(args, shell=False, cwd=None, timeout=60, limits=None,
                                  CREATE_SUSPENDED | CREATE_NO_WINDOW,
                                  env, cwd, ctypes.byref(si), ctypes.byref(pi))
         if not okp:
-            code = ctypes.get_last_error()
+            # 复核修正：windll 未开 use_last_error，ctypes.get_last_error()
+            # 恒 0/陈旧（本文件 H6 修复注释已确认此坑，其余 6 处均用
+            # k32.GetLastError()，唯此处漏改）——失败人话映射永远「未知错误」
+            code = k32.GetLastError()
             raise SandboxUnavailable('CreateProcessW 失败（错误 %d）：%s'
                                      % (code, _fmt_winerr(code)))
         proc_info = pi

@@ -70,7 +70,17 @@ def _capture(hwnd, client_only):
         flags = 3 if client_only else 2
         ok = user32.PrintWindow(wt.HWND(hwnd), hdc_mem, flags)
         if ok:
-            return _bitmap_to_png_b64(hbmp, w, h)
+            # MSDN：GetDIBits 要求位图**未选入** DC——先还原再取像素
+            #（选中态调用属未定义行为，可能整帧读失败）
+            if old_obj:
+                gdi32.SelectObject(hdc_mem, old_obj)
+                old_obj = 0
+            b64 = _bitmap_to_png_b64(hbmp, w, h)
+            if b64:
+                return b64
+            # PrintWindow 成功但 DIB→PNG 失败（GetDIBits 行数不符/PIL 异常）
+            # → 走 ImageGrab 屏幕矩形降级（原实现直接返回 '' 不降级）
+            return _grab_fallback(left, top, w, h)
         return _grab_fallback(left, top, w, h)
     finally:
         if old_obj:

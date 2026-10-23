@@ -124,6 +124,7 @@ class Api:
         # guard/plan/tool 的审计自动带 trace 字段；切会话换新 trace）
         self._guard.set_trace_hook(self._current_trace)
         self._trace_id = None
+        self._trace_lock = threading.Lock()   # trace 懒生成互斥（复核修正）
         self._update = UpdateService()
         self._provider = ProviderService()
         self._files = FileService(self._runtime, self._workspace)
@@ -176,8 +177,23 @@ class Api:
         self._search = SearchService(guard=self._guard, reader=self._reader)
         # v1.9.0 M3/M5：浏览器驱动服务（六原语会话池 + 提取桥 + 下载拦截；
         # 与搜索管线解耦——design §A3.3 裁决，搜索次窗 SearchBrowser 不动）
+        # M3.6 外链接线（本批复核补接）：Bridge.open_external 公网 _blank →
+        # 系统浏览器 + 审计（此前默认 Bridge(on_external=None) 静默无动作）。
         from .services.browser.driver import BrowserService
-        self._driver = BrowserService()
+
+        def _driver_open_external(url):
+            try:
+                import webbrowser
+                webbrowser.open(str(url))
+            except Exception:
+                pass
+            try:
+                self._guard.audit('browser_external',
+                                  {'url': str(url)[:200]},
+                                  'decision', 'allow')
+            except Exception:
+                pass
+        self._driver = BrowserService(on_external=_driver_open_external)
         # v1.8.0 M3 域·计划执行与检查点（plans//checkpoints/ 独立目录，config.json 零污染）
         self._plan = PlanService()
         # v1.9.0 M2.7：plan 委托与 api 直连共享同一 CheckpointService 实例
@@ -258,6 +274,11 @@ class Api:
         p = str(path or '').strip()
         if not p:
             return err('保存路径为空')
+        # 复核修正：先校验后消费——原先 pop 一次性路径登记后才验 8MB 上限，
+        # 超限时登记已被消费，用户须重走对话框才能重试导出
+        text = str(content if content is not None else '')
+        if len(text.encode('utf-8')) > 8 * 1024 * 1024:
+            return err('导出内容超过 8MB 上限')
         key = os.path.normcase(os.path.abspath(p))
         with self._export_paths_lock:
             registered = key in self._export_paths
@@ -267,9 +288,6 @@ class Api:
             self._guard.audit('save_export_file', {'path': p}, 'block',
                               'unregistered-path')
             return err('保存路径须由导出对话框选择（安全约束）')
-        text = str(content if content is not None else '')
-        if len(text.encode('utf-8')) > 8 * 1024 * 1024:
-            return err('导出内容超过 8MB 上限')
         parent = os.path.dirname(os.path.abspath(p))
         if not os.path.isdir(parent):
             return err('目标目录不存在: %s' % parent)
@@ -514,8 +532,9 @@ class Api:
     def set_workspace(self, path):
         try:
             if os.path.isdir(path):
-                self._config.cwd = path
-                self._config._save_workspace()
+                # 复核修正：改走 set_cwd 统一入口（锁内 abspath+落盘）——原
+                # 锁外裸赋值与 set_cwd/save_workspace 并发可撕裂
+                self._config.set_cwd(path)
                 # 修复 ⑦（三轮）：set_workspace 不更新 recent 列表——经 api 直改目录
                 # （会话绑定等路径）后 recent 不出现该目录，快捷条/面板下拉缺失
                 try:
@@ -705,6 +724,12 @@ class Api:
         # v1.2 R2：用户保护名单叠加在内置名单之上（默认名单为空 → 行为与 legacy 一致）
         # 修复 S4①：武装后 always/session 档强制一次性 token / 会话信任
         reason, bx = self._guard.enforce_exec_ex('kill_process', detail, token)
+        if bx:
+            # P0 复核修正：16 处 enforce_exec_ex 挂点中此处唯一漏判预算超限——
+            # escalated 时 (reason=None, bx=payload) 直落 kill，审批预算对
+            # 「结束进程」完全失效（与 delete_path 等挂点同口径补齐）
+            self._guard.audit('kill_process', detail, 'block', 'budget-exceeded')
+            return ok({'ok': False, 'error': bx})
         if reason:
             self._guard.audit('kill_process', detail, 'block', 'backend-enforced')
             # 修复 ③（二轮）：原此处对含「保护名单」的文案二次追加「（保护名单）」后缀，
@@ -759,14 +784,18 @@ class Api:
         if not getattr(self, '_trace_id', None):
             import random
             import string
-            ts36 = ''
-            n = int(time.time() * 1000)
-            alpha = string.digits + string.ascii_lowercase
-            while n:
-                n, r = divmod(n, 36)
-                ts36 = alpha[r] + ts36
-            rand4 = ''.join(random.choice(alpha) for _ in range(4))
-            self._trace_id = 't_' + ts36 + '_' + rand4
+            # 复核修正：懒生成加锁——原两线程并发首查会各生成不同 trace_id
+            # 互相覆盖，同一请求的审计行 trace 不一致
+            with self._trace_lock:
+                if not self._trace_id:
+                    ts36 = ''
+                    n = int(time.time() * 1000)
+                    alpha = string.digits + string.ascii_lowercase
+                    while n:
+                        n, r = divmod(n, 36)
+                        ts36 = alpha[r] + ts36
+                    rand4 = ''.join(random.choice(alpha) for _ in range(4))
+                    self._trace_id = 't_' + ts36 + '_' + rand4
         return self._trace_id
 
     def trace_new(self):
@@ -1058,9 +1087,13 @@ class Api:
         面板默认关）。entries 每项原样透出（含五维与链字段；旧条目没有，
         前端可选渲染——前向兼容）。
         """
-        base = json.loads(self._guard.read_audit(limit, offset)) \
-            if isinstance(self._guard.read_audit(limit, offset), str) \
-            else self._guard.read_audit(limit, offset)
+        base_raw = self._guard.read_audit(limit, offset)
+        try:
+            base = json.loads(base_raw) if isinstance(base_raw, str) else base_raw
+        except Exception:
+            base = {}
+        # 复核修正：原连调两次 read_audit（各全量扫描）——10MB 日志每查面板
+        # 读两遍文件，且两次读取间轮转/追加会让 entries 与 chain 口径错位
         head = self._guard.audit_chain_head()
         chain = {'head': (head.get('head') or '')[:8],
                  'head_full': head.get('head') or '',

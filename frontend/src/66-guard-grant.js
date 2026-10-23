@@ -34,7 +34,11 @@ const GG_SCOPES = [
   { v: 'app_launch', label: '打开应用/链接' }
 ];
 
-let grantReqSeq = 0;           // last-wins 请求序号
+let grantReqSeq = 0;           // last-wins 请求序号（用户操作：创建/加规则/收回）
+let ggStatusSeq = 0;           // 状态轮询独立序号（复核修正：原与用户操作共享
+                               // grantReqSeq，30s 校准 bump 序号会静默丢弃在途
+                               // 用户操作响应——成功分支被跳过时定时器不启动）
+let ggFailStreak = 0;          // 状态查询连续失败计数（≥5 停轮询，防 RPC 风暴）
 let ggState = 'idle';          // idle|pending|success|error
 let ggCountdownTimer = null;   // 本地 1s 递减句柄
 let ggCalibrateTimer = null;   // 30s 校准句柄
@@ -212,12 +216,13 @@ function guardGrantTick() {
 
 /* ---------- 三态 + last-wins：授权状态 ---------- */
 async function guardGrantRefreshStatus(calibrate) {
-  const seq = ++grantReqSeq;
+  const seq = ++ggStatusSeq;                     // 独立序号：不与用户操作互踩
   try {
     const raw = await ggCallApi('guard_task_status', [], GG_STATUS_TIMEOUT_MS);
-    if (seq !== grantReqSeq) return;               // ④last-wins
+    if (seq !== ggStatusSeq) return;               // ④last-wins
     const d = JSON.parse(raw || '{}');
     if (d && d.ok) {
+      ggFailStreak = 0;
       const prevActive = ggActive;
       ggActive = !!d.active;
       ggGrantId = d.grant_id || null;
@@ -235,10 +240,17 @@ async function guardGrantRefreshStatus(calibrate) {
       ggState = 'success';
     } else {
       ggState = 'error';
+      // 复核修正：连续失败 ≥5 次停轮询——原每秒/每 30s 无限重试，桥持续
+      // 异常时形成固定频率 RPC 风暴直至桥恢复
+      if (++ggFailStreak >= 5) {
+        guardGrantStopTimers();
+        ggToast('授权状态查询连续失败，已暂停轮询（重开面板或操作后恢复）', 'warn');
+      }
     }
   } catch (e) {
-    if (seq !== grantReqSeq) return;
+    if (seq !== ggStatusSeq) return;
     ggState = 'error';
+    if (++ggFailStreak >= 5) guardGrantStopTimers();
   }
 }
 function guardGrantRenderIndicator() {

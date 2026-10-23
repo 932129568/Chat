@@ -586,6 +586,14 @@ class WinSession(BrowserSession):
             u = str(url or '').strip()
             if not u:
                 raise BrowserError(BrowserErrorCode.BAD_PARAMS, 'url 不能为空')
+            # 状态机入口闸：READY/CLOSED 态拒绝重复导航——原依赖末尾 _enter
+            # 兜（副作用已发生：页面真实加载、_html/_url 已覆写，语义却是
+            # 失败）。会话一页一生命周期，换页须 close 后新建。
+            if self._state is not SessionState.IDLE:
+                raise BrowserError(
+                    BrowserErrorCode.SESSION_BUSY,
+                    '会话非空闲态（%s），拒绝重复导航' % self._state.value,
+                    '一页一生命周期；换页请 browser_close 后重新导航')
             if not _ALLOWED_SCHEME.match(u):
                 raise BrowserError(
                     BrowserErrorCode.NAV_BLOCKED,

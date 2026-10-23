@@ -688,7 +688,7 @@ async function connectIdentifyNow(fromClick) {
   let reason = '';
   try {
     const raw = await callApi('local_models', [base, key]);
-    if (seq !== connectIdentifySeq) { connectSetButtonLoading(btn, false); return; }   // last-wins
+    if (seq !== connectIdentifySeq) { return; }   // last-wins：旧请求失效（按钮归最新请求，禁提前复位）
     const r = JSON.parse(raw || '{}');
     if (r && r.ok && Array.isArray(r.models) && r.models.length) {
       // 实现 v1.6 T2：目录模型带 modalities 时进选项文案（GitHub catalog 富元数据；
@@ -705,8 +705,10 @@ async function connectIdentifyNow(fromClick) {
   } catch (e) {
     reason = (e && e.message) ? e.message : String(e);
   }
+  // 复核修正：复位前先判 last-wins——原旧返回把在途新请求的「识别中」
+  // 禁用态提前解锁，放行并发第三轮请求
+  if (seq !== connectIdentifySeq) return;
   connectSetButtonLoading(btn, false);
-  if (seq !== connectIdentifySeq) return;           // last-wins：旧请求彻底失效
   let hot = false;
   if (!models.length) {
     models = connectHotModels(base);                // 内置热门表兜底（设计书 §4.2）

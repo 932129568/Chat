@@ -229,6 +229,14 @@ class GuardService:
             pass
         except Exception as e:
             self._log.warning('护栏配置加载失败，按默认档位处理: %r', e)
+            # 复核修正：损坏留 .bad 备份再回落默认——原无备份，随后任何
+            # save_config 会用默认+增量覆盖落盘，用户自定义档位/保护名单/
+            # trustedOps 无声清零且无迹可寻（mcp_servers.json ⑫ 同口径）
+            try:
+                if os.path.exists(self._path):
+                    os.replace(self._path, self._path + '.bad')
+            except Exception:
+                pass
         return cfg
 
     def get_config(self):
@@ -315,10 +323,17 @@ class GuardService:
         if not raw:
             return None   # 修复 W11：空 path 不再 abspath('') 落到 CWD 误伤
         p = os.path.normcase(os.path.realpath(os.path.abspath(raw)))
+        # 复核修正：名单 pattern 只做 normcase+normpath，而待检路径做了
+        # realpath——Documents/Desktop 被 OneDrive/junction 重定向（Windows
+        # 默认常见）时字面登记永不命中，保护名单静默失效。双形匹配（取并集，
+        # 只增不弱）：realpath 归一 + 字面归一都参与比对。
+        p_plain = os.path.normcase(os.path.normpath(os.path.abspath(raw)))
         with self._lock:
             patterns = list(self._cfg['protect_paths'])
         for pat in patterns:
-            if fnmatch.fnmatch(p, pat) or fnmatch.fnmatch(p, pat + os.sep + '*'):
+            if fnmatch.fnmatch(p, pat) or fnmatch.fnmatch(p, pat + os.sep + '*') \
+                    or fnmatch.fnmatch(p_plain, pat) \
+                    or fnmatch.fnmatch(p_plain, pat + os.sep + '*'):
                 return pat
         return None
 
@@ -530,8 +545,20 @@ class GuardService:
         if op == 'browser_click':
             return {'target': str(d.get('target') or '')[:120]}
         if op == 'browser_fill':
+            # 复核修正（W4 摘要失效）：签发侧（前端确认框）detail 带 text 原文、
+            # 执行侧（api.browser_fill）带 text_len——原只读 text 键，执行侧
+            # 摘要恒为 text_len:0，两侧摘要必然不匹配（armed 态 token 永拒）
+            # 或退化为仅绑 selector。双形态归一：优先 text 原文取长，缺失读 text_len。
+            txt = d.get('text')
+            if txt is not None:
+                n = len(str(txt))
+            else:
+                try:
+                    n = int(d.get('text_len') or 0)
+                except (TypeError, ValueError):
+                    n = 0
             return {'selector': str(d.get('selector') or '')[:80],
-                    'text_len': len(str(d.get('text') or ''))}
+                    'text_len': n}
         return {}
 
     @classmethod
@@ -1124,14 +1151,17 @@ class GuardService:
             if isinstance(result, dict) and result:
                 entry['result'] = {k: str(v)[:80] for k, v in result.items()}
             # ---- 哈希链（M2.6）----
-            try:
-                entry = self._audit_chain.append(entry)
-            except Exception as e:
-                self._log.warning('审计哈希链挂链失败（日志仍落盘）: %r', e)
-            os.makedirs(os.path.dirname(self._audit_path), exist_ok=True)
-            # 修复 建议④（二轮）：轮转+追加整体持实例锁——多线程并发回调下
-            # 轮换与 append 交错会丢行/写进已被轮转走的旧文件
+            # 复核修正：挂链与 jsonl 落盘收进同一临界区——原先挂链（链自持锁）
+            # 与落盘（guard._lock）两把锁非原子，并发审计时链序 A→B 而落盘序
+            # 可为 B→A，「文件序列==链序」不变量被破坏（衔接校验会误报断裂）
             with self._lock:
+                try:
+                    entry = self._audit_chain.append(entry)
+                except Exception as e:
+                    self._log.warning('审计哈希链挂链失败（日志仍落盘）: %r', e)
+                os.makedirs(os.path.dirname(self._audit_path), exist_ok=True)
+                # 修复 建议④（二轮）：轮转+追加整体持实例锁——多线程并发回调下
+                # 轮换与 append 交错会丢行/写进已被轮转走的旧文件
                 try:
                     if os.path.exists(self._audit_path) and \
                             os.path.getsize(self._audit_path) > AUDIT_MAX_BYTES:

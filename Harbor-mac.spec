@@ -13,7 +13,6 @@
 
 import os
 
-block_cipher = None
 ROOT = os.path.abspath(SPECPATH)
 
 with open(os.path.join(ROOT, 'VERSION'), encoding='utf-8') as _f:
@@ -27,6 +26,12 @@ a = Analysis(
         # prompts 随目录声明（与 Windows Harbor.spec 同源）
         (os.path.join(ROOT, 'backend', 'prompts'), 'backend/prompts'),
         (os.path.join(ROOT, 'harbor.html'), '.'),
+        # 复核修正：harbor.html 依赖 libs/ 四个 JS（marked/purify/flate/
+        # highlight）——原缺失致 mac 包前端渲染/消毒/压缩链路 404 瘫痪
+        (os.path.join(ROOT, 'libs'), 'libs'),
+        # 复核修正：VERSION 随包（APP_VERSION 单一数据源查找链第一优先；
+        # 原缺失时全靠回退常量兜底，bump 漏改即静默版本错报）
+        (os.path.join(ROOT, 'VERSION'), '.'),
         (os.path.join(ROOT, 'build', 'Harbor.icns'), '.'),
     ],
     hiddenimports=[
@@ -40,15 +45,16 @@ a = Analysis(
     hookspath=[],
     runtime_hooks=[],
     excludes=[],
-    cipher=block_cipher,
 )
-pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
+# 复核修正：PyInstaller 6 已删除 a.zipped_data / a.zipfiles / cipher 参数
+# （原 PyInstaller≤5 API，mac 构建直接 AttributeError；与 Windows
+# Harbor.spec 的 6.x 口径对齐）
+pyz = PYZ(a.pure)
 
 exe = EXE(
     pyz,
     a.scripts,
     a.binaries,
-    a.zipfiles,
     a.datas,
     [],
     name='Harbor',

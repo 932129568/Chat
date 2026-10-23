@@ -207,7 +207,7 @@ def register_uninstall(install_dir, version, uninstall_exe,
         winreg.SetValueEx(k, 'Publisher', 0, winreg.REG_SZ, 'Harbor')
         winreg.SetValueEx(k, 'InstallLocation', 0, winreg.REG_SZ, install_dir)
         winreg.SetValueEx(k, 'UninstallString', 0, winreg.REG_SZ,
-                          '"%s"' % os.path.abspath(uninstall_exe))
+                          '"%s" /uninstall' % os.path.abspath(uninstall_exe))
         winreg.SetValueEx(k, 'DisplayIcon', 0, winreg.REG_SZ,
                           os.path.join(install_dir, 'Harbor.exe') + ',0')
         if estimated_mb:
@@ -285,12 +285,26 @@ def install(target, progress_cb=None, desktop_shortcut=True, start_menu=True,
     dest = os.path.join(target, 'Harbor.exe')
 
     cb(1, '正在复制程序文件…')
+    # 复核修正：copy2 原地覆盖无备份无回滚——升级/重装复制中途失败（磁盘满）
+    # 会留下截断的 Harbor.exe 且旧版已毁。改「先写 .new → 校验尺寸 → 原子
+    # replace」，失败保留旧版（自更新 .bat 同款口径）。
+    _dest_new = dest + '.new'
     try:
-        shutil.copy2(payload, dest)
-        if os.path.getsize(dest) != os.path.getsize(payload):
+        shutil.copy2(payload, _dest_new)
+        if os.path.getsize(_dest_new) != os.path.getsize(payload):
+            try:
+                os.remove(_dest_new)
+            except OSError:
+                pass
             return {'ok': False, 'error': '文件复制不完整，请重试',
                     'install_dir': target, 'warnings': warnings}
+        os.replace(_dest_new, dest)
     except OSError as e:
+        try:
+            if os.path.exists(_dest_new):
+                os.remove(_dest_new)
+        except OSError:
+            pass
         return {'ok': False, 'error': '复制失败：%s（请关闭运行中的 Harbor 后重试）' % e,
                 'install_dir': target, 'warnings': warnings}
 

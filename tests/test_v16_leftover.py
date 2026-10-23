@@ -163,7 +163,9 @@ class TestL2CatalogFallback:
         svc = self._svc()
 
         def fake_open(req, timeout=None):
-            raise urllib.error.HTTPError(req.full_url, 401, 'Unauthorized', {}, b'{}')
+            # fp 须为文件对象：bytes 会让 addinfourl(_TemporaryFileCloser) 在 GC 时
+            # close() 炸 AttributeError（PytestUnraisableExceptionWarning 实证来源）
+            raise urllib.error.HTTPError(req.full_url, 401, 'Unauthorized', {}, io.BytesIO(b'{}'))
 
         monkeypatch.setattr(svc, 'urlopen_no_redirect', fake_open)
         out = svc.github_catalog_models('https://models.github.ai/inference', api_key='bad')

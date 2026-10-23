@@ -153,7 +153,8 @@ class TestUninstall:
 # ---------------- CLI 静默模式（对已构建 exe 的端到端，存在才跑） ----------------
 class TestSilentEndToEnd:
     @pytest.fixture(scope='class')
-    def setup_exe(self):
+    @classmethod
+    def setup_exe(cls):
         v = core.app_version()
         p = os.path.join(ROOT, 'dist', 'Harbor-Setup-%s.exe' % v)
         return p if os.path.exists(p) else None

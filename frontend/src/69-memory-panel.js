@@ -254,8 +254,12 @@ async function memoryPanelAdd() {
       mmToast('已添加记忆', 'ok');
       await memoryPanelRefresh();
     } else {
-      memoryPanelRenderError({ code: 'INTERNAL',
-        message: (d && d.error) || '添加失败' });
+      // 复核修正：err() 家族返回 {'error': '字符串'}——renderError 只读
+      // e.message，字符串塞进去恒显「[INTERNAL] 操作失败」丢真因（兼容两态）
+      const _err = d && d.error;
+      memoryPanelRenderError(typeof _err === 'string'
+        ? { code: 'INTERNAL', message: _err }
+        : _err || { code: 'INTERNAL', message: '添加失败' });
       memoryPanelSetState('error');
     }
   } catch (e) {

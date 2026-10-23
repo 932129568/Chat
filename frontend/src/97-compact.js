@@ -17,6 +17,12 @@ function saveCompactBackup(s, kind, replacedMsgs) {
 }
 /** 恢复原文：按 kind 把备份消息插回当前 messages（压缩段换回原文），重存 + 重渲染。 */
 function restoreCompactBackup(s, gen) {
+  // 复核修正：生成中禁止恢复——renderChatHistory 重建 DOM 会摘除在途流式
+  // 气泡（最终消息可能只在数据层不在界面）
+  if (typeof isStreaming !== 'undefined' && isStreaming) {
+    toast('AI 正在生成中，请先停止或等待完成再恢复原文', 'warn');
+    return false;
+  }
   const bk = s && s._compactBackup;
   if (!bk || bk.gen !== gen || bk.truncated || !Array.isArray(bk.msgs) || !bk.msgs.length) {
     toast('该压缩备份已被后续压缩覆盖或超限，无法恢复', 'warn');

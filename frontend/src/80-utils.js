@@ -140,42 +140,59 @@ async function refreshWsCard() {
   try { if (typeof wsQuickRefresh === 'function') wsQuickRefresh(); } catch (e) {}
 }
 async function onFolderEnabled(on) {
-  await callApi('set_current_sid', [currentSessionId]);
-  await callApi('set_ws_enabled', [currentSessionId, on]);
-  addSysTip(on ? '文件能力已开启' : '文件能力已关闭');
-  refreshWsCard();
+  // 复核修正：callApi 全程 try/catch——原桥拒绝时 unhandled rejection 且
+  // refreshWsCard 不执行，复选框与后端失同步
+  try {
+    await callApi('set_current_sid', [currentSessionId]);
+    await callApi('set_ws_enabled', [currentSessionId, on]);
+    addSysTip(on ? '文件能力已开启' : '文件能力已关闭');
+  } catch (e) {
+    addSysTip('操作失败: ' + (e && e.message || e));
+  } finally {
+    refreshWsCard();                 // 按后端真实状态回填
+  }
 }
 async function onIndToggle(on) {
   ensureSession();                 // 没会话就先建一个,sid 永不为空
   saveSessions(); renderSessionList();
-  await callApi('set_current_sid', [currentSessionId]);
-  if (on) {
-    const v = document.getElementById('wsSel').value;
-    if (v && v !== '__browse__') {
-      const r = JSON.parse(await callApi('set_session_ws', [currentSessionId, v, true]) || '{}');
-      addSysTip(r.ok ? '已绑定到当前会话: ' + (r.ws || v) : '绑定失败: ' + (r.error || '未知'));
-    } else addSysTip('请先选择一个文件夹');
-  } else {
-    const r = JSON.parse(await callApi('set_session_ws', [currentSessionId, '', false]) || '{}');
-    addSysTip(r.ok ? '已解除绑定，本会话跟随全局' : '解绑失败: ' + (r.error || '未知'));
+  try {
+    await callApi('set_current_sid', [currentSessionId]);
+    if (on) {
+      const v = document.getElementById('wsSel').value;
+      if (v && v !== '__browse__') {
+        const r = JSON.parse(await callApi('set_session_ws', [currentSessionId, v, true]) || '{}');
+        addSysTip(r.ok ? '已绑定到当前会话: ' + (r.ws || v) : '绑定失败: ' + (r.error || '未知'));
+      } else addSysTip('请先选择一个文件夹');
+    } else {
+      const r = JSON.parse(await callApi('set_session_ws', [currentSessionId, '', false]) || '{}');
+      addSysTip(r.ok ? '已解除绑定，本会话跟随全局' : '解绑失败: ' + (r.error || '未知'));
+    }
+  } catch (e) {
+    addSysTip('操作失败: ' + (e && e.message || e));
+  } finally {
+    refreshWsCard();                 // 由它按后端真实状态回填勾选
   }
-  refreshWsCard();                 // 由它按后端真实状态回填勾选
 }
 async function onWsSelect(p) {
   if (p === '__browse__') { await browseWs(); return; }
   if (!p) return;
   const ind = document.getElementById('wsInd').checked;
-  if (ind) {
-    ensureSession();                 // 没会话就先建一个,sid 永不为空
-    saveSessions(); renderSessionList();
-    await callApi('set_current_sid', [currentSessionId]);
-    const r = JSON.parse(await callApi('set_session_ws', [currentSessionId, p, true]) || '{}');
-    addSysTip(r.ok ? '本会话目录已切换（全局未动）' : '切换失败: ' + (r.error || '未知'));
-  } else {
-    await callApi('set_ws_dir', [p]);
-    addSysTip('全局目录已切换');
+  try {
+    if (ind) {
+      ensureSession();                 // 没会话就先建一个,sid 永不为空
+      saveSessions(); renderSessionList();
+      await callApi('set_current_sid', [currentSessionId]);
+      const r = JSON.parse(await callApi('set_session_ws', [currentSessionId, p, true]) || '{}');
+      addSysTip(r.ok ? '本会话目录已切换（全局未动）' : '切换失败: ' + (r.error || '未知'));
+    } else {
+      await callApi('set_ws_dir', [p]);
+      addSysTip('全局目录已切换');
+    }
+  } catch (e) {
+    addSysTip('操作失败: ' + (e && e.message || e));
+  } finally {
+    refreshWsCard();
   }
-  refreshWsCard();
 }
 async function browseWs() {
   try {
@@ -196,8 +213,14 @@ async function browseWs() {
   } catch (e) { addSysTip('选择文件夹失败: ' + e); }
 }
 async function unbindSession() {
-  await callApi('set_current_sid', [currentSessionId]);
-  await callApi('set_session_ws', [currentSessionId, '', false]);
-  addSysTip('已解除绑定，本会话跟随全局');
-  refreshWsCard();
+  // 复核修正：全程 try/catch + finally 回填（原桥拒绝即 unhandled rejection）
+  try {
+    await callApi('set_current_sid', [currentSessionId]);
+    await callApi('set_session_ws', [currentSessionId, '', false]);
+    addSysTip('已解除绑定，本会话跟随全局');
+  } catch (e) {
+    addSysTip('解绑失败: ' + (e && e.message || e));
+  } finally {
+    refreshWsCard();
+  }
 }

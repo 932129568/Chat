@@ -138,7 +138,10 @@ class SearchReader:
         if digest is None:
             self._schema_fail += 1
             self._last_error = '读取器输出 JSON 解析/校验失败'
-            self._router.report_local_result(False)
+            # 复核修正：schema 失败不回报连败——report_local_result(False)
+            # 会把与主循环共享的 HybridRouter 置 60s unavailable，模型输出
+            # 质量问题误伤本地路由（本文件头部降级链即如此声明：连败回报
+            # 只针对网络失败；schema 失败仅累计 _schema_fail）
             return self._raw(page_text, source_url, channel,
                              reason=self._last_error)
         self._router.report_local_result(True)

@@ -66,6 +66,9 @@ else
 fi
 
 echo "[6/7] DMG 制作（M7.7：hdiutil 拖拽安装布局）"
+# 复核修正：dmgroot 从不清理——上次残留 Harbor.app 时 cp -R 发生嵌套复制
+# （Harbor.app/Harbor.app），DMG 内是旧版+嵌套新版
+rm -rf build/dmgroot
 mkdir -p build/dmgroot
 cp -R "$APP" build/dmgroot/
 ln -sfn /Applications build/dmgroot/Applications

@@ -338,7 +338,9 @@ class CheckpointService:
             except OSError:
                 failed.append(item.get('path'))
         verified = self._verify_restored(manifest, ws, restored)
-        return {'ok': not failed or bool(restored), 'mode': 'snapshot',
+        # 复核修正：与 git 路径（'ok': not failed）同口径——原「有一个恢复
+        # 成功就报 ok」，部分失败被前端当回滚完成
+        return {'ok': not failed, 'mode': 'snapshot',
                 'restored': restored, 'failed': failed, 'verified': verified}
 
     def _verify_restored(self, manifest, ws, restored):

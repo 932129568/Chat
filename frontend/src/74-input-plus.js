@@ -126,7 +126,10 @@ function ipModelRender() {
       const val = btn.getAttribute('data-val');
       if (sel) {
         sel.value = val;
-        if (typeof onModelChange === 'function') { try { onModelChange(val); } catch (err) {} }
+        // P1 复核修正：onModelChange 全项目不存在（typeof 守卫静默吞掉）——
+        // 原选模型不派发 change 事件 → 设置区下拉标签/header 品牌位失步且
+        // 选择不落盘；改派发 change 事件走 110-boot 绑定的正确链路
+        sel.dispatchEvent(new Event('change'));
       }
       ipModelRefresh();
       pop.classList.remove('on');

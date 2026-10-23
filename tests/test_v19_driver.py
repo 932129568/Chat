@@ -19,6 +19,7 @@
 import json
 import os
 import sys
+import threading
 import time
 
 import pytest
@@ -584,3 +585,359 @@ class TestToolsSchemaStrict:
             name = t['function']['name']
             if name in v19_names:
                 assert t['function']['description'].count('|') == 2, name
+
+
+# ============================================================ 复核批次回归（2026-10-24 bug 扫描：12 项实证修复）
+
+class _FakeLoadedEvent:
+    """pywebview events.loaded 最小 fake（+=/-= 订阅 + fire 触发）。"""
+
+    def __init__(self):
+        self.handlers = []
+
+    def __iadd__(self, fn):
+        self.handlers.append(fn)
+        return self
+
+    def __isub__(self, fn):
+        if fn in self.handlers:
+            self.handlers.remove(fn)
+        return self
+
+    def fire(self):
+        for h in list(self.handlers):
+            h()
+
+
+class _FakeDriverWin:
+    """最小 pywebview 窗口 fake：events / load_url / url / evaluate_js。
+
+    final_url：模拟 302 重定向（load_url 落地的最终地址≠请求地址）。"""
+
+    def __init__(self, final_url=None):
+        self.events = type('_E', (), {'loaded': _FakeLoadedEvent()})()
+        self.url = 'file:///C:/harbor.html'      # 窗口初始页（harbor.html）
+        self.final_url = final_url
+        self.load_fail = False
+        self.eval_calls = []
+        self.eval_value = '<html>ok</html>'
+
+    def load_url(self, u):
+        if self.load_fail:
+            raise RuntimeError('load failed')
+        self.url = self.final_url or u
+        self.events.loaded.fire()
+
+    def evaluate_js(self, code):
+        self.eval_calls.append(code)
+        return self.eval_value
+
+
+class TestReviewBatchRegression:
+    """2026-10-24 全库 bug 扫描复核批：12 项实证修复的回归锁定。"""
+
+    # ---- P1-1：open_url 终态 URL 复检（重定向 SSRF 缺口） ----
+    def test_open_url_redirect_to_private_blocked(self, monkeypatch, tmp_path):
+        from backend.services.browser import driver as drv
+        dw = drv.DriverWindow(user_data_dir=str(tmp_path / 'p'))
+        win = _FakeDriverWin(final_url='http://169.254.169.254/latest/meta-data')
+        dw._win = win
+        monkeypatch.setattr(drv, '_is_public_host',
+                            lambda host: not str(host or '').startswith(
+                                ('127.', '192.168.', '10.', '169.254.')))
+        r = dw.open_url('http://public.example.com/', timeout=2)
+        assert r['ok'] is False and r['error'] == 'SSRF_BLOCKED', r
+
+    def test_open_url_public_final_ok(self, monkeypatch, tmp_path):
+        from backend.services.browser import driver as drv
+        dw = drv.DriverWindow(user_data_dir=str(tmp_path / 'p'))
+        dw._win = _FakeDriverWin(final_url='https://public.example.com/x')
+        monkeypatch.setattr(drv, '_is_public_host', lambda host: True)
+        r = dw.open_url('http://public.example.com/', timeout=2)
+        assert r['ok'] is True and r['channel'] == 'driver-window'
+
+    def test_open_url_initial_page_event_no_false_block(self, monkeypatch, tmp_path):
+        """loaded 是窗口初始页事件的竞态：win.url 仍 file:// 时短暂等待真实
+        导航落定——不误判 SSRF，最终以 http(s) 终态放行。"""
+        from backend.services.browser import driver as drv
+        import threading as _th
+        dw = drv.DriverWindow(user_data_dir=str(tmp_path / 'p'))
+        win = _FakeDriverWin()
+        dw._win = win
+        monkeypatch.setattr(drv, '_is_public_host', lambda host: True)
+
+        orig_load = win.load_url
+
+        def slow_load(u):
+            orig_load(u)          # loaded 事件先行（win.url 仍是初始 file:// 页）
+            _th.Timer(0.3, lambda: setattr(win, 'url', u)).start()
+
+        win.load_url = slow_load
+        r = dw.open_url('https://public.example.com/', timeout=3)
+        assert r['ok'] is True, r
+
+    # ---- P2-5：load_url 抛异常时 loaded 处理器退订（原泄漏） ----
+    def test_open_url_load_fail_unsubscribes(self, tmp_path):
+        from backend.services.browser import driver as drv
+        dw = drv.DriverWindow(user_data_dir=str(tmp_path / 'p'))
+        win = _FakeDriverWin()
+        win.load_fail = True
+        dw._win = win
+        r = dw.open_url('https://example.com/', timeout=2)
+        assert r['ok'] is False and r['error'] == 'WINDOW_UNAVAILABLE'
+        assert win.events.loaded.handlers == []      # 已退订（原实现泄漏 1 个/次）
+
+    # ---- P2-4：策略 JS 每次导航后重注入（页内二次导航不再失效） ----
+    def test_install_policy_reinjects(self, tmp_path):
+        from backend.services.browser import driver as drv
+        dw = drv.DriverWindow(user_data_dir=str(tmp_path / 'p'))
+        win = _FakeDriverWin()
+        win.eval_value = 'ok'
+        dw._win = win
+        dw._install_policy(win)
+        dw._install_policy(win)
+        assert len(win.eval_calls) == 2              # 原永久标记只注入 1 次
+
+    # ---- P2-12：Bridge 提取载荷三重上限（条数/单条/累计） ----
+    def test_on_extract_item_size_cap(self):
+        from backend.services.browser.driver import Bridge
+        b = Bridge()
+        big = '{"x":"' + 'a' * (256 * 1024) + '"}'
+        assert b.on_extract(big) == 'ok'
+        assert b.extracts() == []                    # 超单条上限丢弃
+
+    def test_on_extract_total_size_cap(self):
+        from backend.services.browser.driver import Bridge
+        b = Bridge()
+        item = '{"pad":"%s"}' % ('a' * 250_000)      # ~250KB/条 < 单条上限
+        for _ in range(20):                          # 累计 5MB > 4MB 上限
+            b.on_extract(item)
+        n = len(b.extracts())
+        assert 15 <= n <= 17, n                      # 累计封顶后拒绝新条目
+        assert n * len(item) <= 4 * 1024 * 1024
+
+    # ---- P1-3：busy 闸（sweeper/驱逐不回收在飞会话；死 id 不回填） ----
+    def test_sweeper_skips_busy_session(self, tmp_path):
+        from backend.services.browser.driver import BrowserService
+        from backend.services.browser.session_base import SessionState
+        release = threading.Event()
+
+        class SlowSession:
+            def __init__(self):
+                self.closed = False
+
+            @property
+            def state(self):
+                return SessionState.IDLE
+
+            def navigate(self, url, ws='', timeout=60):
+                release.wait(5.0)
+                return {'ok': True, 'title': 't', 'url': url,
+                        'final_url': url, 'channel': 'fake'}
+
+            def close(self):
+                self.closed = True
+
+        def factory(mode):
+            return SlowSession(), None
+
+        svc = BrowserService(session_factory=factory, idle_seconds=0.05,
+                             sweep_tick=0.05, path=str(tmp_path / 'bs.json'))
+        try:
+            out = {}
+            t = threading.Thread(
+                target=lambda: out.update(r=svc.navigate('https://e.com')),
+                daemon=True)
+            t.start()
+            sid = None
+            for _ in range(200):
+                with svc._lock:
+                    if svc._sessions:
+                        sid = next(iter(svc._sessions))
+                        break
+                time.sleep(0.01)
+            assert sid, '会话未入池'
+            time.sleep(0.3)                      # 让 sweeper 扫过若干轮
+            with svc._lock:
+                assert sid in svc._sessions      # busy 在飞：不被回收
+                assert svc._sessions[sid].get('busy') is True
+            release.set()
+            t.join(5)
+            assert out.get('r', {}).get('ok') is True
+            time.sleep(0.3)                      # 导航完成空闲后正常回收
+            with svc._lock:
+                assert sid not in svc._sessions
+        finally:
+            release.set()
+            svc.shutdown()
+
+    def test_evict_skips_busy_session(self, tmp_path):
+        """池满驱逐跳过 busy 条目（全部 busy 时放行本次超限）。"""
+        from backend.services.browser.driver import BrowserService
+        from backend.services.browser.session_base import SessionState
+        release = threading.Event()
+
+        class SlowSession:
+            def __init__(self, block):
+                self.block = block
+                self.closed = False
+
+            @property
+            def state(self):
+                return SessionState.IDLE
+
+            def navigate(self, url, ws='', timeout=60):
+                if self.block:
+                    release.wait(5.0)
+                return {'ok': True, 'title': 't', 'url': url,
+                        'final_url': url, 'channel': 'fake'}
+
+            def close(self):
+                self.closed = True
+
+        made = []
+
+        def factory(mode):
+            s = SlowSession(len(made) == 0)      # 第一个阻塞（busy），后续直通
+            made.append(s)
+            return s, None
+
+        svc = BrowserService(session_factory=factory, pool_limit=1,
+                             idle_seconds=60.0, sweep_tick=0.05,
+                             path=str(tmp_path / 'bs.json'))
+        try:
+            out = {}
+            t = threading.Thread(
+                target=lambda: out.update(r=svc.navigate('https://e.com/1')),
+                daemon=True)
+            t.start()
+            sid_a = None
+            for _ in range(200):
+                with svc._lock:
+                    if svc._sessions:
+                        sid_a = next(iter(svc._sessions))
+                        break
+                time.sleep(0.01)
+            assert sid_a
+            r2 = svc.navigate('https://e.com/2')     # 池满：A busy 不驱逐
+            assert r2['ok'] is True
+            with svc._lock:
+                assert sid_a in svc._sessions        # A 未被驱逐
+                assert not made[0].closed
+                assert len(svc._sessions) == 2       # 放行超限
+        finally:
+            release.set()
+            svc.shutdown()
+
+    def test_navigate_during_close_no_dead_id_backfill(self, tmp_path):
+        """导航期间会话被显式关闭 → 不回填已死 session_id（结构化错误）。"""
+        from backend.services.browser.driver import BrowserService
+        from backend.services.browser.session_base import SessionState
+        release = threading.Event()
+
+        class SlowSession:
+            def __init__(self):
+                self.closed = False
+
+            @property
+            def state(self):
+                return SessionState.IDLE
+
+            def navigate(self, url, ws='', timeout=60):
+                release.wait(5.0)
+                return {'ok': True, 'title': 't', 'url': url,
+                        'final_url': url, 'channel': 'fake'}
+
+            def close(self):
+                self.closed = True
+
+        def factory(mode):
+            return SlowSession(), None
+
+        svc = BrowserService(session_factory=factory, idle_seconds=60.0,
+                             path=str(tmp_path / 'bs.json'))
+        try:
+            out = {}
+            t = threading.Thread(
+                target=lambda: out.update(r=svc.navigate('https://e.com')),
+                daemon=True)
+            t.start()
+            sid = None
+            for _ in range(200):
+                with svc._lock:
+                    if svc._sessions:
+                        sid = next(iter(svc._sessions))
+                        break
+                time.sleep(0.01)
+            svc.close(sid)                       # 导航在飞时显式关闭
+            release.set()
+            t.join(5)
+            r = out.get('r') or {}
+            assert r['ok'] is False
+            assert r['error']['code'] == 'SESSION_CLOSED'
+            assert 'session_id' not in r
+        finally:
+            release.set()
+            svc.shutdown()
+
+    # ---- P1-2：extract_guarded provenance 包裹（红线 4） ----
+    def test_extract_guarded_provenance_tagged(self, tmp_path):
+        svc, _ = _mk_service(path=str(tmp_path / 'bs.json'))
+        try:
+            svc.navigate('https://example.com')
+            out = svc.extract_guarded(mode='text')
+            assert out['ok'] is True
+            assert out.get('untrusted') is True           # UNTRUSTED DATA 标记
+            prov = out.get('provenance') or out.get('source') or {}
+            assert prov.get('url') == 'https://example.com'
+            assert prov.get('channel') == 'driver-window'
+        finally:
+            svc.shutdown()
+
+    # ---- P2-8：profile 目录序号唯一 + 关闭清理 ----
+    def test_close_entry_removes_profile_dir(self, tmp_path):
+        from backend.services.browser.driver import BrowserService
+        d = tmp_path / 'drv_123_1'
+        d.mkdir()
+        (d / 'f.txt').write_text('x', encoding='utf-8')
+
+        class _W:
+            _user_data_dir = str(d)
+
+            def close(self):
+                pass
+
+        BrowserService._close_entry({'session': None, 'window': _W()})
+        assert not d.exists()                             # 本会话目录已清理
+        d2 = tmp_path / 'not_drv_dir'
+        d2.mkdir()
+
+        class _W2:
+            _user_data_dir = str(d2)
+
+            def close(self):
+                pass
+
+        BrowserService._close_entry({'session': None, 'window': _W2()})
+        assert d2.exists()                                # 非 drv_ 目录不清
+
+    # ---- P2-13：会话层重复导航入口闸（无副作用拒绝） ----
+    def test_navigate_twice_busy_entry_gate(self):
+        s, ch = TestWinSessionPrimitives()._session()
+        r = s.navigate('https://example.com')
+        assert r['ok'] is True
+        n_before = len(ch.urls)
+        with pytest.raises(BrowserError) as ei:
+            s.navigate('https://example.com/2')
+        assert ei.value.code is BrowserErrorCode.SESSION_BUSY
+        assert len(ch.urls) == n_before                   # 通道未被再次调用
+
+    # ---- P2-6：browser_navigate schema 补 mode 枚举（CAPTCHA 逃生门） ----
+    def test_browser_navigate_schema_mode_enum(self):
+        from backend.tools_schema import AGENT_TOOLS
+        by_name = {t['function']['name']: t['function']['parameters']
+                   for t in AGENT_TOOLS}
+        mode = by_name['browser_navigate']['properties'].get('mode')
+        assert mode is not None                           # 原缺失=逃生门不可用
+        assert mode['enum'] == ['hidden', 'visible']
+        assert by_name['browser_navigate']['additionalProperties'] is False

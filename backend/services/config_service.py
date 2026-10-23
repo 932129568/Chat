@@ -180,16 +180,19 @@ class ConfigService:
         except Exception:
             tasks = []
         # ① sessions.json 条目（保底——前端通常已 filter 过）
+        # 复核修正：读-改-写全程持 self._lock（save_sessions 同口径）——原
+        # 无锁，并发 purge+保存互覆丢会话条目
         try:
-            p = self.sessions_path()
-            if os.path.exists(p):
-                with open(p, encoding='utf-8') as f:
-                    arr = json.load(f)
-                if isinstance(arr, list):
-                    keep = [s for s in arr if str(s.get('id') or '') != sid]
-                    if len(keep) != len(arr):
-                        atomic_write_text(p, json.dumps(keep, ensure_ascii=False))
-                        removed['sessions'] = len(arr) - len(keep)
+            with self._lock:
+                p = self.sessions_path()
+                if os.path.exists(p):
+                    with open(p, encoding='utf-8') as f:
+                        arr = json.load(f)
+                    if isinstance(arr, list):
+                        keep = [s for s in arr if str(s.get('id') or '') != sid]
+                        if len(keep) != len(arr):
+                            atomic_write_text(p, json.dumps(keep, ensure_ascii=False))
+                            removed['sessions'] = len(arr) - len(keep)
         except Exception as e:
             self._log.warning('purge sessions 失败: %r', e)
         # ② session_ws 绑定（直接删 session_ws.json 里的条目——workspace_service

@@ -105,19 +105,42 @@ class AuditChain:
         逐条重算 prev_hash 衔接 + hash 相等；任一不符 → {ok: False, checked,
         broken_at: {index, ts, op}, reason}。无 hash 字段的旧条目跳过（不计
         checked，不判 broken——前向兼容）。全过 → {ok: True, checked, head, len}。
+
+        复核修正（衔接校验）：原只重算每条自身 hash，从不校验相邻条目
+        prev_hash 衔接——从日志删除/重排中间条目后 verify 仍 ok（删除不可
+        检出）。现增相邻衔接断言：调用方两种窗口方向（read_audit 倒序窗口 /
+        全量正序）按首对相邻 hashed 条目自适应判向，其后逐对校验——被删/
+        重排/混入的条目必然在某对上衔接断裂。
         """
+        hashed = [(i, e) for i, e in enumerate(entries or [])
+                  if isinstance(e, dict) and 'hash' in e]
         checked = 0
-        for i, e in enumerate(entries or []):
-            if not isinstance(e, dict) or 'hash' not in e:
-                continue                      # 旧条目：跳过不判
-            prev = e.get('prev_hash')
+        prev_i, prev_e = None, None
+        # 方向自适应：正序（后者 prev_hash==前者 hash）或倒序窗口（前者
+        # prev_hash==后者 hash）。单对即判向（哈希碰撞前提下面板窗口两向
+        # 同时成立的概率可忽略），其后全程按该向校验。
+        reverse = False
+        if len(hashed) >= 2:
+            (i0, e0), (i1, e1) = hashed[0], hashed[1]
+            reverse = str(e0.get('prev_hash') or '') == str(e1.get('hash') or '')
+        for i, e in hashed:
             body = {k: v for k, v in e.items()
                     if k not in ('hash', 'prev_hash')}
-            if entry_hash(prev, body) != e.get('hash'):
+            if entry_hash(e.get('prev_hash'), body) != e.get('hash'):
                 return {'ok': False, 'checked': checked,
                         'broken_at': {'index': i, 'ts': e.get('ts'),
                                       'op': e.get('op')},
                         'reason': '条目 %d 哈希不匹配（链断裂/被篡改）' % i}
+            if prev_e is not None:
+                newer, older = (prev_e, e) if reverse else (e, prev_e)
+                ni = prev_i if reverse else i
+                if str(newer.get('prev_hash') or '') != str(older.get('hash') or ''):
+                    return {'ok': False, 'checked': checked,
+                            'broken_at': {'index': ni, 'ts': newer.get('ts'),
+                                          'op': newer.get('op')},
+                            'reason': '条目 %d 与相邻条目 prev_hash 不衔接'
+                                      '（存在删除/重排）' % ni}
+            prev_i, prev_e = i, e
             checked += 1
         return {'ok': True, 'checked': checked,
                 'head': self._head, 'len': self._len}
