@@ -57,19 +57,27 @@ def tag_payload(payload, source_url='', channel='', fetched_at='', source=None):
             query 进载荷键——隐私口径与审计一致）；软件场景附
             ``{'software', 'action'}``。
 
+    键冲突保护（v1.9.0 M2.2 接线实测）：既有载荷可能已占用 ``source`` 键且
+    为字符串（browser_search 的 ``'live'|'cache'`` 来源语义，契约面）——
+    此时 provenance 摘要改落 ``provenance`` 键（**禁覆盖契约键**）；
+    ``source`` 键不存在或已是 dict 时才落 ``source``。前端渲染以
+    ``untrusted`` 为主开关，两个键都认。
+
     Returns:
-        dict: 同一 payload（纯增 ``untrusted=True`` 与 ``source`` 两键；
+        dict: 同一 payload（纯增 ``untrusted=True`` 与来源摘要键；
             既有键与值零改动）。
     """
     if not isinstance(payload, dict):
         return payload
     payload['untrusted'] = True
-    if isinstance(source, dict):
-        payload['source'] = dict(source)
+    prov = dict(source) if isinstance(source, dict) else {
+        'url': str(source_url or ''),
+        'channel': str(channel or ''),
+        'fetched_at': str(fetched_at or '').strip() or _utc_now(),
+    }
+    existing = payload.get('source')
+    if existing is None or isinstance(existing, dict):
+        payload['source'] = prov
     else:
-        payload['source'] = {
-            'url': str(source_url or ''),
-            'channel': str(channel or ''),
-            'fetched_at': str(fetched_at or '').strip() or _utc_now(),
-        }
+        payload['provenance'] = prov      # 禁覆盖契约 source 字符串键
     return payload

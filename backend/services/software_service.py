@@ -1415,6 +1415,14 @@ class SoftwareService:
             hint = stderr_hint(stderr) or stderr_hint(stdout)
         if hint:
             payload['error_hint'] = hint
+        # v1.9.0 M2.2：provenance 标注（纯增 untrusted/source 键）——软件输出
+        # 属外部内容，source 附 software/action（禁原文 query——本场景无 query）
+        try:
+            from .provenance import tag_payload
+            payload = tag_payload(payload, source={'software': software,
+                                                   'action': action})
+        except Exception:
+            pass                        # provenance 失败不阻断调用主流程
         # exit_code≠0 仍走成功形状（§3.2 裁决口径：保住 Agent 判断力）——
         # 审计记 ok（调用本身成功，退出码语义随 detail 供事后分析）
         self._audit('software_call', {'software': software, 'action': action,

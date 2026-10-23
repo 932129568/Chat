@@ -146,11 +146,6 @@ class Api:
         self._webdav = WebDAVService()
         # v1.6 沙箱（Job Object 进程隔离 + 资源限制；fail-closed）
         self._sandbox = SandboxService()
-        # v1.8.0 B 域·浏览器搜索（search_cache/ 独立目录，config.json 零污染；
-        # 审计复用同一 GuardService 实例保持 audit_log.jsonl 单一口径）
-        # v1.9.0 M1.7：SearchService 自 backend.services.browser.service 导入（平台抽象包；
-        # 类名/五方法契约不变——鸭子类型只依赖通道 open_url）
-        self._search = SearchService(guard=self._guard)
         # v1.9.0 装配预留挂点（T03/T04/T05 按序落，本轮只锚注释不装配）：
         #   self._checkpoint = CheckpointService()  # T05：检查点六军规（checkpoint_* 切委托）
         # v1.8.0 S 域·外部软件调用（software.json 独立文件；审计复用同一
@@ -160,11 +155,18 @@ class Api:
                                              self._runtime.get_current_sid()))
         # v1.8.0 H 域·混合路由（hybrid.json 独立文件；决策 + 成本分账）
         self._hybrid = HybridRouter()
+        # v1.9.0 M2.1：dual-LLM-lite 本地读取器（reader.json 独立配置；
+        # search_reader_stats 转正 + reader_config_get/save + SearchService 共享注入）
+        self._reader = SearchReader(router=self._hybrid)
+        # v1.8.0 B 域·浏览器搜索（search_cache/ 独立目录，config.json 零污染；
+        # 审计复用同一 GuardService 实例保持 audit_log.jsonl 单一口径）
+        # v1.9.0 M1.7：SearchService 自 backend.services.browser.service 导入（平台抽象包；
+        # 类名/五方法契约不变——鸭子类型只依赖通道 open_url）
+        # v1.9.0 M2.1：reader 与 search_reader_stats 同一实例（计数口径一致；
+        # SearchService.browser_open 的正文经它过读取器）——须后于 reader 装配
+        self._search = SearchService(guard=self._guard, reader=self._reader)
         # v1.8.0 M3 域·计划执行与检查点（plans//checkpoints/ 独立目录，config.json 零污染）
         self._plan = PlanService()
-        # v1.9.0 M2.1：dual-LLM-lite 本地读取器（reader.json 独立配置；
-        # search_reader_stats 转正 + reader_config_get/save）
-        self._reader = SearchReader(router=self._hybrid)
         # 导出保存路径登记（一次性消费集合：pick_save_path 登记 → save_export_file
         # pop 消费；线程安全——对话框回调与工具调用可能在不同线程）
         self._export_paths = set()

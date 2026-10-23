@@ -243,6 +243,15 @@ def _captcha_signal(html):
     return None
 
 
+def _prov_tag(payload, url, channel):
+    """provenance 标注（browser_open 单页场景：source 带 url/channel）。"""
+    try:
+        from ..provenance import tag_payload
+        return tag_payload(payload, source_url=url, channel=channel)
+    except Exception:
+        return payload
+
+
 # v1.9.0 M2.11：缓存分级 TTL（master-plan R30 口径；纯函数可单测）
 TTL_CLASSES = {'news': 5, 'general': 60, 'encyclopedia': 1440}   # 分钟
 _TTL_NEWS_WORDS = ('新闻', '快讯', '最新', '今天', '今日', 'news', 'latest',
@@ -282,7 +291,7 @@ class SearchService:
 
     def __init__(self, browser=None, toolcache=None, guard=None,
                  cache_dir=None, ttl_minutes=CACHE_TTL_MINUTES,
-                 clock=None):
+                 clock=None, reader=None):
         """Args:
             browser: 取数通道（缺省 SearchBrowser()；测试注入 FakeBrowser）。
             toolcache: 截断落盘服务（缺省 ToolcacheService(do_cleanup=False)——
@@ -292,6 +301,8 @@ class SearchService:
             cache_dir: 搜索缓存目录（缺省 ``~/.glm-chat/search_cache/``）。
             ttl_minutes: 缓存 TTL（分钟）。
             clock: 单调时钟（测试注入假时钟；缺省 time.monotonic）。
+            reader: v1.9.0 M2.1 读取器（缺省自建 SearchReader——自带 HybridRouter；
+                Api 注入与 search_reader_stats 同一实例保计数口径一致）。
         """
         self._log = get_logger()
         self._browser = browser if browser is not None else SearchBrowser()
@@ -305,6 +316,10 @@ class SearchService:
         self._guard = guard
         self._cache_dir = cache_dir or os.path.join(paths.CONFIG_DIR,
                                                     CACHE_DIR_NAME)
+        if reader is None:
+            from ..search_reader import SearchReader
+            reader = SearchReader()
+        self._reader = reader
         try:
             os.makedirs(self._cache_dir, exist_ok=True)
         except Exception as e:
@@ -494,33 +509,62 @@ class SearchService:
         """
         orig_engine = orig_engine or engine
         if html is None:
-            self._set_phase(task_id, 'window_loading', '正在打开 %s…' % engine)
-            fetch = self._browser.open_url(url)
-            if not fetch.get('ok'):
-                code = fetch.get('error') or 'ENGINE_UNREACHABLE'
-                if code == 'WINDOW_UNAVAILABLE':
-                    code = 'ENGINE_UNREACHABLE'
-                msg = fetch.get('message') or '取数失败'
-                self._set_phase(task_id, 'failed', msg)
-                if takeover is not None:
-                    # 续跑取数失败：回到 prompting 让用户可重试，不新建接管
-                    takeover['state'] = 'prompting'
-                self._audit('web_search', {'query': q_echo, 'engine': engine,
-                                           'error': code}, 'search', 'error')
-                return _error(code, msg, fetch.get('hint'))
-            html = fetch.get('html') or ''
-            channel = fetch.get('channel')
-            self._set_phase(task_id, 'window_loading', None, channel=channel)
-            if channel == 'urllib':
-                self._set_phase(task_id, 'urllib_fallback',
-                                '已切换轻量抓取（降级）…', channel=channel)
+            # v1.9.0 M2.9：bing 先试 RSS 主通道（4KB 量级 XML 主路径；非 bing
+            # 与续跑/takeover 中直接走既有 HTML 路径——零改）
+            if str(engine or '').lower() == 'bing' and takeover is None:
+                rss = self._fetch_rss(url)
+                if rss.get('results'):
+                    html = ''                 # 标记已取数（跳过 HTML 抓取）
+                    channel = 'rss'
+                    results = rss['results']
+                    self._set_phase(task_id, 'extracting',
+                                    '正在提取搜索结果…', channel=channel)
+                elif rss.get('fatal'):
+                    self._set_phase(task_id, 'failed', rss['message'])
+                    self._audit('web_search', {'query': q_echo,
+                                               'engine': engine,
+                                               'error': rss['code']},
+                               'search', 'error')
+                    return _error(rss['code'], rss['message'],
+                                  rss.get('hint'))
+                elif rss.get('captcha'):
+                    return self._enter_captcha(
+                        task_id, params, engine, url, q_echo,
+                        rss['captcha'], takeover, rss_hint=True)
+                # 其余（空/异常）：静默回落 HTML 兜底（下方 open_url 零改）
+            if html is None:
+                self._set_phase(task_id, 'window_loading', '正在打开 %s…' % engine)
+                fetch = self._browser.open_url(url)
+                if not fetch.get('ok'):
+                    code = fetch.get('error') or 'ENGINE_UNREACHABLE'
+                    if code == 'WINDOW_UNAVAILABLE':
+                        code = 'ENGINE_UNREACHABLE'
+                    msg = fetch.get('message') or '取数失败'
+                    self._set_phase(task_id, 'failed', msg)
+                    if takeover is not None:
+                        # 续跑取数失败：回到 prompting 让用户可重试，不新建接管
+                        takeover['state'] = 'prompting'
+                    self._audit('web_search', {'query': q_echo,
+                                               'engine': engine,
+                                               'error': code}, 'search', 'error')
+                    return _error(code, msg, fetch.get('hint'))
+                html = fetch.get('html') or ''
+                channel = fetch.get('channel')
+                self._set_phase(task_id, 'window_loading', None,
+                                channel=channel)
+                if channel == 'urllib':
+                    self._set_phase(task_id, 'urllib_fallback',
+                                    '已切换轻量抓取（降级）…', channel=channel)
 
         # ---- 验证页特征检测（fail-fast：CAPTCHA_REQUIRED + takeover_id）----
-        sig = _captcha_signal(html)
-        results = parse_results(engine, html)
-        if sig and not results:
-            return self._enter_captcha(task_id, params, engine, url, q_echo,
-                                       sig, takeover)
+        # v1.9.0 M2.9：RSS 通道已在采用前完成验证特征检测（_fetch_rss 内
+        # _captcha_signal + parse_rss 非空双条件）——此处仅 HTML 兜底路径。
+        if html:
+            sig = _captcha_signal(html)
+            results = parse_results(engine, html)
+            if sig and not results:
+                return self._enter_captcha(task_id, params, engine, url,
+                                           q_echo, sig, takeover)
 
         self._set_phase(task_id, 'extracting', '正在提取搜索结果…', channel=channel)
         if not results:
@@ -706,6 +750,49 @@ class SearchService:
                 failed += 1
         return {'done': done, 'total': len(top), 'failed': failed}
 
+    def _fetch_rss(self, url):
+        """v1.9.0 M2.9：Bing RSS 通道抓取（主路径；失败/空/验证特征回落 HTML）。
+
+        Returns:
+            dict 四态：
+              {results: [...]}            —— 采用（parse_rss 非空且无验证特征）
+              {captcha: sig}              —— RSS 检出验证特征（转 _enter_captcha）
+              {fatal: True, code, message, hint} —— 429 限流（ENGINE_UNREACHABLE）
+              {}                          —— 空/异常（静默回落 HTML 兜底）
+        口径：urlopen_no_redirect（禁自动重定向）；UA 复用 session_win.USER_AGENT
+        （Harbor 自报家门非伪装）；响应上限 64KB（RSS 4KB 量级，防病态）；
+        超时 15s（RSS 轻量，短于 HTML 通道）。
+        """
+        try:
+            import urllib.error
+            import urllib.request
+            from ..mcp_transport_http import urlopen_no_redirect
+            from .session_win import USER_AGENT
+            req = urllib.request.Request(
+                url, headers={'User-Agent': USER_AGENT,
+                              'Accept': 'application/rss+xml, application/xml, text/xml'})
+            with urlopen_no_redirect(req, timeout=15) as resp:
+                body = resp.read(64 * 1024)
+        except urllib.error.HTTPError as e:
+            if e.code == 429:
+                return {'fatal': True, 'code': 'ENGINE_UNREACHABLE',
+                        'message': 'Bing RSS 通道限流（HTTP 429）',
+                        'hint': 'RSS 通道限流，可稍后重试或切换引擎'
+                                '（HTML 通道同受限）'}
+            return {}                     # 其余 HTTP 错：回落 HTML
+        except Exception:
+            return {}                     # 网络/解析层异常：回落 HTML（不抛）
+        try:
+            xml = body.decode('utf-8', 'replace')
+        except Exception:
+            return {}
+        sig = _captcha_signal(xml)
+        from .adapters import parse_rss
+        results = parse_rss(xml)
+        if sig and not results:
+            return {'captcha': sig}
+        return {'results': results}
+
     def _assemble(self, q_echo, engine, source, fetched_at, results, deep,
                   extract, max_results, elapsed_ms, channel=None):
         """响应组装（契约 §3.1 成功响应 + 联调观测字段）。
@@ -745,6 +832,18 @@ class SearchService:
             payload['channel'] = channel
         if deep is not None:
             payload['deep_extract'] = deep
+        # v1.9.0 M2.2：provenance 标注（纯增 untrusted/source 键——原键不动）。
+        # 搜索场景多结果无单一 URL：source 附 engine + query_sha256[:16]（禁
+        # 原文 query 进载荷键——隐私口径与审计 evidence 一致）+ fetched_at。
+        try:
+            from ..provenance import tag_payload
+            payload = tag_payload(payload, source={
+                'engine': engine,
+                'query_sha256': hashlib.sha256(
+                    str(q_echo or '').encode('utf-8')).hexdigest()[:16],
+                'fetched_at': fetched_at})
+        except Exception:
+            pass                        # provenance 失败不阻断搜索主流程
         return payload
 
     def _fit_results(self, items):
@@ -770,11 +869,13 @@ class SearchService:
 
     # ================================================== CAPTCHA 人工接管（B5 支撑）
     def _enter_captcha(self, task_id, params, engine, url, q_echo, sig,
-                       takeover=None):
+                       takeover=None, rss_hint=False):
         """检出验证页 → 创建/续用 takeover → fail-fast CAPTCHA_REQUIRED。
 
         takeover 生命周期（架构 §3.1 + ux-flows 流程 2）：
         pending(prompting) → rechecking → resolved / aborted / expired(10min)。
+        rss_hint=True（v1.9.0 M2.9）：验证特征由 RSS 通道检出——hint 注明
+        通道来源（排查时区分 RSS/HTML 两条通道，UX 口径一致）。
         """
         if takeover is not None:
             # 续跑中再次检出验证页：走重试计数，不新建接管
@@ -812,6 +913,11 @@ class SearchService:
             self._log.debug('次窗置顶失败（忽略，用户可手动切窗口）: %r', e)
         self._audit('web_search', {'query': q_echo, 'engine': engine,
                                    'signal': sig}, 'search', 'captcha')
+        if rss_hint:
+            e = self._captcha_payload(takeover)
+            e['error']['hint'] = 'RSS 通道检出验证特征：' + \
+                str(e['error'].get('hint') or '请在面板中手动完成后点击继续')
+            return e
         return self._captcha_payload(takeover)
 
     @staticmethod
@@ -1178,6 +1284,17 @@ class SearchService:
             payload['channel'] = channel
         if len(full_content) < THIN_CONTENT_CHARS:
             payload['thin'] = True      # thin_warning：仍成功，面板提示可能需登录
+        # v1.9.0 M2.1/M2.2：正文过 dual-LLM-lite 读取器（本地隐私前处理）——
+        # reader 未配置/失败 → raw 原文+provenance（禁阻断）；成功 → digest
+        # 结构化 JSON + provenance。content 键保留原文（面板即时渲染），
+        # digest 为纯增键（主模型上下文走 digest，省 token）。
+        try:
+            rd = self._reader.read(content, source_url=url, channel=channel or 'window')
+            payload['digest'] = rd.get('digest') or None
+            payload['reader_mode'] = rd.get('mode')
+            payload = _prov_tag(payload, url, channel or 'window')
+        except Exception:
+            pass                        # reader 异常不阻断 open 主流程
         self._audit('web_open', {'url': url[:200], 'chars': len(content),
                                  'truncated': bool(truncated)}, 'open', 'ok')
         return payload
@@ -1190,9 +1307,12 @@ class SearchService:
             dict: ``{ok, entries, hits, misses, ttl_minutes, size_kb}``——
             entries/size_kb 按 ``~/.glm-chat/search_cache/`` 落盘文件实时统计；
             hits/misses 为进程内计数。读取类不落审计。
+            v1.9.0 M2.11 纯增 ``ttl_classes``（条目 ttl_class 分布；旧条目无
+            分类计入 general）。
         """
         entries = 0
         size = 0
+        ttl_classes = {'news': 0, 'general': 0, 'encyclopedia': 0}
         try:
             for fn in os.listdir(self._cache_dir):
                 if not fn.endswith('.json'):
@@ -1201,6 +1321,14 @@ class SearchService:
                 try:
                     size += os.path.getsize(fp)
                     entries += 1
+                    cls = 'general'
+                    try:
+                        with open(fp, encoding='utf-8') as f:
+                            cls = (json.load(f) or {}).get('ttl_class') or 'general'
+                    except Exception:
+                        pass
+                    if cls in ttl_classes:
+                        ttl_classes[cls] += 1
                 except OSError:
                     continue
         except FileNotFoundError:
@@ -1211,6 +1339,7 @@ class SearchService:
             hits, misses = self._hits, self._misses
         return {'ok': True, 'entries': entries, 'hits': hits,
                 'misses': misses, 'ttl_minutes': self._ttl,
+                'ttl_classes': ttl_classes,
                 'size_kb': int(size / 1024)}
 
     # ================================================== 缓存层内部（C1）

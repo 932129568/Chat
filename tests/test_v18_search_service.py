@@ -47,6 +47,20 @@ from backend.services.browser.session_win import SearchBrowser
 from backend.services.browser.service import SearchService
 from backend.services.toolcache_service import ToolcacheService
 
+
+# ---- 沙箱 DNS 劫持处置（2026-10-23 实测；同 test_v19_browser 口径）----
+# 本机 DNS 将全部域名解析到 198.18.0.x（benchmark 保留段=private）——SSRF
+# 策略按设计拦截（行为正确，QA 同日早段全绿），域名 URL 功能测试误挂。
+# 绕过 host 公网判定（SSRF 语义由 test_v19_browser 的字面 IP 专测锁定）。
+@pytest.fixture(autouse=True)
+def _bypass_sandbox_dns_hijack(monkeypatch):
+    import backend.services.browser.service as _svc_mod
+    import backend.services.browser.session_base as _sb
+    import backend.services.browser.session_win as _sw
+    monkeypatch.setattr(_svc_mod, '_is_public_host', lambda host: True)
+    monkeypatch.setattr(_sb, '_is_public_host', lambda host: True)
+    monkeypatch.setattr(_sw, '_is_public_host', lambda host: True)
+
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 FIXTURE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                            'fixtures', 'v18')
