@@ -158,6 +158,9 @@ class Api:
         # v1.9.0 M2.1：dual-LLM-lite 本地读取器（reader.json 独立配置；
         # search_reader_stats 转正 + reader_config_get/save + SearchService 共享注入）
         self._reader = SearchReader(router=self._hybrid)
+        # v1.9.0 M2.7：检查点六军规（plan_service 委托同实例——清单/回滚一口径）
+        from .services.checkpoint_service import CheckpointService
+        self._checkpoint = CheckpointService()
         # v1.9.0 M2.6：审计双身份 hook（sid=当前会话 id；异常 → sid=None 不阻断）
         self._guard.set_identity_hook(
             lambda: {'sid': str(self._runtime.get_current_sid() or ''),
@@ -171,6 +174,8 @@ class Api:
         self._search = SearchService(guard=self._guard, reader=self._reader)
         # v1.8.0 M3 域·计划执行与检查点（plans//checkpoints/ 独立目录，config.json 零污染）
         self._plan = PlanService()
+        # v1.9.0 M2.7：plan 委托与 api 直连共享同一 CheckpointService 实例
+        self._plan._checkpoint = self._checkpoint
         # 导出保存路径登记（一次性消费集合：pick_save_path 登记 → save_export_file
         # pop 消费；线程安全——对话框回调与工具调用可能在不同线程）
         self._export_paths = set()
@@ -488,6 +493,7 @@ class Api:
         if reason:
             self._guard.audit('run_command', {'cmd': str(cmd or '')[:200]}, 'block', 'backend-enforced')
             return err(reason)
+        self._auto_checkpoint_before_shell('run_command')
         return self._cmds.run_command(self._runtime.get_current_sid(), cmd, timeout,
                                       sandbox=self._sandbox.limits_for('run_command'))
 
@@ -499,6 +505,7 @@ class Api:
         if reason:
             self._guard.audit('run_powershell', {'cmd': str(cmd or '')[:200]}, 'block', 'backend-enforced')
             return err(reason)
+        self._auto_checkpoint_before_shell('run_powershell')
         return self._cmds.run_powershell(self._runtime.get_current_sid(), cmd, timeout,
                                          sandbox=self._sandbox.limits_for('run_powershell'))
 
@@ -1324,18 +1331,28 @@ class Api:
 
     def checkpoint_create(self, task_id, files, ws_dir=''):
         """M3-D1：任务开始建检查点（git HEAD 锚点 / 非 git 文件快照，上限 200MB/500）。"""
-        r = self._plan.checkpoint_create(task_id, files, ws_dir or None)
+        r = self._checkpoint.create(task_id, files, ws_dir or None)
         return r if r.get('ok') else err(r.get('error', '检查点创建失败'))
 
-    def checkpoint_rollback(self, task_id, ws_dir=''):
-        """M3-D1：回滚到任务开始前（调用方须已完成清单二次确认——前端 inline 确认）。"""
-        r = self._plan.checkpoint_rollback(task_id, ws_dir or None)
+    def checkpoint_rollback(self, task_id, ws_dir='', confirm=False):
+        """M3-D1：回滚到任务开始前。
+
+        v1.9.0 M2.7 ⑤ 确认后端化：confirm=False 默认拒（CONFIRM_REQUIRED）——
+        前端三态对话框「清单→确认」后携带 confirm=true 调用，禁误触。
+        """
+        r = self._checkpoint.rollback(task_id, ws_dir or None,
+                                      confirm=bool(confirm))
         # 修复（对抗性复审）：A4 的 git 失败形状（ok=False + mode/restored/failed）
         # 必须原样透传——err() 会拍平成 {'error': '回滚失败'}，而前端 67-plan-card
         # 只读 restored/failed 数组，空数组会被误判为「回滚完成」假成功 toast。
         if not r.get('ok') and 'failed' in r:
             return ok(r)
-        return r if r.get('ok') else err(r.get('error', '回滚失败'))
+        if not r.get('ok'):
+            e = r.get('error')
+            # 结构化 error（dict：CONFIRM_REQUIRED 等）原样透传，禁拍平
+            return ok({'ok': False, 'error': e if isinstance(e, dict)
+                       else {'code': 'ROLLBACK_FAILED', 'message': str(e or '回滚失败')}})
+        return ok(r)
 
     def checkpoint_list(self, task_id=''):
         """M3-D1：检查点清单（回滚确认浮层展示「将恢复的文件」）。
@@ -1344,7 +1361,21 @@ class Api:
         原签名 task_id 必填——改为缺省兼容：缺省列全部（v19 检查点面板/
         checkpoints.json 数据源），传 task_id 时按任务过滤（M3-D1 原语义，
         既有调用方零改动）。"""
-        return ok(self._plan.checkpoint_list(task_id))
+        return ok(self._checkpoint.list(task_id))
+
+    def _auto_checkpoint_before_shell(self, op):
+        """v1.9.0 M2.7 ④ shell 前后快照：命令执行前自动锚点检查点。
+
+        锚点=空 files + git HEAD（零成本；回滚时差异恢复语义由
+        checkpoint_rollback 兜底）。失败禁阻断执行——快照是保险不是门槛。
+        """
+        try:
+            sid = self._runtime.get_current_sid() or 'shell'
+            tid = 'auto_%s_%s' % (op, str(sid)[:24])
+            self._checkpoint.create(tid, [], ws_dir=None,
+                                    label='auto-before-%s' % op, mode='auto')
+        except Exception:
+            pass
 
     def clarify_collect(self, questions, answers):
         """M3-C1：批量澄清答案收集（缺项用默认值；返回 [{q, answer}]）。

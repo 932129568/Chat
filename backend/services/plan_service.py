@@ -137,6 +137,12 @@ def _safe_join(ws_dir, rel):
 
 class PlanService(object):
 
+    def __init__(self):
+        # v1.9.0 M2.7：检查点六军规独立服务（原 plan_service 内实现迁入；
+        # test_plan_service 零改=行为等价证明；Api 装配同一实例保口径一致）
+        from .checkpoint_service import CheckpointService
+        self._checkpoint = CheckpointService()
+
     # ---------------- 计划 ----------------
     def create(self, title, steps, task_id=None, eta_seconds=None, scope=None):
         """steps: [{'text': str, 'risk': 'l0'|'l2'|'', 'tools': [...]?,
@@ -285,199 +291,19 @@ class PlanService(object):
         items.sort(key=lambda x: x.get('created_at') or '', reverse=True)
         return {'ok': True, 'plans': items[:int(limit)]}
 
-    # ---------------- 检查点 ----------------
-    def checkpoint_create(self, task_id, files, ws_dir=None):
-        """对计划声明涉及的文件建检查点。
+    # ---------------- 检查点（v1.9.0 M2.7：委托 CheckpointService 六军规）----------------
+    def checkpoint_create(self, task_id, files, ws_dir=None, label='', mode=''):
+        """委托 CheckpointService.create（六军规；行为等价+升级）。"""
+        return self._checkpoint.create(task_id, files, ws_dir=ws_dir,
+                                       label=label, mode=mode)
 
-        git 仓库：记录 HEAD 锚点（回滚=reset 到该 sha，不碰用户分支状态）。
-        非 git：复制文件到 ~/.glm-chat/checkpoints/<task_id>/（上限 200MB/500）。
-        返回 {ok, mode: 'git'|'snapshot'|'none', snapshot_count, git_head, warnings[]}。
-        """
-        try:
-            tid = _safe_tid(task_id)
-        except ValueError:
-            return {'ok': False, 'error': _TID_ERR}
-        ws = os.path.realpath(ws_dir or os.getcwd())
-        warnings = []
-        head = _git_head(ws)
-        manifest = {'task_id': tid, 'ws_dir': ws, 'git_head': head,
-                    'created_at': _now(), 'files': []}
-        snap_dir = _ckpt_path(tid)
-        total = 0
-        count = 0
-        for rel in (files or []):
-            full = _safe_join(ws, rel)
-            if not full:
-                warnings.append('越界路径已跳过: %s' % rel)
-                continue
-            if not os.path.isfile(full):
-                warnings.append('文件不存在已跳过: %s' % rel)
-                continue
-            try:
-                size = os.path.getsize(full)
-            except OSError:
-                continue
-            if count >= CKPT_MAX_FILES or total + size > CKPT_MAX_BYTES:
-                warnings.append('超出检查点上限（%d 文件 / %dMB），后续文件仅记录清单'
-                                % (CKPT_MAX_FILES, CKPT_MAX_BYTES // 1048576))
-                manifest['files'].append({'path': rel, 'snapshot': False})
-                continue
-            if not head:   # 非 git 才需要真快照
-                try:
-                    dst = os.path.join(snap_dir, str(rel).replace('..', '__'))
-                    os.makedirs(os.path.dirname(dst), exist_ok=True)
-                    shutil.copy2(full, dst)
-                    count += 1
-                    total += size
-                except OSError as e:
-                    warnings.append('快照失败 %s: %s' % (rel, e))
-                    manifest['files'].append({'path': rel, 'snapshot': False})
-                    continue
-            manifest['files'].append({'path': rel, 'snapshot': not head})
-        # manifest 始终落盘（git 锚点模式同样需要 rollback 时读回 sha）
-        try:
-            os.makedirs(snap_dir, exist_ok=True)
-            # 修复 A3：原子写（manifest 损坏=回滚不可用，同计划文件口径）
-            atomic_write_json(os.path.join(snap_dir, 'manifest.json'), manifest, indent=1)
-        except OSError as e:
-            return {'ok': False, 'error': '检查点清单落盘失败: %s' % e}
-        mode = 'git' if head else ('snapshot' if count else 'none')
-        pruned = _prune_old_checkpoints()
-        if pruned:
-            warnings.append('已轮换清理 %d 份旧检查点（保留最近 %d 份）'
-                            % (len(pruned), CKPT_KEEP))
-        return {'ok': True, 'mode': mode, 'git_head': head,
-                'snapshot_count': count, 'pruned': pruned, 'warnings': warnings}
-
-    def checkpoint_rollback(self, task_id, ws_dir=None):
-        """回滚到任务开始前。git 锚点：reset --hard <sha>（工作区需干净由调用方确认）；
-        快照：逐文件恢复（先备份当前版为 .rollback-bak）。返回 {ok, restored[], failed[], mode}。"""
-        try:
-            tid = _safe_tid(task_id)
-        except ValueError:
-            return {'ok': False, 'error': _TID_ERR}
-        snap_dir = _ckpt_path(tid)
-        mf_path = os.path.join(snap_dir, 'manifest.json')
-        restored, failed = [], []
-        if os.path.exists(mf_path):
-            try:
-                with open(mf_path, 'r', encoding='utf-8') as f:
-                    manifest = json.load(f)
-            except (OSError, ValueError) as e:
-                return {'ok': False, 'error': '检查点清单读取失败: %s' % e}
-            # 修复（对抗性复审）：调用方未显式传 ws_dir 时回落 manifest 里创建时
-            # 记录的工作区——前端 67-plan-card 的回滚调用只传 taskId（不传 ws），
-            # 原实现回落 os.getcwd() 会把 git reset --hard / 快照恢复打到应用自身
-            # 目录（源码运行时即项目仓库，一次回滚就 reset 掉应用仓库工作区）。
-            ws = os.path.realpath(str(ws_dir or manifest.get('ws_dir') or os.getcwd()))
-            head = manifest.get('git_head')
-            if head:
-                try:
-                    r = subprocess.run(['git', 'reset', '--hard', head], cwd=ws,
-                                       capture_output=True, timeout=60,
-                                       creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
-                    if r.returncode == 0:
-                        restored.append('git HEAD → %s' % head[:8])
-                        for item in manifest.get('files', []):
-                            if item.get('snapshot') is False:
-                                restored.append(item.get('path'))
-                        return {'ok': True, 'mode': 'git', 'restored': restored, 'failed': failed}
-                    failed.append('git reset 失败: %s' % r.stderr.decode('utf-8', 'replace')[:200])
-                except Exception as e:
-                    failed.append('git reset 异常: %s' % e)
-                # 修复 A4：git 锚点回滚失败不再误落 snapshot 分支误报模式——
-                # 显式返回 mode='git' + failed（快照目录此时并无内容可恢复）
-                return {'ok': False, 'mode': 'git', 'restored': restored, 'failed': failed}
-            for item in manifest.get('files', []):
-                if not item.get('snapshot'):
-                    continue
-                src = os.path.join(snap_dir, str(item.get('path')).replace('..', '__'))
-                dst = _safe_join(ws, item.get('path'))
-                if not dst or not os.path.exists(src):
-                    failed.append(item.get('path'))
-                    continue
-                try:
-                    if os.path.exists(dst):
-                        bak = dst + '.rollback-bak'
-                        if os.path.exists(bak):
-                            # 修复 A4：毫秒时间戳防互覆（重复回滚不冲掉上次备份）
-                            bak = '%s.rollback-bak.%s' % (dst, _ms_tag())
-                        shutil.copy2(dst, bak)   # 先备份当前版
-                    shutil.copy2(src, dst)
-                    restored.append(item.get('path'))
-                except OSError:
-                    failed.append(item.get('path'))
-            return {'ok': not failed or bool(restored), 'mode': 'snapshot',
-                    'restored': restored, 'failed': failed}
-        # 无快照目录：尝试 git 锚点（create 时记在计划里的场景由调用方传 files 重建）
-        return {'ok': False, 'error': '未找到检查点: %s（可能创建时超限降级为仅记录）' % tid}
+    def checkpoint_rollback(self, task_id, ws_dir=None, confirm=False):
+        """委托 CheckpointService.rollback（⑤ 确认后端化：confirm 必真）。"""
+        return self._checkpoint.rollback(task_id, ws_dir=ws_dir, confirm=confirm)
 
     def checkpoint_list(self, task_id=''):
-        """检查点清单。
-
-        v1.9 契约对齐（2026-10-23 核对发现）：前端契约为无参 `()`——列**全部**
-        任务的检查点（checkpoints.json 数据源 + v19 检查点面板/三态对话框）；
-        传 task_id 时保持 M3-D1 原语义（该任务「将恢复的文件」清单，既有
-        调用方零改动）。返回 {ok, files, mode, git_head, ws_dir}；无参形态
-        追加 items[]（每任务摘要：id/mode/created_at/file_count/size_bytes）。
-        """
-        if not task_id:
-            return self._checkpoint_list_all()
-        try:
-            snap_dir = _ckpt_path(task_id)
-        except ValueError:
-            return {'ok': False, 'error': _TID_ERR}
-        mf_path = os.path.join(snap_dir, 'manifest.json')
-        if not os.path.exists(mf_path):
-            return {'ok': True, 'files': [], 'mode': 'none'}
-        try:
-            with open(mf_path, 'r', encoding='utf-8') as f:
-                manifest = json.load(f)
-        except (OSError, ValueError):
-            return {'ok': True, 'files': [], 'mode': 'none'}
-        files = [{'path': it.get('path'), 'snapshot': bool(it.get('snapshot'))}
-                 for it in manifest.get('files', [])]
-        return {'ok': True, 'files': files, 'mode': 'git' if manifest.get('git_head') else 'snapshot',
-                'git_head': manifest.get('git_head'), 'ws_dir': manifest.get('ws_dir')}
-
-    def _checkpoint_list_all(self):
-        """无参形态：扫 checkpoints/ 下全部任务的 manifest 汇总（v19 面板数据源）。
-
-        保留策略 CKPT_KEEP=3 的轮换已在 create 时执行——此处只读现状。
-        items 按 created_at 降序；manifest 损坏的任务跳过（不阻塞整列表）。
-        """
-        base = _ckpts_dir()
-        items = []
-        try:
-            names = sorted(os.listdir(base))
-        except OSError:
-            names = []
-        for tid in names:
-            mf_path = os.path.join(base, tid, 'manifest.json')
-            if not os.path.exists(mf_path):
-                continue
-            try:
-                with open(mf_path, 'r', encoding='utf-8') as f:
-                    mf = json.load(f)
-            except (OSError, ValueError):
-                continue
-            files = mf.get('files') or []
-            size = 0
-            try:
-                for fn in os.listdir(os.path.join(base, tid)):
-                    fp = os.path.join(base, tid, fn)
-                    if os.path.isfile(fp):
-                        size += os.path.getsize(fp)
-            except OSError:
-                pass
-            items.append({'id': tid,
-                          'mode': 'git' if mf.get('git_head') else 'snapshot',
-                          'git_head': mf.get('git_head'),
-                          'created_at': mf.get('created_at'),
-                          'file_count': len(files),
-                          'size_bytes': size})
-        items.sort(key=lambda x: x.get('created_at') or '', reverse=True)
-        return {'ok': True, 'items': items, 'keep': CKPT_KEEP}
+        """委托 CheckpointService.list（无参=全部；传 tid=该任务清单）。"""
+        return self._checkpoint.list(task_id)
 
     # ---------------- 澄清（纯数据结构） ----------------
     def clarify_collect(self, questions, answers):

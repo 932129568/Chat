@@ -91,7 +91,7 @@ def test_checkpoint_snapshot_and_rollback(svc, ws):
     # 改动文件
     with open(os.path.join(ws, 'a.txt'), 'w', encoding='utf-8') as f:
         f.write('A-modified')
-    rb = svc.checkpoint_rollback(tid, ws)
+    rb = svc.checkpoint_rollback(tid, ws, confirm=True)  # v1.9 ⑤ 确认后端化
     assert rb['ok'] and rb['mode'] == 'snapshot'
     assert set(rb['restored']) == {'a.txt', 'sub/b.md'}
     with open(os.path.join(ws, 'a.txt'), encoding='utf-8') as f:
@@ -150,7 +150,7 @@ def test_checkpoint_git_head_and_rollback(svc, ws):
     assert c['ok'] and c['mode'] == 'git' and c['git_head'], c
     with open(os.path.join(ws, 'a.txt'), 'w', encoding='utf-8') as f:
         f.write('A-after-commit')
-    rb = svc.checkpoint_rollback(tid, ws)
+    rb = svc.checkpoint_rollback(tid, ws, confirm=True)  # v1.9 ⑤ 确认后端化
     assert rb['ok'] and rb['mode'] == 'git'
     with open(os.path.join(ws, 'a.txt'), encoding='utf-8') as f:
         assert f.read() == 'A-original'
@@ -219,7 +219,7 @@ def test_rollback_without_ws_dir_uses_manifest_ws(svc, ws, tmp_path, monkeypatch
     elsewhere = tmp_path / 'elsewhere'
     elsewhere.mkdir()
     monkeypatch.chdir(str(elsewhere))     # cwd ≠ ws；回归时文件会落这里
-    rb = svc.checkpoint_rollback(tid)     # 不传 ws_dir
+    rb = svc.checkpoint_rollback(tid, confirm=True)  # 不传 ws_dir（回落 manifest）
     assert rb['ok'] and rb['mode'] == 'snapshot', rb
     assert set(rb['restored']) == {'a.txt'}, rb
     with open(os.path.join(ws, 'a.txt'), encoding='utf-8') as f:
@@ -247,17 +247,18 @@ def test_rollback_git_failure_shape(svc, ws, monkeypatch):
     _orig = subprocess.run
 
     def _fake(args, **kw):
-        if isinstance(args, list) and args[:2] == ['git', 'reset']:
+        # v1.9 ① 差异恢复：git checkout 取代 reset --hard（patch 点随迁）
+        if isinstance(args, list) and args[:2] == ['git', 'checkout']:
             return _Fail()
         return _orig(args, **kw)
 
     monkeypatch.setattr('subprocess.run', _fake)
     try:
-        rb = svc.checkpoint_rollback(tid, ws)
+        rb = svc.checkpoint_rollback(tid, ws, confirm=True)  # v1.9 ⑤ 确认后端化
     finally:
         monkeypatch.undo()
     assert rb.get('ok') is False and rb.get('mode') == 'git', rb
-    assert rb.get('failed') and 'git reset 失败' in rb['failed'][0], rb
+    assert rb.get('failed') and 'a.txt' in rb['failed'][0], rb
     assert rb.get('restored') == [], rb
 
 
@@ -282,7 +283,8 @@ def test_api_rollback_git_failure_not_flattened(svc, ws, monkeypatch):
     _orig = subprocess.run
 
     def _fake(args, **kw):
-        if isinstance(args, list) and args[:2] == ['git', 'reset']:
+        # v1.9 ① 差异恢复：git checkout 取代 reset --hard（patch 点随迁）
+        if isinstance(args, list) and args[:2] == ['git', 'checkout']:
             return _Fail()
         return _orig(args, **kw)
 
@@ -294,10 +296,10 @@ def test_api_rollback_git_failure_not_flattened(svc, ws, monkeypatch):
         monkeypatch.undo()
     monkeypatch.setattr('subprocess.run', _fake)
     try:
-        raw = api.checkpoint_rollback(tid)     # 不传 ws_dir（前端口径）
+        raw = api.checkpoint_rollback(tid, confirm=True)  # 不传 ws_dir（前端口径）
     finally:
         monkeypatch.undo()
     d = json.loads(raw)
     assert d.get('mode') == 'git', d
-    assert d.get('failed') and 'git reset 失败' in d['failed'][0], d
+    assert d.get('failed') and 'a.txt' in d['failed'][0], d  # v1.9 checkout
     assert d.get('failed'), d   # 富形状不得被拍平成纯 error
