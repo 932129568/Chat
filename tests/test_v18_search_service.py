@@ -179,7 +179,7 @@ class _FakeResp:
         return 'https://www.bing.com/search?q=x'
 
 
-def _mk_service(script=None, ttl=30, clock=None):
+def _mk_service(script=None, ttl=60, clock=None):   # R30：默认 30→60
     """构造 SearchService（注入 FakeBrowser + 假时钟 + 隔离缓存目录）。"""
     cache_dir = os.path.join(HOME, '.glm-chat', 'search_cache')
     svc = SearchService(
@@ -335,7 +335,7 @@ class TestBrowserSearchBasics:
 
 # ============================================================ 缓存层（C1）
 class TestSearchCache:
-    """C1：TTL 30min + 归一化键 + source=cache + 统计。"""
+    """C1：TTL 60min（R30）+ 归一化键 + source=cache + 统计。"""
 
     def test_cache_hit_and_stats(self):
         clock = _FakeClock()
@@ -350,7 +350,7 @@ class TestSearchCache:
         st = svc.search_cache_stats()
         assert st['ok'] is True
         assert st['entries'] == 1 and st['hits'] == 1 and st['misses'] == 1
-        assert st['ttl_minutes'] == 30 and st['size_kb'] >= 0
+        assert st['ttl_minutes'] == 60 and st['size_kb'] >= 0   # R30：30→60
         # 读取类不落审计（stats 调用后审计条数不变）
         before = len(_audit_ops())
         svc.search_cache_stats()
@@ -364,10 +364,11 @@ class TestSearchCache:
             {'ok': True, 'html': _fx('bing_results.html'), 'channel': 'urllib'},
         ], clock=clock)
         svc.browser_search({'query': 'python'})
-        clock.advance(29 * 60)                        # 29min：仍新鲜
+        # v1.9.0 M2.11（R30 行为变更明示）：general 档 TTL 30→60min
+        clock.advance(59 * 60)                        # 59min：仍新鲜
         r = svc.browser_search({'query': 'python'})
         assert r['source'] == 'cache'
-        clock.advance(2 * 60)                         # 累计 31min：过期
+        clock.advance(6 * 60)                         # 累计 65min：过期
         r2 = svc.browser_search({'query': 'python'})
         assert r2['source'] == 'live'
         assert len(svc._browser.calls) == 2
@@ -849,7 +850,7 @@ async function callApi(name, args, timeoutMs) {
   if (name === 'browser_takeover') return JSON.stringify(__takeoverResp);
   if (name === 'search_status') return JSON.stringify(__statusResp);
   if (name === 'search_cache_stats') return JSON.stringify({ ok: true,
-    entries: 3, hits: 2, misses: 5, ttl_minutes: 30, size_kb: 88 });
+    entries: 3, hits: 2, misses: 5, ttl_minutes: 60, size_kb: 88 });   // R30：30→60
   return '{}';
 }
 const __toasts = [];

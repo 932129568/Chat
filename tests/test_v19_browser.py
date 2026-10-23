@@ -671,7 +671,7 @@ class TestSearchMigrationRegression:
         assert st['ok'] is True and st['active'] is False
         stats = svc.search_cache_stats()
         assert stats['ok'] is True and stats['entries'] >= 1
-        assert stats['ttl_minutes'] == 30
+        assert stats['ttl_minutes'] == 60   # R30：30→60（分级 TTL general 档）
 
     def test_browser_takeover_not_found(self):
         """takeover 注册表随迁移保留：未知 id → TAKEOVER_NOT_FOUND。"""

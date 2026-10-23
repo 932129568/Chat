@@ -52,7 +52,9 @@ from .extract import DEFAULT_MAX_CHARS, extract_main_content
 from ..toolcache_service import ToolcacheService
 
 # ---------------- 契约常量（联调规范 §3.1 / §4.4） ----------------
-CACHE_TTL_MINUTES = 30                    # C1：缓存 TTL（ttl_minutes 可配口径的默认值）
+# v1.9.0 M2.11（R30）：CACHE_TTL_MINUTES 30→60（general 档分级 TTL 口径；
+# test_v18_search_service 两处断言同步——方案要求的行为变更，非妥协）
+CACHE_TTL_MINUTES = 60                    # C1：缓存 TTL 默认（general 档）
 CACHE_DIR_NAME = 'search_cache'           # 独立目录（config.json 零污染铁律）
 TAKEOVER_TTL_SECONDS = 600                # 10min 无操作自动放弃（ux-flows 流程 2）
 TAKEOVER_MAX_RETRIES = 3                  # 复检仍验证页的重试上限
@@ -239,6 +241,31 @@ def _captcha_signal(html):
     if m:
         return 'body:%s' % m.group(0)
     return None
+
+
+# v1.9.0 M2.11：缓存分级 TTL（master-plan R30 口径；纯函数可单测）
+TTL_CLASSES = {'news': 5, 'general': 60, 'encyclopedia': 1440}   # 分钟
+_TTL_NEWS_WORDS = ('新闻', '快讯', '最新', '今天', '今日', 'news', 'latest',
+                   'today', 'breaking', '发布会', '股价', '天气')
+_TTL_ENC_WORDS = ('是什么', '定义', '百科', '什么意思', 'wiki', 'wikipedia',
+                  '历史', '由来', '区别', ' vs ')
+
+
+def classify_query_ttl(query='', time_range=''):
+    """可解释分类（纯函数）→ (class, ttl_minutes)。
+
+    time_range ∈ day/week → news（用户显式要近期）；
+    query 命中新闻词 → news；百科词 → encyclopedia；否则 general。
+    """
+    q = str(query or '').lower()
+    tr = str(time_range or '').strip().lower()
+    if tr in ('day', 'week'):
+        return 'news', TTL_CLASSES['news']
+    if any(w in q for w in _TTL_NEWS_WORDS):
+        return 'news', TTL_CLASSES['news']
+    if any(w in q for w in _TTL_ENC_WORDS):
+        return 'encyclopedia', TTL_CLASSES['encyclopedia']
+    return 'general', TTL_CLASSES['general']
 
 
 class SearchService:
@@ -570,13 +597,17 @@ class SearchService:
 
         # ---- 缓存写入 + 组装 ----
         fetched_at = _utc_now()
+        # v1.9.0 M2.11：分级 TTL 分类（条目级；_cache_get 按条目判定过期）
+        ttl_class, ttl_min = classify_query_ttl(
+            q_echo, str(params.get('time_range') or ''))
         self._cache_put(self._cache_key(
             engine, q_echo, str(params.get('site') or ''),
             str(params.get('filetype') or '').lower(),
             str(params.get('time_range') or '').lower(),
             str(params.get('lang') or '').lower()),
             {'query': q_echo, 'engine': engine, 'fetched_at': fetched_at,
-             'fetched_ts': self._clock(), 'results': results, 'deep': deep})
+             'fetched_ts': self._clock(), 'results': results, 'deep': deep,
+             'ttl_class': ttl_class, 'ttl_minutes': ttl_min})
         if takeover is not None:
             takeover['state'] = 'resolved'
         self._end_task(task_id, 'done', '搜索完成')
@@ -1199,7 +1230,12 @@ class SearchService:
         return hashlib.sha1(material.encode('utf-8')).hexdigest()
 
     def _cache_get(self, key):
-        """读缓存条目；TTL 外/损坏 → None（并顺手清过期文件，自清理）。"""
+        """读缓存条目；TTL 外/损坏 → None（并顺手清过期文件，自清理）。
+
+        v1.9.0 M2.11：条目级 TTL——条目带 ttl_class/ttl_minutes 时按条目值
+        判定（写入时 classify_query_ttl 分类）；旧条目无 → general 60 默认
+        （与 CACHE_TTL_MINUTES 新默认一致，非 30——R30 行为变更明示）。
+        """
         fp = os.path.join(self._cache_dir, str(key) + '.json')
         try:
             with open(fp, 'r', encoding='utf-8') as f:
@@ -1216,7 +1252,14 @@ class SearchService:
             fetched_ts = float(fetched_ts)
         except (TypeError, ValueError):
             return None
-        if self._clock() - fetched_ts > self._ttl * 60:
+        ttl_min = data.get('ttl_minutes')
+        try:
+            ttl_min = float(ttl_min)
+        except (TypeError, ValueError):
+            ttl_min = float(self._ttl)     # 旧条目回落服务级默认
+        if ttl_min <= 0:
+            ttl_min = float(self._ttl)
+        if self._clock() - fetched_ts > ttl_min * 60:
             try:
                 os.remove(fp)      # 过期自清理（陈旧边界 R6：TTL 外信息可能已变）
             except OSError:
@@ -1224,9 +1267,18 @@ class SearchService:
             return None
         return data
 
-    def _cache_put(self, key, entry):
-        """写缓存条目（原子写；失败只 warning 不阻断搜索主流程）。"""
+    def _cache_put(self, key, entry, ttl_class='', ttl_minutes=None):
+        """写缓存条目（原子写；失败只 warning 不阻断搜索主流程）。
+
+        v1.9.0 M2.11：ttl_class/ttl_minutes 纯增键（条目级 TTL——_cache_get
+        按条目判定；调用方不传则不带，读时回落 general 默认）。
+        """
         fp = os.path.join(self._cache_dir, str(key) + '.json')
+        if isinstance(entry, dict) and ttl_class:
+            entry = dict(entry)
+            entry['ttl_class'] = ttl_class
+            if ttl_minutes:
+                entry['ttl_minutes'] = ttl_minutes
         try:
             from ...fio import atomic_write_json
             atomic_write_json(fp, entry)

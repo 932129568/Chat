@@ -54,6 +54,25 @@ SOFTWARE_FILE = os.path.join(paths.CONFIG_DIR, 'software.json')
 GUI_VERIFY_TIMEOUT_S = 10          # FindWindowW 标题核验上限（§3.2 GUI 形态）
 PROBE_VERSION_TIMEOUT_S = 15       # --version 验身份单次超时
 CLI_TIMEOUT_MIN, CLI_TIMEOUT_MAX = 5, 600   # timeout 参数合法域（§3.2 请求表）
+# v1.9.0 M2.11（R32 核对）：输出四连洗（回灌主模型上下文前）——ANSI 转义/
+# bidi 双向覆盖/零宽不可见字符/C0 控制符。安全语义：bidi 可伪装文本方向
+# （钓鱼 UI），零宽可藏不可见指令——进上下文前必须洗净。保 \t \n（表格/
+# 换行可读）；禁改中文内容（零宽剔除后中文语义无损）。
+_ANSI_RE = re.compile(r'\x1b\[[0-9;?]*[a-zA-Z]|\x1b\][^\x07]*(\x07|\x1b\\)')
+_BIDI_RE = re.compile('[\u200e\u200f\u202a-\u202e\u2066-\u2069]')
+_ZERO_WIDTH_RE = re.compile('[\u200b-\u200d\u2060\ufeff]')
+_CTRL_RE = re.compile('[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]')
+
+
+def sanitize_text(s):
+    """四连洗（顺序固定：ANSI→bidi→零宽→C0；保 \t \n）。"""
+    s = str(s if s is not None else '')
+    s = _ANSI_RE.sub('', s)
+    s = _BIDI_RE.sub('', s)
+    s = _ZERO_WIDTH_RE.sub('', s)
+    s = _CTRL_RE.sub('', s)
+    return s
+
 OUTPUT_TRUNCATE_CHARS = 6000       # stdout/stderr 序列化超限 → toolcache 截断
 OUTPUT_HEAD_CHARS = 1500           # 截断保留头段（与 cmd_service 同口径）
 OUTPUT_TAIL_CHARS = 800            # 截断保留尾段
@@ -1342,8 +1361,9 @@ class SoftwareService:
                                           'exit_code': ''}, 'call', 'block')
             return _error('GUARD_DENIED', str(r['error']),
                           '可在设置→命令沙箱中调整档位后重试')
-        stdout = self._dec(r.get('stdout'))
-        stderr = self._dec(r.get('stderr'))
+        # v1.9.0 M2.11：回灌前四连洗（ANSI/bidi/零宽/C0——毒输出防注入面）
+        stdout = sanitize_text(self._dec(r.get('stdout')))
+        stderr = sanitize_text(self._dec(r.get('stderr')))
         if r.get('timed_out'):
             # 看门狗已清剿进程树（Job Object KILL_ON_JOB_CLOSE）；保留部分输出
             self._audit('software_call', {'software': software,

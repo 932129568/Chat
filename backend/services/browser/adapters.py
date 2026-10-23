@@ -74,7 +74,7 @@ _ENGINE_BASE_URLS = {
 
 # ================= 查询 URL 构造 =================
 
-def build_query_url(engine, params=None):
+def build_query_url(engine, params=None, fmt='html'):
     """实现 v1.8.0 B1：构造搜索引擎检索 URL（纯函数，零 IO）。
 
     参数注入规则（契约 §3.1 browser_search 请求字段表）：
@@ -95,6 +95,10 @@ def build_query_url(engine, params=None):
         engine: 引擎名，须在 ``ENGINES`` 内（大小写不敏感）。
         params: dict，可含 ``query`` / ``site`` / ``filetype`` / ``time_range``
             / ``lang`` / ``max_results``；缺省键按「不注入」处理。
+        fmt: v1.9.0 M2.9 新增（kwarg 纯增，既有两参调用逐字节不变）：
+            ``'html'``（缺省）= 既有 HTML 检索 URL；``'rss'`` = Bing RSS
+            通道（URL 追 ``&format=rss``，4KB 量级 XML 主路径）——**仅
+            bing 支持**，其余引擎抛 ValueError（调用方回落 html，不静默）。
 
     Returns:
         str: 完整检索 URL（含查询串，参数顺序确定，便于测试逐字节断言）。
@@ -106,11 +110,14 @@ def build_query_url(engine, params=None):
             ``site`` / ``filetype`` / ``time_range`` / ``lang`` /
             ``max_results`` 的非法值由调用方按契约前置校验，本函数对
             缺省/无法解析的值采取忽略策略（防御性，不重复当判官）。
+            ``fmt='rss'`` 且 engine 非 bing（RSS 通道引擎专属）。
     """
     eng = str(engine or '').strip().lower()
     if eng not in ENGINES:
         raise ValueError('不支持的搜索引擎: %r（合法值: %s）'
                          % (engine, '/'.join(ENGINES)))
+    if str(fmt or 'html').lower() == 'rss' and eng != 'bing':
+        raise ValueError('RSS 通道仅 bing 支持（%r 请用 html）' % engine)
     p = dict(params or {})
     query = str(p.get('query') or '').strip()
     if not query:
@@ -155,7 +162,70 @@ def build_query_url(engine, params=None):
             # Baidu rn 仅接受 10/20/50 三档（其他值被忽略）——向上吸附
             value = 10 if value <= 10 else (20 if value <= 20 else 50)
         args.append((name, str(value)))
-    return base + '?' + _urlencode_pairs(args)
+    url = base + '?' + _urlencode_pairs(args)
+    if str(fmt or 'html').lower() == 'rss':
+        url += '&format=rss'      # M2.9：Bing RSS 通道（调用方已校验 engine=bing）
+    return url
+
+
+# ================= v1.9.0 M2.9：Bing RSS 解析（主通道 4KB 量级）=================
+# 与 parse_results 同输出 shape（契约 §4.3）：{title,url,snippet,position,date,domain}。
+# stdlib ElementTree（零依赖铁律）；容忍命名空间前缀与 dc:date；无 item/解析
+# 失败 → []（调用方回落 HTML 兜底，不抛——RSS 是优化不是新故障面）。
+def parse_rss(xml):
+    """RSS 2.0 XML → 结果列表（与 parse_results 同 shape）。
+
+    Args:
+        xml: RSS XML 文本（bytes/str）。
+
+    Returns:
+        list: [{title, url, snippet, position, date, domain}]；空文档/解析
+        失败/无 item → []（调用方回落 HTML）。
+    """
+    import xml.etree.ElementTree as ET
+    try:
+        if isinstance(xml, bytes):
+            root = ET.fromstring(xml)
+        else:
+            root = ET.fromstring(str(xml or ''))
+    except ET.ParseError:
+        return []
+    items = root.findall('.//item')
+    out = []
+    for i, it in enumerate(items, 1):
+        def _text(tag):
+            el = it.find(tag)
+            return (el.text or '').strip() if el is not None else ''
+        url = _text('link')
+        if not url:
+            continue                      # 无链接条目跳过（主模型引用不了）
+        title = _text('title')
+        desc = _text('description')
+        # description 可能是 HTML 片段——剥标签取纯文本（轻量，不引 extract）
+        snippet = re.sub(r'<[^>]+>', '', desc).strip()
+        date_raw = _text('pubDate') or _text('{http://purl.org/dc/elements/1.1/}date')
+        out.append({'title': title, 'url': url, 'snippet': snippet,
+                    'position': i, 'date': _flexible_date(date_raw),
+                    'domain': _domain_of(url)})
+    return out
+
+
+def _flexible_date(s):
+    """日期归一 → 'YYYY-MM-DD'：RFC822（RSS pubDate）优先，ISO8601（dc:date）
+    兜底；均失败 → None（调用方按无日期渲染，不抛）。"""
+    if not s:
+        return None
+    import email.utils
+    try:
+        dt = email.utils.parsedate_to_datetime(str(s))
+        return dt.strftime('%Y-%m-%d')
+    except (TypeError, ValueError, OverflowError):
+        pass
+    try:
+        import datetime
+        return datetime.date.fromisoformat(str(s).strip()[:10]).strftime('%Y-%m-%d')
+    except (TypeError, ValueError):
+        return None
 
 
 # URL 编码安全字符（与 urllib.parse.quote 的 always_safe 口径一致）
