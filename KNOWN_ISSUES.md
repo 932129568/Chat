@@ -207,3 +207,19 @@
 - **R20**（官网实测 `api-docs.deepseek.com/quick_start/pricing`）：现行模型名为 `deepseek-flash` / `deepseek-v4-pro`（ctx 1M / max out 384K / 高峰价 flash \$0.15+0.6、pro \$0.3+1.2 每 1M tok，非高峰半价）；preset 原 `deepseek-v4.1-256k`/`deepseek-v4.1` 已退役（旧名仍接受、由 V4.1-Flash-1017 服务）。36-connect.js preset 与 host 模型表已校准
 - **R21**（GLM web_search 升级结构化 API）：GLM 内置 web_search 无公开结构化参数文档（模型黑盒触发）；本版自有 `browser_search` 通道（联调规范 §3.1）已覆盖「Harbor 侧构造检索参数」的同一目标，且双通道按端点自动选（R11 裁决口径）——R21 判定为与自有通道重复，不再单独投入；后续如 GLM 开放结构化 web_search 参数面再评估
 - **处理状态**：🟢 R20 已校准（preset+host 表+价格注释）；🟢 R21 结论记录（不重复建设）
+
+---
+
+## v1.9.0「全域版」进行态（2026-10-23 登记）
+
+### 20. v19 迭代进度与环境坑（开发期记录，随批次更新）
+
+- **已完成**：M1 全量（T01 契约资产 / T02 browser 平台抽象包+搜索栈迁移，commit `d0044e0`，1196 passed）；M2 部分（批 2a：dual-LLM-lite 读取器 + provenance，commit `8691f51`；批 2b：Bing RSS 双通道 + 缓存分级 TTL + 输出四连洗，commit `e6fe2be`，1249 passed；已推远端 `65a13550`）
+- **在途**：批 2c（RSS 主路径接线 + provenance 三接入点 + reader 接入 browser_open）；待排：批 2d（T04 审批预算+审计哈希链+计划卡字段）、批 3（T05 检查点六军规+MCP 收尾）、M3-M9（Win 浏览器六原语 / macOS / 打包发布）
+- **环境坑（本机实测，非代码问题，处置路径已验证）**：
+  - venv python stub 对中文用户 profile 路径解析失败（exit 103，`did not find executable at C:\Users\?\...`）——**降级路径**：系统 `C:\Python315\python.exe` + `PYTHONPATH` 指向 venv 的 `Lib\site-packages`（QA 侧用 vendor python 3.13.14 同效，两路独立收敛）
+  - PowerShell 会话不继承 git PATH——先 `$env:Path += ";C:\Program Files\Git\cmd"`；bash 的 MSYS 中文路径转换已坏，git/构建命令一律走 PowerShell 工具
+  - 子代理工具环境间歇性 502（127.0.0.1:7863 代理拒连）——本地命令不走代理；重试一次仍失败则记录「环境故障未执行」并继续后续项，勿反复撞同一失败调用
+- **行为变更备案**：CACHE_TTL_MINUTES 30→60（R30，general 档分级 TTL）——test_v18_search_service 两处 + `_mk_service` 默认 + test_v19_browser 共 4 处断言同步（方案原计两处，grep 实扫补全）
+- **前端产品移植**：v19 新组件（brw-mode / grant-budget / plan-eta / audit-chain / mac-kbd 等）仍零移植进 `frontend/src/`——后端接口已按契约定稿（9 占位 + reader/budget 转正 + 配置类 js_api），UI 并行会话按 `design/v19/prototypes/` 移植
+- **处理状态**：🟡 开发中（M1 完成 / M2 进行 / M3-M9 未启动；每批过门禁：pytest 全绿 + 契约差分 + build 幂等）
