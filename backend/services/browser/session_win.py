@@ -1,6 +1,12 @@
 # -*- coding: utf-8 -*-
 """v1.8.0 B 域·搜索窗口通道（实现 v1.8.0 B2：pywebview 次窗 + urllib 兜底双通道）。
 
+v1.9.0 T02 迁移说明：本模块自 ``backend/services/search_browser.py`` **原样迁入**
+browser/ 包（设计文档 §A2.6 迁移映射表）——SearchBrowser 类名/方法/常量/行为
+逐字不变（迁移=行为等价）；``_is_public_host`` / ``_decode_html`` 按映射表
+**上移** session_base.py（search_browser 内引用删，改从 session_base 导入）。
+新增 WinSession(BrowserSession) 适配类（M1.5）：六原语 → SearchBrowser 通道。
+
 模块职责（架构文档 §2.1 后端模块表「窗口通道 search_browser」）：
 - 次窗口生命周期：680×520 隐藏备用、``load_url`` 加载、``events.loaded``
   加载事件、8s 看门狗、独立 UserDataFolder（``~/.glm-chat/search_webview``）、
@@ -16,7 +22,6 @@
 纯 IO 边界：本模块是搜索栈唯一直接触网的模块（urllib），窗口操作经 pywebview；
 ``import`` 无副作用（webview 延迟导入），可在无 GUI 环境导入与单测。
 """
-import ipaddress
 import os
 import re
 import socket
@@ -26,9 +31,12 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-from .. import paths
-from ..logging_setup import get_logger
-from .mcp_transport_http import urlopen_no_redirect
+from ... import paths
+from ...logging_setup import get_logger
+from ..mcp_transport_http import urlopen_no_redirect
+from .session_base import (BrowserError, BrowserErrorCode, BrowserSession,
+                           SessionState, _decode_html, _is_public_host,
+                           build_extract_result, html_title, map_error_code)
 
 # 次窗形态（架构 §2.1：680×520 次窗）
 WINDOW_WIDTH = 680
@@ -51,48 +59,6 @@ USER_DATA_DIR_NAME = 'search_webview'
 
 # 禁导航协议（R2 纪律：仅 http/https；file:// / javascript: / about: 等一律拒绝）
 _ALLOWED_SCHEME = re.compile(r'^https?://', re.IGNORECASE)
-
-
-def _is_public_host(host):
-    """host 是否解析到公网地址（SSRF 防护；ipaddress + getaddrinfo）。
-
-    拒绝 private / loopback / link_local / reserved / multicast / unspecified
-    （含 127/8、10/8、192.168/16、169.254/16、::1、fe80::/10、fc00::/7 等）——
-    防搜索窗口/直连被抓包成本内网探测代理（browser_open 可被诱导访问
-    元数据端点 169.254.169.254 或内网管理口）。
-
-    口径（2026-10-21 修订）：字面 IP 直接判定；域名解析成功且全部落私网段
-    → 拒绝；**解析失败放行**——本机 DNS 瞬时不可用时若 fail-closed 会误杀
-    全部正常搜索（fetch 会经同一解析器自然失败，拦截无增益），且令调用方
-    依赖实时 DNS 产生抖动。已知边界：DNS rebinding（检查时公网、抓取时
-    私网）不在此威胁模型内。
-    """
-    h = str(host or '').strip().lower().rstrip('.')
-    if not h:
-        return False
-    # 字面 IP（v4/v6，可带 zone id）：不触 DNS，直接判定
-    try:
-        ip = ipaddress.ip_address(h.split('%', 1)[0])
-        return not (ip.is_private or ip.is_loopback or ip.is_link_local or
-                    ip.is_reserved or ip.is_multicast or ip.is_unspecified)
-    except ValueError:
-        pass
-    try:
-        infos = socket.getaddrinfo(h, None)
-    except Exception:
-        return True        # DNS 失败：放行（fetch 经同一解析器自然失败）
-    saw_addr = False
-    for info in infos:
-        addr = str(info[4][0]).split('%', 1)[0]   # 去 zone id（fe80::1%eth0）
-        try:
-            ip = ipaddress.ip_address(addr)
-        except ValueError:
-            return False
-        saw_addr = True
-        if ip.is_private or ip.is_loopback or ip.is_link_local or \
-                ip.is_reserved or ip.is_multicast or ip.is_unspecified:
-            return False
-    return saw_addr
 
 
 class SearchBrowser:
@@ -209,7 +175,8 @@ class SearchBrowser:
                     'message': '已阻止非 http(s) 导航: %s' % u[:80],
                     'hint': '浏览器搜索/打开仅支持 http/https 链接'}
         # 内网防护（SSRF）：解析目标 host，私网/环回/链路本地等一律拒绝
-        #（DNS 解析失败按拒绝——fail-closed；helper 与 search_service.browser_open 共用）
+        #（DNS 解析失败按拒绝——fail-closed；helper 与 browser/service.py 的
+        # browser_open 共用同一口径）
         host = urllib.parse.urlsplit(u).hostname
         if not _is_public_host(host):
             return {'ok': False, 'error': 'NAV_BLOCKED',
@@ -453,23 +420,144 @@ class SearchBrowser:
             self._destroy_window(win)
 
 
-def _decode_html(raw, content_type=''):
-    """响应体解码：先按 Content-Type charset，失败回落 utf-8（replace 不抛）。
+class WinSession(BrowserSession):
+    """Windows 渲染后端（pywebview 次窗通道 SearchBrowser 适配六原语；M1.5）。
 
-    Args:
-        raw: bytes 响应体。
-        content_type: 响应 Content-Type 头（可含 ``charset=xxx``）。
+    适配映射（设计文档 §A2.6）：
+    - ``navigate`` = SearchBrowser.open_url + 取 title（协议/SSRF 预校验给
+      精确 taxonomy 码：NAV_BLOCKED / SSRF_BLOCKED，通道层只回 NAV_BLOCKED）；
+    - ``extract`` = 对 navigate 所取 HTML 跑 build_extract_result
+      （markdown/text/links 三态；M3 起改经 evaluate_js 取实时 outerHTML——
+      沙箱不可泵送为已知限制，先用 navigate 所取页面）；
+    - ``close`` = SearchBrowser.shutdown（幂等）；
+    - ``click`` / ``fill`` / ``screenshot`` = PRIMITIVE_UNSUPPORTED（M3 落点）。
 
-    Returns:
-        str: 解码文本（坏字节替换为 U+FFFD，与 adapters 侧解码口径一致）。
+    裁决（设计文档 §A3.3）：WinSession **不实现 open_url**——搜索管线只吃
+    SearchBrowser（鸭子类型），六原语走 M3 BrowserService 新管线，与搜索
+    管线解耦。
     """
-    if isinstance(raw, str):
-        return raw
-    m = re.search(r'charset=([\w-]+)', str(content_type or ''), re.IGNORECASE)
-    if m:
-        enc = m.group(1)
+
+    platform = 'win'
+
+    def __init__(self, channel=None):
+        """Args:
+            channel: 取数通道（缺省 SearchBrowser()；测试可注入假通道——
+                任何有 open_url(url) / shutdown() 的对象均可，鸭子类型）。
+        """
+        super().__init__()
+        self._log = get_logger()
+        self._channel = channel if channel is not None else SearchBrowser()
+        self._html = ''
+        self._url = ''
+
+    def navigate(self, url, wait_selector='', timeout=60):
+        """导航到目标页面 → ``{ok, title, url, final_url, channel}``。
+
+        状态机（设计文档 §A4.2）：idle → ready **直达**（不经 busy——迁移表
+        只认 navigate 成功这一次迁移）；失败保持进入前状态（无迁移即无回滚）。
+        ready 态再导航按迁移表拒（SESSION_BUSY）——会话一页一生命周期，
+        换页请 close 后新建（M3 BrowserService 管线可扩展）。
+
+        通道层已有 8s 看门狗与 urllib 兜底（SearchBrowser.open_url）；
+        ``timeout`` / ``wait_selector`` 为六原语契约参数（M3 透传到通道层）。
+        """
         try:
-            return bytes(raw).decode(enc, 'replace')
-        except (LookupError, TypeError):
+            u = str(url or '').strip()
+            if not u:
+                raise BrowserError(BrowserErrorCode.BAD_PARAMS, 'url 不能为空')
+            if not _ALLOWED_SCHEME.match(u):
+                raise BrowserError(
+                    BrowserErrorCode.NAV_BLOCKED,
+                    '已阻止非 http(s) 导航: %s' % u[:80],
+                    '浏览器仅支持 http/https 链接')
+            if not _is_public_host(urllib.parse.urlsplit(u).hostname):
+                raise BrowserError(
+                    BrowserErrorCode.SSRF_BLOCKED,
+                    '已阻止访问内网/环回地址: %s' % u[:80],
+                    '禁止访问内网/环回地址')
+            try:
+                r = self._channel.open_url(u)
+            except Exception as e:
+                raise BrowserError(BrowserErrorCode.INTERNAL,
+                                   '导航失败: %s' % e)
+            if not isinstance(r, dict) or not r.get('ok'):
+                r = r if isinstance(r, dict) else {}
+                extra = {'http_status': r.get('http_status')} \
+                    if r.get('http_status') else None
+                raise BrowserError(map_error_code(r.get('error')),
+                                   r.get('message') or '导航失败',
+                                   r.get('hint') or '', extra)
+            self._html = r.get('html') or ''
+            self._url = u
+            self._enter(SessionState.READY)
+            return {'ok': True, 'title': html_title(self._html), 'url': u,
+                    'final_url': u, 'channel': r.get('channel') or 'window'}
+        except BrowserError:
+            raise
+        except Exception as e:      # 防御：通道层未预期异常不得穿透状态机
+            raise BrowserError(BrowserErrorCode.INTERNAL, '导航失败: %s' % e)
+
+    def extract(self, selector='', mode='markdown'):
+        """提取 navigate 所取页面 → markdown/text/links 三态（见 build_extract_result）。"""
+        self._enter(SessionState.BUSY)
+        try:
+            return build_extract_result(self._html, selector, mode)
+        finally:
+            self._settle_ready()
+
+    def click(self, target):
+        """M3 落点：Windows 渲染后端的点击原语（pywebview 事件注入）尚未交付。"""
+        self._enter(SessionState.BUSY)
+        try:
+            raise BrowserError(
+                BrowserErrorCode.PRIMITIVE_UNSUPPORTED,
+                'Windows 渲染后端的 click 原语计划于 M3 交付（pywebview 事件注入）',
+                '当前可经 browser_open 读取页面内容')
+        finally:
+            self._settle_ready()
+
+    def fill(self, selector, text):
+        """M3 落点：Windows 渲染后端的表单填充原语尚未交付。"""
+        self._enter(SessionState.BUSY)
+        try:
+            raise BrowserError(
+                BrowserErrorCode.PRIMITIVE_UNSUPPORTED,
+                'Windows 渲染后端的 fill 原语计划于 M3 交付（pywebview 事件注入）',
+                '敏感内容禁回显：M3 实现同样只返回 {ok, masked: True}')
+        finally:
+            self._settle_ready()
+
+    def screenshot(self, full_page=False):
+        """M3 落点：Windows 渲染后端的截屏原语尚未交付。"""
+        self._enter(SessionState.BUSY)
+        try:
+            raise BrowserError(
+                BrowserErrorCode.PRIMITIVE_UNSUPPORTED,
+                'Windows 渲染后端的 screenshot 原语计划于 M3 交付',
+                '全屏截屏可先用 take_screenshot js_api')
+        finally:
+            self._settle_ready()
+
+    def close(self):
+        """关闭会话（幂等）：销毁次窗 + 停回收线程。重复调用直接返回 ok。"""
+        with self._lock:
+            already = self._state is SessionState.CLOSED
+        if not already:
+            self._enter(SessionState.CLOSED)
+            try:
+                self._channel.shutdown()
+            except Exception as e:
+                self._log.debug('WinSession 关闭通道失败（忽略）: %r', e)
+        self._html = ''
+        self._url = ''
+        return {'ok': True}
+
+    def _settle_ready(self):
+        """原语出口回落 READY（失败也回——单会话串行不残留忙态）。
+
+        close() 强制路径（BUSY→CLOSED）已接管时不回改（防掩盖终态）。
+        """
+        try:
+            self._enter(SessionState.READY)
+        except BrowserError:
             pass
-    return bytes(raw).decode('utf-8', 'replace')

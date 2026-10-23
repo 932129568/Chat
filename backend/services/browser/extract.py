@@ -1,7 +1,11 @@
 # -*- coding: utf-8 -*-
 """v1.8.0 B 域·正文提取（实现 v1.8.0 B2：readability 风格主体提取 + 选择器覆盖）。
 
-模块职责（架构文档 §2.1 后端模块表「正文提取 search_extract」）：把文章页
+v1.9.0 T02 迁移说明：本模块自 ``backend/services/search_extract.py`` **原样迁入**
+browser/ 包（设计文档 §A2.6）——extract_main_content/DEFAULT_MAX_CHARS 不改名，
+代码逐字不变（仅 import 行与文档中模块名引用同步更新）。
+
+模块职责（架构文档 §2.1 后端模块表「正文提取 extract」）：把文章页
 HTML 转为主正文文本，供 ``browser_open``（B2）与 ``browser_search`` 的
 ``extract=full`` 深度提取连锁使用。
 
@@ -23,12 +27,12 @@ HTML 转为主正文文本，供 ``browser_open``（B2）与 ``browser_search`` 
    契约 §4.3，本函数不管落盘）。
 
 纯函数铁律：零 IO、零网络——不读写文件、不 import urllib / requests；
-HTML 树工具从 ``search_adapters`` 导入（同为纯函数，extract → adapters
+HTML 树工具从 ``adapters`` 导入（同为纯函数，extract → adapters
 单向依赖，无循环导入）。输入 ``html`` 为 bytes 时按 utf-8
-（errors=replace）解码。CSS 选择器语法同 ``search_adapters.select_first``
+（errors=replace）解码。CSS 选择器语法同 ``adapters.select_first``
 （tag/#id/.class 复合 + 后代/子组合器）。
 """
-from .search_adapters import (
+from .adapters import (
     build_tree, element_text, iter_elements, select_first,
 )
 
@@ -70,7 +74,7 @@ def extract_main_content(html, selector=None, max_chars=DEFAULT_MAX_CHARS):
     RecursionError 防护：_strip_noise/_pick_main_block/_block_text 内部的
     树遍历均为递归实现，病态深树（万层嵌套）会触发递归上限——此处按
     「无正文」返回（调用方转 EMPTY_CONTENT），不把 RecursionError 抛进
-    browser_open 管线（与 search_adapters.parse_results 同口径）。
+    browser_open 管线（与 adapters.parse_results 同口径）。
     """
     try:
         root = build_tree(html)

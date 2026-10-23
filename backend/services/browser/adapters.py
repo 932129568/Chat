@@ -1,7 +1,11 @@
 # -*- coding: utf-8 -*-
 """v1.8.0 B 域·搜索引擎适配器（实现 v1.8.0 B1：URL 模板 + 纯函数结果提取）。
 
-模块职责（架构文档 §2.1 后端模块表「引擎适配器 search_adapters」）：
+v1.9.0 T02 迁移说明：本模块自 ``backend/services/search_adapters.py`` **原样迁入**
+browser/ 包（设计文档 §A2.6）——纯函数零 IO 铁律延续，代码逐字不变（仅文档中
+模块名引用同步更新）。
+
+模块职责（架构文档 §2.1 后端模块表「引擎适配器 adapters」）：
 - ``build_query_url(engine, params)``：四引擎（Bing / DuckDuckGo / Baidu / Google）
   检索 URL 构造——把 ``query`` / ``site`` / ``filetype`` / ``time_range`` / ``lang`` /
   ``max_results`` 注入为各引擎识别的查询参数（参数值一律 URL 编码）；
@@ -19,7 +23,7 @@ domain 提取为纯字符串切片。HTML 解析仅用 stdlib ``html.parser``（
 engine_retry）。
 
 HTML 树工具（``build_tree`` / ``iter_elements`` / ``element_text`` /
-``select_first`` / ``norm_text``）为公开纯函数，供 ``search_extract`` 模块
+``select_first`` / ``norm_text``）为公开纯函数，供 ``extract`` 模块
 复用——两模块均无 IO 依赖（架构 §2.1），共享工具不构成外部依赖，亦无循环
 导入（extract → adapters 单向）。
 """
@@ -410,7 +414,7 @@ def _nearest_block(el):
     return None
 
 
-# ================= 共享 HTML 树工具（search_extract 复用） =================
+# ================= 共享 HTML 树工具（extract 复用） =================
 
 # void 元素（自动闭合，无子节点）
 _VOID_TAGS = frozenset((
@@ -665,7 +669,7 @@ def select_first(root, selector):
 
     支持：``tag`` / ``#id`` / ``.class`` 及复合（``div#main.cls``）、
     后代（空格）与子（``>``）组合器。非法语法/无匹配均返回 None（由调用方
-    决定错误语义，如 search_extract 的 selector_miss）。
+    决定错误语义，如 extract 的 selector_miss）。
     """
     seq = _parse_selector(selector)
     if seq is None:

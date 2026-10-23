@@ -2,12 +2,12 @@
 """v1.8.0 B 域第一批（B1/B2 纯函数层）验收测试。
 
 覆盖（迭代方案 L1-5「fixture 跑适配器纯函数」+ 架构 §4.3 单测层）：
-- search_adapters.build_query_url：四引擎 URL 模板、site/filetype/time_range/
+- browser.adapters.build_query_url：四引擎 URL 模板、site/filetype/time_range/
   lang/max_results 注入、中文编码、非法 engine/query 抛错（→ BAD_PARAMS）；
-- search_adapters.parse_results：四引擎 fixture 解析（条数/首条字段/position
+- browser.adapters.parse_results：四引擎 fixture 解析（条数/首条字段/position
   连续/domain 提取/date 两形态/cite 与 showurl 回退）、generic 兜底、
   空 HTML/垃圾 HTML → []；
-- search_extract.extract_main_content：密度提取（正文在场、垃圾不在场）、
+- browser.extract.extract_main_content：密度提取（正文在场、垃圾不在场）、
   选择器命中/未命中、max_chars 截断 + truncated + full_chars、bytes 输入。
 
 铁律：全部用 tests/fixtures/v18/ 真实 fixture 文件读盘（fixture 即契约，
@@ -18,8 +18,8 @@ import urllib.parse
 
 import pytest
 
-from backend.services import search_adapters as sa
-from backend.services import search_extract as se
+from backend.services.browser import adapters as sa
+from backend.services.browser import extract as se
 
 FIXTURE_DIR = os.path.join(
     os.path.dirname(os.path.abspath(__file__)), 'fixtures', 'v18')

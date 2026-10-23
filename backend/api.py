@@ -37,7 +37,7 @@ from .services.process_service import ProcessService
 from .services.provider_service import ProviderService
 from .services.sandbox_service import SandboxService
 from .services.screenshot_service import ScreenshotService
-from .services.search_service import SearchService
+from .services.browser.service import SearchService
 from .services.software_service import SoftwareService
 from .services.toolcache_service import ToolcacheService
 from .services.update_service import UpdateService
@@ -146,7 +146,12 @@ class Api:
         self._sandbox = SandboxService()
         # v1.8.0 B 域·浏览器搜索（search_cache/ 独立目录，config.json 零污染；
         # 审计复用同一 GuardService 实例保持 audit_log.jsonl 单一口径）
+        # v1.9.0 M1.7：SearchService 自 backend.services.browser.service 导入（平台抽象包；
+        # 类名/五方法契约不变——鸭子类型只依赖通道 open_url）
         self._search = SearchService(guard=self._guard)
+        # v1.9.0 装配预留挂点（T03/T04/T05 按序落，本轮只锚注释不装配）：
+        #   self._reader = SearchReader(...)        # T03：dual-LLM-lite 读取器（search_reader_stats 转正）
+        #   self._checkpoint = CheckpointService()  # T05：检查点六军规（checkpoint_* 切委托）
         # v1.8.0 S 域·外部软件调用（software.json 独立文件；审计复用同一
         # GuardService 实例；沙箱档位经 sandbox_service.limits_for_profile）
         self._software = SoftwareService(guard=self._guard, sandbox=self._sandbox,

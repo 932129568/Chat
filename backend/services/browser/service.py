@@ -2,14 +2,20 @@
 """v1.8.0 B 域·搜索编排服务（实现 v1.8.0 B2：browser_search / browser_open /
 search_cache_stats / search_status / browser_takeover 五 js_api 的后端管线）。
 
-模块职责（架构文档 §2.1 后端模块表「搜索编排 search_service」）：
+v1.9.0 T02 迁移说明：本模块自 ``backend/services/search_service.py`` **原样迁入**
+browser/ 包（设计文档 §A2.6）——SearchService 类名/五方法契约/缓存/接管/审计
+行为逐字不变（迁移=行为等价；既有测试仅改 import 行即全绿）。仅更新：
+import 行（search_adapters→adapters / search_browser→session_win+session_base /
+search_extract→extract / 兄弟 service 改 ``..`` 相对路径）与文档中模块名引用。
+
+模块职责（架构文档 §2.1 后端模块表「搜索编排 browser/service」）：
 - 检索式构造与参数校验（联调规范 §3.1 请求字段表：非法值一律 BAD_PARAMS
   回显 hint，不静默回默认——防参数幻觉被吞）；
 - 缓存层（C1）：``~/.glm-chat/search_cache/`` 独立目录（config.json 零污染
   铁律），TTL 30min + 归一化键（engine/query/site/filetype/time_range/lang +
   URL 归一：去跟踪参数/小写 scheme+host/去默认端口/去末尾 '/'），命中
   ``source='cache'`` 且 ``fetched_at`` 为原抓取时间；
-- 取数双通道（§5.1③）：search_browser 次窗优先，不可达自动降级
+- 取数双通道（§5.1③）：session_win 次窗优先，不可达自动降级
   ``channel='urllib'``；解析失败走 engine_retry 换引擎（≤2 次）；
 - CAPTCHA 人工接管状态机（ux-flows 流程 2）：检出验证页特征 → 创建
   takeover_id（进程内 pending→rechecking→resolved/aborted/expired，
@@ -36,13 +42,14 @@ import threading
 import time
 from collections import deque
 
-from .. import paths
-from ..logging_setup import get_logger
-from .search_adapters import (DEFAULT_ENGINE, ENGINES, build_query_url,
-                              parse_results)
-from .search_browser import SearchBrowser, _is_public_host
-from .search_extract import DEFAULT_MAX_CHARS, extract_main_content
-from .toolcache_service import ToolcacheService
+from ... import paths
+from ...logging_setup import get_logger
+from .adapters import (DEFAULT_ENGINE, ENGINES, build_query_url,
+                       parse_results)
+from .session_base import _is_public_host
+from .session_win import SearchBrowser
+from .extract import DEFAULT_MAX_CHARS, extract_main_content
+from ..toolcache_service import ToolcacheService
 
 # ---------------- 契约常量（联调规范 §3.1 / §4.4） ----------------
 CACHE_TTL_MINUTES = 30                    # C1：缓存 TTL（ttl_minutes 可配口径的默认值）
@@ -204,7 +211,7 @@ def _normalize_url(url):
 
 def _extract_title(html):
     """取 ``<title>`` 文本（全树查找首个 title 元素；无标题返回 ''）。"""
-    from .search_adapters import build_tree, element_text, iter_elements
+    from .adapters import build_tree, element_text, iter_elements
     try:
         root = build_tree(html)
         for el in iter_elements(root):
@@ -266,7 +273,7 @@ class SearchService:
         self._ttl = int(ttl_minutes)
         self._clock = clock or time.monotonic
         if guard is None:
-            from .guard_service import GuardService
+            from ..guard_service import GuardService
             guard = GuardService()
         self._guard = guard
         self._cache_dir = cache_dir or os.path.join(paths.CONFIG_DIR,
@@ -538,7 +545,7 @@ class SearchService:
         # ---- V1 校验（tool_validator：非空 + 字段完整 + query 相关度；
         #      不通过且 retryable 才 reformulate 换引擎）----
         self._set_phase(task_id, 'validating', '正在校验结果…')
-        from .tool_validator import get_validator
+        from ..tool_validator import get_validator
         verdict = get_validator().validate_search(results, q_echo)
         valid = [r for r in results if r.get('title') and r.get('url')]
         if not verdict.get('ok') and retries_left > 0 \
@@ -606,7 +613,7 @@ class SearchService:
         - 相关性重排：核心词覆盖数降序（tie-break 保原 position 稳定）。
         - position 从 1 连续（契约 §4.3）。
         """
-        from .tool_validator import _tokens
+        from ..tool_validator import _tokens
         q_tokens = _tokens(query or '')
         # 引擎语法词不进相关性判定（site:/filetype: 等由参数面处理）
         q_tokens = {t for t in q_tokens if not t.startswith(('site', 'filetype'))}
@@ -873,7 +880,7 @@ class SearchService:
                 self._forget_takeover(tk)
                 self._end_task(task_id, 'failed', '人工验证重试次数已用完')
                 self._audit('search_takeover', {'takeover_id': tk},
-                            'takeover', 'abort')
+                            'takeover', 'aborted')
                 return _error('CAPTCHA_ABORTED',
                               '人工验证重试次数已用完（%d 次），本次搜索已放弃'
                               % entry['max_retries'],
@@ -1072,7 +1079,7 @@ class SearchService:
             return _error('NAV_BLOCKED', '仅支持 http/https 链接',
                           '其他协议（file:// 等）已被禁止导航', url=url[:200])
         # 内网防护（SSRF）：私网/环回/链路本地目标一律拒绝（DNS 失败按拒绝
-        # ——fail-closed）；helper 与 search_browser.open_url 共用同一口径
+        # ——fail-closed）；helper 与 session_win.SearchBrowser.open_url 共用同一口径
         import urllib.parse as _urlparse
         if not _is_public_host(_urlparse.urlsplit(url).hostname):
             self._audit('web_open', {'url': url[:200]}, 'open', 'block')
@@ -1221,7 +1228,7 @@ class SearchService:
         """写缓存条目（原子写；失败只 warning 不阻断搜索主流程）。"""
         fp = os.path.join(self._cache_dir, str(key) + '.json')
         try:
-            from ..fio import atomic_write_json
+            from ...fio import atomic_write_json
             atomic_write_json(fp, entry)
         except Exception as e:
             self._log.warning('搜索缓存写入失败（不影响本次结果）: %r', e)

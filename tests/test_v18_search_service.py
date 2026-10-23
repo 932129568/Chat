@@ -43,8 +43,8 @@ from conftest import HOME, NewApi, legacy
 
 from backend import paths
 from backend.services.guard_service import GuardService
-from backend.services.search_browser import SearchBrowser
-from backend.services.search_service import SearchService
+from backend.services.browser.session_win import SearchBrowser
+from backend.services.browser.service import SearchService
 from backend.services.toolcache_service import ToolcacheService
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -628,7 +628,7 @@ class TestSearchBrowserWindow:
 
     def _patch_timeouts(self, monkeypatch, load=0.2, read=0.2, tick=0.05,
                         idle=0.2):
-        from backend.services import search_browser as sb
+        from backend.services.browser import session_win as sb
         monkeypatch.setattr(sb, 'LOAD_TIMEOUT_SECONDS', load)
         monkeypatch.setattr(sb, 'READ_DOM_TIMEOUT_SECONDS', read)
         monkeypatch.setattr(sb, '_RECYCLE_TICK_SECONDS', tick)

@@ -28,12 +28,21 @@ SCREENSHOTS_DIR = os.path.join(CONFIG_DIR, 'screenshots')
 LOG_DIR = os.path.join(CONFIG_DIR, 'logs')
 API_METHODS_LOG = os.path.join(CONFIG_DIR, 'api_methods.log')
 WEBVIEW_DATA_DIR = os.path.join(CONFIG_DIR, 'webview_data')
+# v1.9.0 新增路径常量（config.json 零污染铁律：新配置一律 ~/.glm-chat/*.json）
+BROWSER_SESSIONS_FILE = os.path.join(CONFIG_DIR, 'browser_sessions.json')   # M3 会话池（本期占位声明）
+READER_FILE          = os.path.join(CONFIG_DIR, 'reader.json')              # M2.1 读取器配置
+AUDIT_CHAIN_FILE     = os.path.join(CONFIG_DIR, 'audit_chain.json')         # M2.6 哈希链 head/len
+CHECKPOINTS_FILE     = os.path.join(CONFIG_DIR, 'checkpoints.json')         # M2.7 清单投影（权威在 checkpoints/<tid>/manifest.json）
+PLATFORM_DIR         = os.path.join(CONFIG_DIR, 'platform')                 # M1.4 secrets.json 等
+BROWSER_PROFILE_DIR  = os.path.join(CONFIG_DIR, 'browser_profile')          # M3 浏览器 profile（与主窗 webview_data 隔离）
 
 
 def ensure_dirs():
     """创建运行必需目录（legacy: 模块级 makedirs webview_data + Api.__init__ 建 config_dir）。"""
     os.makedirs(CONFIG_DIR, exist_ok=True)
     os.makedirs(WEBVIEW_DATA_DIR, exist_ok=True)
+    # v1.9.0 M1.4：platform/secrets.json 落盘前置（secrets 写入前目录必须在位）
+    os.makedirs(PLATFORM_DIR, exist_ok=True)
 
 
 def setup_webview_env():

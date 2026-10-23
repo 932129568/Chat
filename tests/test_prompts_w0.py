@@ -17,11 +17,12 @@ SRC_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__)
 
 
 class TestLoader:
-    def test_all_ten_load(self):
+    def test_all_fifteen_load(self):
+        # v1.9.0 T01：10 → 15（新增 browser-navigate/extract/click/fill/reader-extract 五提示词）
         from backend.services import prompt_loader as pl
         pl.clear_cache()
         ids = pl.list_ids()
-        assert len(ids) == 10
+        assert len(ids) == 15
         for pid in ids:
             text, ver = pl.load(pid)
             assert text and ver, pid
