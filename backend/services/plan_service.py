@@ -138,8 +138,20 @@ def _safe_join(ws_dir, rel):
 class PlanService(object):
 
     # ---------------- 计划 ----------------
-    def create(self, title, steps, task_id=None):
-        """steps: [{'text': str, 'risk': 'l0'|'l2'|''}]；返回 {ok, task_id, plan}。"""
+    def create(self, title, steps, task_id=None, eta_seconds=None, scope=None):
+        """steps: [{'text': str, 'risk': 'l0'|'l2'|'', 'tools': [...]?,
+        'eta_seconds': int?}]；返回 {ok, task_id, plan}。
+
+        v1.9.0 M2.3 Intent Preview 尾参（design §A3.5；kwarg 纯增——旧三方
+        调用零改）：
+        - steps 项保留 ``tools``（plan-generate.md 已输出、此前被丢弃——
+          前端工具徽标数据源）与可选的 ``eta_seconds``；
+        - plan 纯增键 ``eta_seconds``（显式值或启发式 len(steps)*40——计划卡
+          plan-eta 徽标「≈3 步 · 2 分钟」口径）、``risk_max``
+          （dangerous>mutate>read>'' 取最高——plan-riskbar 风险色条）、
+          ``scope``（{'modifies': [...], 'no_access': [...]} 原样存——边界
+          声明双栏；禁路径逃逸校验由调用方负责）。
+        """
         try:
             tid = _safe_tid(task_id) if task_id else _new_task_id()
         except ValueError:
@@ -148,13 +160,31 @@ class PlanService(object):
         for i, s in enumerate(steps or []):
             if isinstance(s, str):
                 s = {'text': s}
-            norm.append({
+            item = {
                 'text': str(s.get('text') or ('步骤 %d' % (i + 1)))[:200],
                 'risk': str(s.get('risk') or '')[:4],
                 'status': 'pending',
-            })
+            }
+            # v1.9.0：tools（plan-generate 输出保留）+ eta_seconds（可选）纯增
+            tools = s.get('tools')
+            if isinstance(tools, list) and tools:
+                item['tools'] = [str(t)[:40] for t in tools][:8]
+            step_eta = s.get('eta_seconds')
+            if isinstance(step_eta, int) and not isinstance(step_eta, bool) \
+                    and step_eta > 0:
+                item['eta_seconds'] = min(step_eta, 86400)
+            norm.append(item)
         if not norm:
             return {'ok': False, 'error': '计划至少需要 1 个步骤'}
+        # 风险口径：plan-generate 实际输出 l0（最高危）/l2（普通）/''——
+        # read/mutate/dangerous 映射兜底（前向兼容其他来源）
+        _RISK_ORDER = {'l0': 3, 'dangerous': 3, 'l2': 2, 'mutate': 2,
+                       'read': 1, 'l1': 1, '': 0}
+        risk_max = max((str(s.get('risk') or '') for s in norm),
+                       key=lambda r: _RISK_ORDER.get(r, 0), default='')
+        eta = eta_seconds if (isinstance(eta_seconds, int)
+                              and not isinstance(eta_seconds, bool)
+                              and eta_seconds > 0) else len(norm) * 40
         plan = {
             'task_id': tid,
             'title': str(title or '任务计划')[:120],
@@ -162,7 +192,15 @@ class PlanService(object):
             'steps': norm,
             'created_at': _now(),
             'updated_at': _now(),
+            # v1.9.0 M2.3：Intent Preview 纯增键（前端 66-plan.js 数据源）
+            'eta_seconds': min(int(eta), 86400),
+            'risk_max': risk_max,
+            'scope': {'modifies': [], 'no_access': []},
         }
+        if isinstance(scope, dict):
+            plan['scope'] = {
+                'modifies': [str(x)[:200] for x in (scope.get('modifies') or [])][:20],
+                'no_access': [str(x)[:200] for x in (scope.get('no_access') or [])][:20]}
         os.makedirs(_plans_dir(), exist_ok=True)
         try:
             # 修复 A3：原子写（tmp+fsync+replace），崩溃不留半截 JSON
@@ -203,6 +241,10 @@ class PlanService(object):
                 return {'ok': False, 'error': 'status 非法（合法值: %s）'
                         % '/'.join(PLAN_STATUSES)}
             plan['status'] = st
+            # v1.9.0 M2.3：批准态转 approved_at（本地口径与 updated_at 一致；
+            # 审计五维 plan 维度 + 计划卡批准动效链的时间锚）
+            if st == 'approved' and not plan.get('approved_at'):
+                plan['approved_at'] = _now()
         if step_index is not None and step_status is not None:
             try:
                 idx = int(step_index)

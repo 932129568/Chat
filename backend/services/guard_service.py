@@ -32,6 +32,7 @@ v1.8.5 A 域（任务授权 + 白名单，R5/R6 裁决）：
 """
 import datetime
 import fnmatch
+import hashlib
 import json
 import os
 import re
@@ -131,6 +132,10 @@ def _default_config():
         'protect_paths': [],
         'protect_processes': [],
         'trustedOps': [],          # 修复 UX-2（v1.4）：持久信任 op 列表（grill 裁决：op 级粒度）
+        # v1.9.0 M2.4：审批预算（R27）——会话级确认计数，超限升级任务授权
+        # 邀请而非继续逐项弹窗。limit 持久（guard.json 纯增键，旧文件缺省合并）；
+        # used/escalated 会话级（切会话归零/归 false）。
+        'approval_budget': {'limit': 20, 'used': 0, 'escalated': False},
     }
 
 
@@ -151,6 +156,10 @@ class GuardService:
         self._session_trust = set()    # 本会话已信任的 op（切会话清空，W26 同步语义）
         # W1：trace_id 钩子（Api 装配注入；None=审计不带 trace，向后兼容）
         self._trace_hook = None
+        # v1.9.0 M2.6：双身份 hook + 审计哈希链（audit_chain.json 独立文件）
+        self._identity_hook = None
+        from .audit_chain import AuditChain
+        self._audit_chain = AuditChain()
         self._armed = False            # 桌面 UI 会话武装标志（Api._set_window 置位）
         # v1.8.5 A 域：任务授权 grant 进程内状态（不入 guard.json——铁律）
         self._clock = clock or time.time
@@ -509,6 +518,8 @@ class GuardService:
             now = time.time()
             self._tokens = {t: v for t, v in self._tokens.items() if v[2] > now}
             self._tokens[token] = (op, self._digest(op, detail), expiry)
+        # v1.9.0 M2.4：确认框签发=一次审批（与 UX「审批 3/5」直观对齐）
+        self._count_approval(op)
         return {'token': token, 'ttl': TOKEN_TTL}
 
     def consume_token(self, op, detail, token):
@@ -534,22 +545,156 @@ class GuardService:
                 return False          # 已存在（异常路径），不覆盖
             self._tokens[str(token)] = (op, self._digest(op, detail),
                                         time.time() + TOKEN_TTL)
+        # v1.9.0 M2.4：退还=撤销一次审批（执行前失败不白扣预算）
+        with self._lock:
+            ab = self._cfg.get('approval_budget')
+            if isinstance(ab, dict):
+                ab['used'] = max(0, int(ab.get('used') or 0) - 1)
         return True
 
     # ---- 会话信任态（后端持有，切会话清空——W26 语义同步）----
     def trust_session(self, op):
-        """登记本会话信任（对应前端「本会话内不再提示」勾选）。"""
+        """登记本会话信任（对应前端「本会话内不再提示」勾选）。
+
+        v1.9.0 M2.4：信任登记=一次审批（「本会话不再提示」勾选用一次确认
+        换来会话信任）→ _count_approval。
+        """
         if op not in GUARD_OPS:
             return {'error': '未知护栏操作: %s' % op}
         with self._lock:
             self._session_trust.add(op)
+        self._count_approval(op)
         return {'ok': True}
 
     def clear_session_trust(self):
-        """切会话/新会话时清空（Api.set_current_sid 检测到 sid 变化时调用）。"""
+        """切会话/新会话时清空（Api.set_current_sid 检测到 sid 变化时调用）。
+
+        v1.9.0 M2.4：used/escalated 会话级归零（limit 持久不动）。
+        """
         with self._lock:
             self._session_trust.clear()
             self._tokens.clear()
+            ab = self._cfg.get('approval_budget')
+            if isinstance(ab, dict):
+                ab['used'] = 0
+                ab['escalated'] = False
+
+    # ================================================== v1.9.0 M2.4·审批预算（R27）
+    def _count_approval(self, op):
+        """确认计数（持锁 used+1）：used ≥ limit 首越限落审计 escalated。
+
+        计数口径（design §A3.5）：仅「用户确认」计一次——confirm token 签发/
+        会话信任登记；refund 退还 -1（禁白确认扣预算）；grant/rule/block 不计。
+        """
+        with self._lock:
+            ab = self._cfg.get('approval_budget')
+            if not isinstance(ab, dict):
+                ab = {'limit': 20, 'used': 0, 'escalated': False}
+                self._cfg['approval_budget'] = ab
+            ab['used'] = int(ab.get('used') or 0) + 1
+            if ab['used'] >= int(ab.get('limit') or 20) and not ab.get('escalated'):
+                ab['escalated'] = True
+                self.audit('guard_budget', {'used': ab['used'],
+                                            'limit': ab['limit']},
+                           'decision', 'escalated')
+        return ab
+
+    def approval_budget(self, limit=None):
+        """M2.4 读/设：limit=None 只读；int 1-100 设置（越界 BAD_PARAMS 人话，
+        禁夹逼）。设置落审计 op=guard_budget decision=set-limit；只读不落审计。
+        返回 {ok, used, limit, escalated, remaining, grant_active}。"""
+        with self._lock:
+            ab = dict(self._cfg.get('approval_budget')
+                      or {'limit': 20, 'used': 0, 'escalated': False})
+        if limit is not None:
+            if not isinstance(limit, int) or isinstance(limit, bool) \
+                    or not (1 <= limit <= 100):
+                return {'error': {'code': 'BAD_PARAMS',
+                                  'message': '审批预算上限需为 1-100 的整数'
+                                             '（当前 %r）' % (limit,)}}
+            with self._lock:
+                self._cfg['approval_budget']['limit'] = int(limit)
+                self._cfg['approval_budget']['escalated'] = \
+                    self._cfg['approval_budget']['used'] >= int(limit)
+            self.audit('guard_budget', {'limit': int(limit)},
+                       'decision', 'set-limit')
+            ab['limit'] = int(limit)
+            ab['escalated'] = self._cfg['approval_budget']['escalated']
+        used = int(ab.get('used') or 0)
+        lim = int(ab.get('limit') or 20)
+        return {'ok': True, 'used': used, 'limit': lim,
+                'escalated': bool(ab.get('escalated')),
+                'remaining': max(0, lim - used),
+                'grant_active': self._has_active_grant()}
+
+    @staticmethod
+    def _norm_scopes(raw):
+        """scope 归一：字符串 → 单元素列表；列表原样；其余 → []。"""
+        if isinstance(raw, str) and raw:
+            return [raw]
+        if isinstance(raw, (list, tuple)):
+            return [str(s) for s in raw if s]
+        return []
+
+    def budget_exceeded_payload(self, op, detail=None):
+        """APPROVAL_BUDGET_EXCEEDED 结构化载荷（前端弹「任务授权邀请」而非逐项确认）。
+
+        suggest_scopes 按 _OP_GRANT_SCOPES 映射（run_command→['exec']）；未映射
+        op → []（前端提示手动授权或提额）。
+        """
+        with self._lock:
+            ab = dict(self._cfg.get('approval_budget')
+                      or {'limit': 20, 'used': 0, 'escalated': False})
+        used = int(ab.get('used') or 0)
+        lim = int(ab.get('limit') or 20)
+        return {'code': 'APPROVAL_BUDGET_EXCEEDED',
+                'message': '审批预算已达上限（%d/%d）——已升级为任务授权邀请，'
+                           '不再逐项弹窗' % (used, lim),
+                'hint': '可授予一次性任务授权（覆盖相关操作）或上调预算上限',
+                'used': used, 'limit': lim,
+                'op': op,
+                'suggest_scopes': self._norm_scopes(
+                    _OP_GRANT_SCOPES.get(str(op or ''), []))}
+
+    def enforce_exec_ex(self, op, detail=None, token=None):
+        """v1.9.0 M2.4：enforce_exec + 预算超限 payload（8 处 api 挂点升级用）。
+
+        返回 (reason, budget_exceeded)：budget_exceeded 非 None 的时机=该次
+        判定需要确认（always/session/listless）且 escalated=True——前端收到
+        APPROVAL_BUDGET_EXCEEDED 不弹逐项确认，弹任务授权邀请。其余语义与
+        enforce_exec 逐字一致（deny→rules→grant→trusted→档位→token）。
+        """
+        r = self.check(op, detail)
+        if r.get('action') == 'block':
+            return r.get('reason'), None
+        # 需要确认的时机（design §A3.5）= **档位口径**（非 check.action——
+        # 后者受 armed/trusted/grant 影响会把 always 档误判为 allow）：
+        # always/session/listless 档或高危 force_always。off/list/放行不计。
+        with self._lock:
+            tier = self._cfg['tiers'].get(op, DEFAULT_TIERS.get(op, 'always'))
+        if tier == 'list' and op in _LISTLESS_OPS:
+            tier = 'always'              # W10：listless 的 list 档按 always 处理
+        needs_confirm = tier in ('always', 'session') \
+            or bool((detail or {}).get('force_always'))
+        if needs_confirm and self._budget_escalated():
+            return None, self.budget_exceeded_payload(op, detail)
+        return self.enforce_exec(op, detail, token), None
+
+    def _budget_escalated(self):
+        with self._lock:
+            ab = self._cfg.get('approval_budget')
+            return bool(ab and ab.get('escalated'))
+
+    def _has_active_grant(self):
+        """是否存在未过期任务授权（approval_budget 响应的 grant_active 数据源）。"""
+        try:
+            now = self._clock()
+            with self._lock:
+                return any(g.get('idle_deadline', 0) > now
+                           and g.get('expires_at', 0) > now
+                           for g in self._grants.values())
+        except Exception:
+            return False
 
     # ================================================== v1.8.5 A 域·任务授权
     @staticmethod
@@ -893,7 +1038,20 @@ class GuardService:
         except Exception:
             return None
 
-    def audit(self, op, detail=None, action='check', decision=None):
+    def audit(self, op, detail=None, action='check', decision=None,
+              identity=None, plan=None, evidence=None, result=None):
+        """审计落盘（v1.9.0 M2.6 R37 五维扩展——kwarg 全部缺省，旧 4 参调用
+        零改；旧条目无新键，verify 跳过不判 broken）。
+
+        五维（经 AuditChain.append 拿 hash/prev_hash，再按既有口径写
+        audit_log.jsonl——持锁轮换+append 原逻辑不变；链失败禁阻断落盘，
+        日志是主证据）：
+          identity: {'sid', 'principal'}   双身份（hook 注入）
+          intent:   {'trace', 'summary'}   意图（trace 钩子复用）
+          plan:     {'task_id', 'plan_status'}  计划（调用方传）
+          evidence: {'args_sha256'}        执行证据=参数哈希（禁原文——隐私）
+          result:   {'status', 'result_sha256'?}   结果
+        """
         try:
             entry = {
                 'ts': datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
@@ -905,9 +1063,32 @@ class GuardService:
             trace = self.current_trace()
             if trace:
                 entry['trace'] = trace
+            # ---- v1.9.0 五维（纯增 kwarg；缺省不落键——旧条目形状不变）----
+            ident = self._identity_of(identity)
+            if ident:
+                entry['identity'] = ident
+            entry['intent'] = {'trace': trace or '',
+                               'summary': '%s %s' % (op, decision or action)}
+            if isinstance(plan, dict) and plan:
+                entry['plan'] = {k: str(v)[:120] for k, v in plan.items()}
+            if evidence is None and detail:
+                # 执行证据默认=detail 参数哈希（禁原文——隐私口径与 provenance
+                # 的 query_sha256 一致）；调用方可显式传 evidence 覆盖
+                evidence = {'args_sha256': hashlib.sha256(
+                    json.dumps(detail, sort_keys=True, ensure_ascii=False,
+                               default=str).encode('utf-8')).hexdigest()[:32]}
+            if isinstance(evidence, dict) and evidence:
+                entry['evidence'] = {k: str(v)[:80] for k, v in evidence.items()}
+            if isinstance(result, dict) and result:
+                entry['result'] = {k: str(v)[:80] for k, v in result.items()}
+            # ---- 哈希链（M2.6）----
+            try:
+                entry = self._audit_chain.append(entry)
+            except Exception as e:
+                self._log.warning('审计哈希链挂链失败（日志仍落盘）: %r', e)
             os.makedirs(os.path.dirname(self._audit_path), exist_ok=True)
             # 修复 建议④（二轮）：轮转+追加整体持实例锁——多线程并发回调下
-            # 轮转与 append 交错会丢行/写进已被轮转走的旧文件
+            # 轮换与 append 交错会丢行/写进已被轮转走的旧文件
             with self._lock:
                 try:
                     if os.path.exists(self._audit_path) and \
@@ -921,6 +1102,37 @@ class GuardService:
         except Exception as e:
             self._log.warning('审计日志写入失败: %r', e)
             return json.dumps({'error': str(e)}, ensure_ascii=False)
+
+    def _identity_of(self, identity):
+        """双身份解析：显式传参优先；缺省走 identity hook（异常 → sid=None）。"""
+        if isinstance(identity, dict) and identity:
+            return {'sid': str(identity.get('sid') or ''),
+                    'principal': str(identity.get('principal') or 'user')}
+        try:
+            if self._identity_hook:
+                return dict(self._identity_hook() or {})
+        except Exception:
+            pass
+        return {'sid': '', 'principal': 'user'}
+
+    def set_identity_hook(self, hook):
+        """v1.9.0 M2.6：双身份 hook（与 set_trace_hook 同款；hook 异常 → sid=None，
+        不影响写入）。Api 装配时注入（sid=当前会话 id）。"""
+        self._identity_hook = hook
+
+    def audit_chain_head(self):
+        """哈希链 head/len（get_audit_log 链块 + 断链自愈数据源）。"""
+        try:
+            return self._audit_chain.head_info()
+        except Exception as e:
+            return {'ok': False, 'error': str(e)}
+
+    def audit_chain_verify(self, entries):
+        """校验窗口/全量条目链完整性（get_audit_log(verify_all) 用）。"""
+        try:
+            return self._audit_chain.verify(entries)
+        except Exception as e:
+            return {'ok': False, 'error': str(e)}
 
     def read_audit(self, limit=200, offset=0):
         """读取审计日志供查看器展示：倒序（最新在前）返回最多 limit 条。

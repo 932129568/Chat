@@ -1434,5 +1434,8 @@ class TestNewApiAssembly:
         assert json.loads((tmp_path / 'hybrid.json').read_text(
             encoding='utf-8'))['strategy'] == 'saver'
         gj = json.loads((tmp_path / 'guard.json').read_text(encoding='utf-8'))
+        # v1.9.0 M2.4：approval_budget 为 guard.json 纯增键（O7 裁决——旧文件
+        # 缺省合并；config.json 本身仍零污染，本断言只放行 guard.json 增量）
         assert set(gj.keys()) <= {'tiers', 'protect_paths', 'protect_processes',
-                                  'trustedOps', 'allow_rules'}
+                                  'trustedOps', 'allow_rules',
+                                  'approval_budget'}

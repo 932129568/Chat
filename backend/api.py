@@ -158,6 +158,10 @@ class Api:
         # v1.9.0 M2.1：dual-LLM-lite 本地读取器（reader.json 独立配置；
         # search_reader_stats 转正 + reader_config_get/save + SearchService 共享注入）
         self._reader = SearchReader(router=self._hybrid)
+        # v1.9.0 M2.6：审计双身份 hook（sid=当前会话 id；异常 → sid=None 不阻断）
+        self._guard.set_identity_hook(
+            lambda: {'sid': str(self._runtime.get_current_sid() or ''),
+                     'principal': 'user'})
         # v1.8.0 B 域·浏览器搜索（search_cache/ 独立目录，config.json 零污染；
         # 审计复用同一 GuardService 实例保持 audit_log.jsonl 单一口径）
         # v1.9.0 M1.7：SearchService 自 backend.services.browser.service 导入（平台抽象包；
@@ -309,8 +313,16 @@ class Api:
         return self._not_implemented('get_platform_info', 'M6.10')
 
     def guard_approval_budget(self, limit=None):
-        """M2.4：会话级审批预算（{used, limit, escalated}；超限升级任务授权）。"""
-        return self._not_implemented('guard_approval_budget', 'M2.4')
+        """M2.4 转正：会话级审批预算读/设。
+
+        limit=None 只读 {used, limit, escalated, remaining, grant_active}；
+        int 1-100 设置（越界 BAD_PARAMS）。数据源 guard.json 纯增键
+        approval_budget（旧文件缺省合并）；used/escalated 会话级。
+        """
+        r = self._guard.approval_budget(limit)
+        if 'error' in r:
+            return err(r['error']['message'])
+        return ok(r)
 
     def search_reader_stats(self):
         """M2.1 转正：读取器统计 {reader_calls, schema_fail, degrade_count,
@@ -448,7 +460,10 @@ class Api:
         # 会话切换 TOCTOU 会使名单与目标脱钩）
         sid = self._runtime.get_current_sid()
         abs_p, _ = self._files.resolve_abs(sid, path)
-        reason = self._guard.enforce_exec('delete_path', {'path': path, 'abs_path': abs_p}, token)
+        reason, bx = self._guard.enforce_exec_ex('delete_path', {'path': path, 'abs_path': abs_p}, token)
+        if bx:
+            self._guard.audit('delete_path', {'path': path}, 'block', 'budget-exceeded')
+            return ok({'ok': False, 'error': bx})
         if reason:
             self._guard.audit('delete_path', {'path': path}, 'block', 'backend-enforced')
             return err(reason)
@@ -466,7 +481,10 @@ class Api:
     # ============ 命令执行 ============
     def run_command(self, cmd, timeout=60, token=None):
         # 修复 S4②：命令执行纳入护栏后端强制（默认 off 档 → 行为不变）
-        reason = self._guard.enforce_exec('run_command', {'cmd': str(cmd or '')[:200]}, token)
+        reason, bx = self._guard.enforce_exec_ex('run_command', {'cmd': str(cmd or '')[:200]}, token)
+        if bx:
+            self._guard.audit('run_command', {'cmd': str(cmd or '')[:200]}, 'block', 'budget-exceeded')
+            return ok({'ok': False, 'error': bx})
         if reason:
             self._guard.audit('run_command', {'cmd': str(cmd or '')[:200]}, 'block', 'backend-enforced')
             return err(reason)
@@ -474,7 +492,10 @@ class Api:
                                       sandbox=self._sandbox.limits_for('run_command'))
 
     def run_powershell(self, cmd, timeout=60, token=None):
-        reason = self._guard.enforce_exec('run_powershell', {'cmd': str(cmd or '')[:200]}, token)
+        reason, bx = self._guard.enforce_exec_ex('run_powershell', {'cmd': str(cmd or '')[:200]}, token)
+        if bx:
+            self._guard.audit('run_powershell', {'cmd': str(cmd or '')[:200]}, 'block', 'budget-exceeded')
+            return ok({'ok': False, 'error': bx})
         if reason:
             self._guard.audit('run_powershell', {'cmd': str(cmd or '')[:200]}, 'block', 'backend-enforced')
             return err(reason)
@@ -485,7 +506,10 @@ class Api:
         # 修复 S5/W8（三轮）：timeout 尾参接线——原签名丢 timeout（W13 二轮的「可调」
         # 是死参数），前端 150s 固定桥接超时与后端人审/轮询口径脱节（二次提权根因之一）。
         # 尾参追加保持旧调用形态 run_admin_command(cmd[, token]) 兼容。
-        reason = self._guard.enforce_exec('run_admin_command', {'cmd': str(cmd or '')[:200]}, token)
+        reason, bx = self._guard.enforce_exec_ex('run_admin_command', {'cmd': str(cmd or '')[:200]}, token)
+        if bx:
+            self._guard.audit('run_admin_command', {'cmd': str(cmd or '')[:200]}, 'block', 'budget-exceeded')
+            return ok({'ok': False, 'error': bx})
         if reason:
             self._guard.audit('run_admin_command', {'cmd': str(cmd or '')[:200]}, 'block', 'backend-enforced')
             return err(reason)
@@ -506,7 +530,10 @@ class Api:
     # ============ 剪贴板 ============
     def get_clipboard(self, token=None):
         # 修复 S4②：clipboard_read 补 enforce 挂点（原完全无后端校验）
-        reason = self._guard.enforce_exec('clipboard_read', {}, token)
+        reason, bx = self._guard.enforce_exec_ex('clipboard_read', {}, token)
+        if bx:
+            self._guard.audit('clipboard_read', {}, 'block', 'budget-exceeded')
+            return ok({'ok': False, 'error': bx})
         if reason:
             self._guard.audit('clipboard_read', {}, 'block', 'backend-enforced')
             return ok({'error': reason})
@@ -515,7 +542,10 @@ class Api:
     def set_clipboard(self, text, token=None):
         # 修复 S4②：clipboard_write 补 enforce 挂点
         detail = {'len': len(str(text if text is not None else ''))}
-        reason = self._guard.enforce_exec('clipboard_write', detail, token)
+        reason, bx = self._guard.enforce_exec_ex('clipboard_write', detail, token)
+        if bx:
+            self._guard.audit('clipboard_write', detail, 'block', 'budget-exceeded')
+            return ok({'ok': False, 'error': bx})
         if reason:
             self._guard.audit('clipboard_write', detail, 'block', 'backend-enforced')
             return ok({'error': reason})
@@ -547,7 +577,7 @@ class Api:
                 detail['name'] = resolved
         # v1.2 R2：用户保护名单叠加在内置名单之上（默认名单为空 → 行为与 legacy 一致）
         # 修复 S4①：武装后 always/session 档强制一次性 token / 会话信任
-        reason = self._guard.enforce_exec('kill_process', detail, token)
+        reason, bx = self._guard.enforce_exec_ex('kill_process', detail, token)
         if reason:
             self._guard.audit('kill_process', detail, 'block', 'backend-enforced')
             # 修复 ③（二轮）：原此处对含「保护名单」的文案二次追加「（保护名单）」后缀，
@@ -675,7 +705,10 @@ class Api:
             # 修复 H7（四轮）：unmark 回滚键必须在 path 被重写（shutil.which/join）之前固化，
             # 否则登记键（原始 path）与回滚键（重写后 path）不匹配，回滚成为 no-op。
             dkey = 'open_app ' + path
-            reason = self._guard.enforce_exec('open_app', {'path': path[:200]}, token)
+            reason, bx = self._guard.enforce_exec_ex('open_app', {'path': path[:200]}, token)
+            if bx:
+                self._guard.audit('open_app', {'path': path[:200]}, 'block', 'budget-exceeded')
+                return ok({'ok': False, 'error': bx})
             if reason:
                 self._guard.audit('open_app', {'path': path[:200]}, 'block', 'backend-enforced')
                 return err(reason)
@@ -721,7 +754,10 @@ class Api:
 
     def take_screenshot(self, left=None, top=None, width=None, height=None, token=None):
         # 修复 S4②：take_screenshot 补 enforce 挂点（原完全无后端校验）
-        reason = self._guard.enforce_exec('take_screenshot', {}, token)
+        reason, bx = self._guard.enforce_exec_ex('take_screenshot', {}, token)
+        if bx:
+            self._guard.audit('take_screenshot', {}, 'block', 'budget-exceeded')
+            return ok({'ok': False, 'error': bx})
         if reason:
             self._guard.audit('take_screenshot', {}, 'block', 'backend-enforced')
             return ok({'error': reason})
@@ -806,10 +842,24 @@ class Api:
             return ''          # 记忆注入失败不阻塞主提示词
 
     def memory_retrieve(self, query, limit=5):
-        """W11：关键词检索 js_api（前端探活/测试用；items 带 kind）。"""
+        """W11：关键词检索 js_api（前端探活/测试用；items 带 kind）。
+
+        v1.9.0 M2.6：记忆检索事件入账（master-plan 2.6）——query 只落
+        sha256[:16]（禁原文——隐私口径与搜索 provenance 一致）。
+        """
         r = self._config.memory_retrieve(query, limit)
         if 'error' in r:
             return err(r['error'])
+        try:
+            import hashlib
+            self._guard.audit('memory_retrieve',
+                              {'query_sha256': hashlib.sha256(
+                                  str(query or '').encode('utf-8')
+                              ).hexdigest()[:16],
+                               'hits': len(r.get('items') or [])},
+                              'read', 'ok')
+        except Exception:
+            pass                        # 审计失败不阻断检索
         return ok(r)
 
     def prompt_get(self, prompt_id):
@@ -873,9 +923,57 @@ class Api:
             detail = {}
         return self._guard.audit(op, detail, 'decision', decision)
 
-    def get_audit_log(self, limit=200, offset=0):
-        """审计日志查看器数据源：倒序返回最新 limit 条（纯本地文件，无网络）。"""
-        return self._guard.read_audit(limit, offset)
+    def get_audit_log(self, limit=200, offset=0, verify_all=False):
+        """审计日志查看器数据源：倒序返回最新 limit 条（纯本地文件，无网络）。
+
+        v1.9.0 M2.6：增 chain 块 {head 首8位+省略号口径由前端裁, len, valid,
+        broken_at?}（窗口内快速校验；verify_all=True 全量重算——大日志 O(n)，
+        面板默认关）。entries 每项原样透出（含五维与链字段；旧条目没有，
+        前端可选渲染——前向兼容）。
+        """
+        base = json.loads(self._guard.read_audit(limit, offset)) \
+            if isinstance(self._guard.read_audit(limit, offset), str) \
+            else self._guard.read_audit(limit, offset)
+        head = self._guard.audit_chain_head()
+        chain = {'head': (head.get('head') or '')[:8],
+                 'head_full': head.get('head') or '',
+                 'len': head.get('len', 0),
+                 'valid': True}
+        entries = base.get('entries') if isinstance(base, dict) else None
+        if entries is not None:
+            vr = self._guard.audit_chain_verify(entries)
+            chain['valid'] = bool(vr.get('ok'))
+            if not vr.get('ok'):
+                chain['broken_at'] = vr.get('broken_at')
+        elif verify_all:
+            # 全量模式：读全部条目重算（面板显式开启才走——O(n)）
+            all_entries = self._all_audit_entries()
+            vr = self._guard.audit_chain_verify(all_entries)
+            chain['valid'] = bool(vr.get('ok'))
+            if not vr.get('ok'):
+                chain['broken_at'] = vr.get('broken_at')
+        if isinstance(base, dict):
+            base['chain'] = chain
+            return json.dumps(base, ensure_ascii=False)
+        return ok({'entries': base, 'chain': chain})
+
+    def _all_audit_entries(self):
+        """全量审计条目（正序；verify_all 用——大日志 O(n)，面板默认关）。"""
+        try:
+            path = self._guard._audit_path
+            out = []
+            with open(path, encoding='utf-8') as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        out.append(json.loads(line))
+                    except Exception:
+                        continue
+            return out
+        except Exception:
+            return []
 
     def guard_confirm_token(self, op, detail_json='{}'):
         """修复 S4①：前端确认框「允许」后换取一次性 confirm token（TTL 60s，绑定 op+detail 摘要）。
@@ -1031,8 +1129,12 @@ class Api:
         agentGuardCheck 确认框换取（guard_confirm_token）。
         """
         p = self._params_dict(params)
-        reason = self._guard.enforce_exec(
+        reason, bx = self._guard.enforce_exec_ex(
             'web_search', {'query': str((p or {}).get('query') or '')[:120]}, token)
+        if bx:
+            self._guard.audit('web_search', {'query': str((p or {}).get('query') or '')[:120]},
+                              'block', 'budget-exceeded')
+            return ok({'ok': False, 'error': bx})
         if reason:
             self._guard.audit('web_search', {'query': str((p or {}).get('query') or '')[:120]},
                               'block', reason)
@@ -1095,7 +1197,10 @@ class Api:
         _risk = self._software.action_risk(_sw, _act)
         detail = {'software': _sw, 'action': _act,
                   'force_always': _risk == 'dangerous'}
-        reason = self._guard.enforce_exec('software_call', detail, token)
+        reason, bx = self._guard.enforce_exec_ex('software_call', detail, token)
+        if bx:
+            self._guard.audit('software_call', detail, 'block', 'budget-exceeded')
+            return ok({'ok': False, 'error': bx})
         if reason:
             self._guard.audit('software_call', detail, 'block', reason)
             return ok({'ok': False,
