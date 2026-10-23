@@ -747,13 +747,3 @@ class WinSession(BrowserSession):
         self._html = ''
         self._url = ''
         return {'ok': True}
-
-    def _settle_ready(self):
-        """原语出口回落 READY（失败也回——单会话串行不残留忙态）。
-
-        close() 强制路径（BUSY→CLOSED）已接管时不回改（防掩盖终态）。
-        """
-        try:
-            self._enter(SessionState.READY)
-        except BrowserError:
-            pass

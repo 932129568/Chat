@@ -550,7 +550,11 @@ class TestPlatformServices:
             assert getattr(svcs, accessor)() is not None, accessor
 
     def test_platform_factory_non_win_raises(self):
-        for p in ('mac', 'headless', 'linux'):
+        # v1.9.0 M6 转正更新：mac 已交付理论实现（MacPlatformServices）——
+        # 工厂不再对 mac 抛 UNSUPPORTED；headless/linux 仍拒
+        from backend.services.browser.platform.mac import MacPlatformServices
+        assert isinstance(get_platform_services('mac'), MacPlatformServices)
+        for p in ('headless', 'linux'):
             with pytest.raises(BrowserError) as ei:
                 get_platform_services(p)
             assert ei.value.code is BrowserErrorCode.UNSUPPORTED_PLATFORM

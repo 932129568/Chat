@@ -472,6 +472,20 @@ class BrowserService:
 
     # ---- 会话工厂 ----
     def _default_factory(self, mode):
+        """平台分支（M4）：win → WinSession+DriverWindow（独立 profile 子目录）；
+        mac → MacSession（WKWebView，PyObjC 就绪时；理论实现真机验证 M9.5）。"""
+        from . import detect_platform
+        plat = detect_platform()
+        if plat == 'mac':
+            from .session_mac import (MacSession, _default_webview_factory,
+                                      mac_backend_available)
+            if not mac_backend_available():
+                raise BrowserError(
+                    BrowserErrorCode.UNSUPPORTED_PLATFORM,
+                    'macOS 浏览器后端需要 PyObjC 运行时'
+                    '（pip install "pywebview[cocoa]"；真机链路验证排期 M9.5）')
+            return MacSession(webview_factory=_default_webview_factory,
+                              bridge=Bridge()), None
         win = DriverWindow(visible=(mode == 'visible'),
                            user_data_dir=os.path.join(
                                paths.BROWSER_PROFILE_DIR, 'drv_%d'
@@ -489,15 +503,17 @@ class BrowserService:
         with self._lock:
             self._evicted = evicted
             self._evict_if_full()
-            self._seq += 1
-            sid = 'bs_%d_%s' % (int(self._clock()), os.urandom(3).hex())
+            # 工厂先行（未入池——失败零残留；BrowserError 结构化收口禁穿透 js_api）
             try:
                 session, window = self._factory(m)
-            except BrowserError:
-                raise
+            except BrowserError as e:
+                self._project()
+                return e.to_payload()
             except Exception as e:
                 return BrowserError(BrowserErrorCode.UNSUPPORTED_PLATFORM,
                                     '浏览器驱动后端不可用: %s' % e).to_payload()
+            self._seq += 1
+            sid = 'bs_%d_%s' % (int(self._clock()), os.urandom(3).hex())
             self._sessions[sid] = {
                 'session': session, 'window': window, 'mode': m,
                 'created': _utc_now_iso(), 'last_url': '', 'last_used': self._clock(),
@@ -624,15 +640,48 @@ class BrowserService:
                                     '没有可用浏览器会话').to_payload()
             entry['mode'] = 'visible' if mode == 'visible' else 'hidden'
             window = entry.get('window')
+            session = entry.get('session')
         ok = False
-        if window is not None and hasattr(window, 'set_visible'):
-            try:
-                ok = bool(window.set_visible(mode == 'visible'))
-            except Exception:
-                ok = False
+        # win 侧走 window.set_visible；mac 侧（理论实现）走 session.set_visible
+        for obj in (window, session):
+            fn = getattr(obj, 'set_visible', None)
+            if callable(fn):
+                try:
+                    ok = bool(fn(mode == 'visible'))
+                except Exception:
+                    ok = False
+                break
         with self._lock:
             self._project()
         return {'ok': True, 'mode': entry['mode'], 'applied': ok}
+
+    def preheat(self):
+        """M8.1 会话池预热：首个 navigate 前预建隐藏驱动窗（量化冷启毫秒）。
+
+        best-effort：失败静默（预热失败不阻塞首个 navigate 的正常创建路径）；
+        Windows 真机起窗耗时可观测（test fake factory 可测调用次数与打点）。"""
+        t0 = self._clock()
+        try:
+            session, window = self._factory('hidden')
+            warm = True
+        except Exception:
+            session, window, warm = None, None, False
+        self._preheat_ms = int((self._clock() - t0) * 1000)
+        if not warm:
+            return {'ok': False, 'warm': False, 'preheat_ms': self._preheat_ms}
+        with self._lock:
+            self._seq += 1
+            sid = 'bs_%d_%s' % (int(self._clock()), os.urandom(3).hex())
+            self._sessions[sid] = {
+                'session': session, 'window': window, 'mode': 'hidden',
+                'created': _utc_now_iso(), 'last_url': '', 'last_used': self._clock(),
+            }
+            # 预热会话不夺游标（cursor 保持 ''——首个 navigate 仍新建会话，
+            # 预热窗供池满前复用？v1 简化：预热会话仅作冷启摊销基线，navigate
+            # 仍走正常创建路径；真机调优见 M9.6）
+            self._project()
+        return {'ok': True, 'warm': True, 'session_id': sid,
+                'preheat_ms': self._preheat_ms}
 
     def sessions(self):
         """投影视图（browser_sessions.json 同构；面板/前端数据源）。"""

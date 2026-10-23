@@ -41,6 +41,11 @@ def get_platform_services(platform=''):
     if p == 'win':
         from .win import WinPlatformServices
         return WinPlatformServices()
+    if p == 'mac':
+        # v1.9.0 M6：七接口理论实现（PyObjC 延迟 import；非 macOS 环境
+        # available()=False + 操作结构化降级——真机验证集中 M9.4）
+        from .mac import MacPlatformServices
+        return MacPlatformServices()
     raise BrowserError(
         BrowserErrorCode.UNSUPPORTED_PLATFORM,
-        '平台 %r 的系统服务工厂尚未交付（当前仅 win；mac 排期 M6）' % p)
+        '平台 %r 不提供系统服务工厂（win/mac 之外）' % p)

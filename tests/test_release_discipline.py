@@ -114,13 +114,21 @@ class TestV19Placeholders:
             assert m not in info['methods'], m
 
     def test_placeholder_shape(self, fresh_home):
-        """M1.9 占位契约：get_platform_info 仍占位（M6.10 转正）。"""
+        """M1.9 占位契约终态：九方法全部转正（browser×6 于 M3/M5、
+        get_platform_info 于 M6.10、guard_approval_budget/search_reader_stats
+        于 M2）——正向断言不再返回 NOT_IMPLEMENTED（占位期契约已履行完毕）。"""
         from backend.api import Api
         api = Api()
         r = json.loads(api.get_platform_info())
-        assert r['ok'] is False
-        assert r['error']['code'] == 'NOT_IMPLEMENTED'
-        assert r['error']['milestone']
+        assert r['ok'] is True
+        assert 'error' not in r or r.get('error', {}).get('code') != 'NOT_IMPLEMENTED'
+        # 六 browser 原语同样不得再返回 NOT_IMPLEMENTED（M3/M5 转正）
+        for method, args in (('browser_extract', ()),
+                             ('browser_click', ('#x',)),
+                             ('browser_close', ())):
+            rr = json.loads(getattr(api, method)(*args))
+            if rr.get('ok') is False:
+                assert (rr.get('error') or {}).get('code') != 'NOT_IMPLEMENTED', method
 
     def test_browser_six_promoted_m3(self, fresh_home):
         """M3/M5 转正：六浏览器原语不再返回 NOT_IMPLEMENTED（实现体转正，

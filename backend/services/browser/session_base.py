@@ -196,6 +196,17 @@ class BrowserSession(ABC):
         with self._lock:
             self._state = state
 
+    def _settle_ready(self):
+        """原语出口回落 READY（失败也回——单会话串行不残留忙态）。
+
+        close() 强制路径（BUSY→CLOSED）已接管时不回改（防掩盖终态）。
+        v1.9.0 M4 上移基类（Win/Mac 会话共用——原仅 WinSession 持有）。
+        """
+        try:
+            self._enter(SessionState.READY)
+        except BrowserError:
+            pass
+
     @property
     def state(self):
         """当前状态（SessionState；持锁读取）。"""

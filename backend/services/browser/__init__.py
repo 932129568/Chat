@@ -64,9 +64,16 @@ def create_session(platform='', **kw):
         from .session_headless import HeadlessSession
         return HeadlessSession(**kw)
     if p == 'mac':
+        # v1.9.0 M4（理论实现）：PyObjC 运行时就绪 → MacSession（WKWebView
+        # 六原语）；否则 UNSUPPORTED_PLATFORM 结构化降级（真机验证集中 M9.5）
+        from .session_mac import mac_backend_available
+        if mac_backend_available():
+            from .session_mac import MacSession
+            return MacSession(**kw)
         raise BrowserError(
             BrowserErrorCode.UNSUPPORTED_PLATFORM,
-            'macOS 浏览器后端计划于 M4 交付（WKWebView）')
+            'macOS 浏览器后端需要 PyObjC 运行时（pip install "pywebview[cocoa]"）'
+            '——未安装或非 macOS 环境不可用（真机链路验证排期 M9.5）')
     raise BrowserError(
         BrowserErrorCode.BAD_PARAMS,
         '未知平台: %r（合法值: win/mac/headless）' % platform)
