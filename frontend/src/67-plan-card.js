@@ -52,13 +52,30 @@ function planCardRender(plan) {
   const card = document.createElement('div');
   card.className = 'plan-card';
   card.id = 'planCard';
-  const files = (plan.files && plan.files.length)
-    ? '<div class="plan-files">涉及：' + plan.files.map(pcEsc).join(' · ') + '</div>' : '';
+  // v1.9 Intent Preview（2026-10-23 落地，token-upgrade-plan §2.1）：
+  // ETA 前端估算（25s/步，mono 明示估算口径）；风险条取最高步骤风险；
+  // 边界声明区（dashed）替代旧「涉及」单行；累计上下文行（步骤/需确认统计）
+  const steps = plan.steps || [];
+  const etaMin = Math.max(1, Math.round(steps.length * 25 / 60));
+  const maxRisk = steps.some(x => x.risk === 'l2') ? 'l2'
+    : (steps.some(x => x.risk === 'l1') ? 'l1' : 'l0');
+  const needConfirm = steps.filter(x => x.risk && x.risk !== 'l0').length;
+  const scope = (plan.files && plan.files.length)
+    ? '<div class="plan-scope"><div class="sc-head">将修改</div>' +
+      '<div class="sc-files">' + plan.files.map(pcEsc).join('\n') + '</div>' +
+      '<div class="sc-files" style="margin-top:4px;color:var(--text-3)">不访问工作区以外的任何位置</div></div>'
+    : '<div class="plan-scope"><div class="sc-head">不访问</div>' +
+      '<div class="sc-files">本计划不涉及文件修改（仅读取/生成内容）</div></div>';
+  const ctxPct = steps.length ? Math.round(100 / steps.length) : 100;
   card.innerHTML =
+    '<span class="plan-riskbar ' + maxRisk + '"></span>' +
     '<div class="plan-head">' +
       '<span class="plan-badge pending" id="planBadge">待批准</span>' +
       '<span class="plan-title">' + pcEsc(plan.title || '任务计划') + '</span>' +
-    '</div>' + files +
+      '<span class="plan-eta">≈' + steps.length + ' 步 · ' + etaMin + ' 分钟</span>' +
+    '</div>' + scope +
+    '<div class="plan-ctx"><span>' + steps.length + ' 步 · ' + needConfirm + ' 需确认</span>' +
+      '<span class="ctx-bar"><span class="ctx-fill" style="width:' + ctxPct + '%"></span></span></div>' +
     '<div class="plan-steps" id="planSteps">' +
       (plan.steps || []).map((s, i) =>
         '<div class="plan-step pending" data-i="' + i + '" style="animation-delay:' +
@@ -73,7 +90,8 @@ function planCardRender(plan) {
       '<button class="pill-btn" id="planEditBtn">编辑</button>' +
       '<button class="pill-btn" id="planRejectBtn">拒绝</button>' +
     '</div>' +
-    '<div class="plan-summary" id="planSummary"></div>';
+    '<div class="plan-summary" id="planSummary"></div>' +
+    '<div class="plan-ckpt" id="planCkpt" style="display:none"></div>';
   host.appendChild(card);
   planCardEl = card;
   const ap = pcEl('planApproveBtn');
@@ -128,7 +146,100 @@ function planCardApprove() {
   if (typeof pcCall === 'function' && planCurrent) {
     pcCall('plan_update', [planCurrent.task_id, 'running'], 15000).catch(() => {});
   }
+  // v1.9：涉及文件的计划批准即建检查点（M2.8 回滚兜底；best-effort 不阻塞）
+  if (planCurrent && planCurrent.files && planCurrent.files.length) {
+    pcCall('checkpoint_create', [planCurrent.task_id, planCurrent.files.join(','), ''], 30000)
+      .then(raw => {
+        let okCp = false;
+        try { okCp = !!(JSON.parse(raw || '{}').ok); } catch (e) {}
+        ckptRenderEntry(okCp);
+      }).catch(() => ckptRenderEntry(false));
+  }
   r.resolve();
+}
+
+/* ---------- v1.9 检查点三态（M2.8；后端 checkpoint_* 三方法在位） ----------
+ * 入口（摘要区「检查点已创建 · 可回滚」）→ 清单态（ckpt-list stagger）→
+ * 确认（uiConfirm 二次确认，方案：调用方须已完成清单二次确认）→ 回滚 →
+ * 校验态（ok/err 行；rollback 失败形状 {ok:false,restored,failed} 原样呈现） */
+let ckptBusy = false;
+function ckptRenderEntry(created) {
+  const box = pcEl('planCkpt');
+  if (!box) return;
+  if (!created) {
+    box.innerHTML = '<span style="font-size:var(--fs-caption);color:var(--text-3)">检查点不可用（非 git 目录或创建失败）· 本计划无回滚兜底</span>';
+    box.style.display = '';
+    return;
+  }
+  box.innerHTML =
+    '<button type="button" class="plan-ckpt-link" id="ckptRollbackLink">↩ 回滚到计划开始前</button>' +
+    '<span style="font-size:var(--fs-micro);color:var(--text-3)">检查点已创建 · 涉及文件共 ' +
+      pcEsc(String((planCurrent && planCurrent.files || []).length)) + ' 个</span>';
+  box.style.display = '';
+  const link = pcEl('ckptRollbackLink');
+  if (link) link.onclick = () => ckptOpenList();
+}
+async function ckptOpenList() {
+  if (ckptBusy) return;
+  ckptBusy = true;
+  const box = pcEl('planCkpt');
+  if (!box) { ckptBusy = false; return; }
+  let list = [];
+  try {
+    const raw = await pcCall('checkpoint_list', [planCurrent && planCurrent.task_id || ''], 30000);
+    const d = JSON.parse(raw || '{}');
+    list = (d && d.files) || [];
+  } catch (e) {
+    box.innerHTML = '<div class="ckpt-verify err">清单读取失败：' + pcEsc(e.message || e) + '</div>';
+    ckptBusy = false; return;
+  }
+  if (!list.length) {
+    box.innerHTML = '<div class="ckpt-verify ok">无已改动文件 · 计划开始前的状态与当前一致，无需回滚</div>';
+    ckptBusy = false; return;
+  }
+  const rows = list.map(f =>
+    '<div class="ckpt-row"><span class="f">' + pcEsc(f.path || '') + '</span>' +
+    '<span class="m ' + pcEsc(f.kind || 'mod') + '">' +
+    (f.kind === 'add' ? '新增' : f.kind === 'del' ? '删除' : '修改') + '</span></div>').join('');
+  box.innerHTML =
+    '<div class="ckpt-card"><div class="ckpt-title">回滚将恢复以下文件 <span class="ckpt-id">' +
+      pcEsc(String(list.length)) + ' 个</span></div>' +
+    '<div class="ckpt-list">' + rows + '</div>' +
+    '<div class="ckpt-acts">' +
+      '<button type="button" class="pill-btn primary" id="ckptConfirmBtn">确认回滚</button>' +
+      '<button type="button" class="pill-btn" id="ckptCancelBtn">取消</button>' +
+    '</div><div id="ckptVerify"></div></div>';
+  pcScrollChat();
+  const cancel = pcEl('ckptCancelBtn');
+  if (cancel) cancel.onclick = () => ckptRenderEntry(true);
+  const confirm = pcEl('ckptConfirmBtn');
+  if (confirm) confirm.onclick = () => ckptDoRollback();
+  ckptBusy = false;
+}
+async function ckptDoRollback() {
+  const vbox = pcEl('ckptVerify');
+  const confirm = pcEl('ckptConfirmBtn');
+  if (confirm) { confirm.disabled = true; confirm.textContent = '回滚中…'; }
+  try {
+    const raw = await pcCall('checkpoint_rollback', [planCurrent && planCurrent.task_id || '', ''], 60000);
+    const d = JSON.parse(raw || '{}');
+    if (vbox) {
+      if (d && d.ok) {
+        vbox.innerHTML = '<div class="ckpt-verify ok">已恢复至检查点（计划开始前）· 共 ' +
+          pcEsc(String((d.restored || []).length)) + ' 个文件</div>';
+      } else {
+        // 失败形状原样呈现（后端透传 restored/failed，禁拍平——见 api.py 注释）
+        const failed = (d && d.failed) || [];
+        vbox.innerHTML = '<div class="ckpt-verify err">回滚未完全成功：' +
+          pcEsc((d && d.error) || '部分文件恢复失败') +
+          (failed.length ? ' · 失败 ' + pcEsc(String(failed.length)) + ' 个' : '') + '</div>';
+      }
+    }
+  } catch (e) {
+    if (vbox) vbox.innerHTML = '<div class="ckpt-verify err">回滚失败：' + pcEsc(e.message || e) + '</div>';
+  } finally {
+    if (confirm) { confirm.disabled = false; confirm.textContent = '确认回滚'; }
+  }
 }
 
 function planCardReject() {

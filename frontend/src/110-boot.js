@@ -82,6 +82,8 @@ async function loadAll() {
   try { chatNavInit(); } catch (e) { console.warn('长对话导航初始化失败', e); }
   /* v1.8.0：输入区重构（+ 附件菜单 + 模型选择 chip） */
   try { inputPlusInit(); } catch (e) { console.warn('输入区重构初始化失败', e); }
+  /* v1.9.0：平台探测与 macOS 适配层（自带 readyState 兜底，双安全） */
+  try { if (typeof platformInit === 'function') platformInit(); } catch (e) { console.warn('平台适配初始化失败', e); }
   /* v1.8.0 S 域·外部软件 + H 域·混合路由 + v1.8.5 A 域·任务授权/白名单
    * （纯新增 #softwareBlock / #hybridBlock / #grantIndicator / #grantRulesBlock；
    * 各自 Init 内部幂等 + typeof 守卫，失败不阻塞启动） */

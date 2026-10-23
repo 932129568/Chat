@@ -1255,7 +1255,7 @@ body.fx-off .set-window,body.fx-off .modal-card{animation:none}   /* v4 设置�
   box-shadow:var(--shadow-md);overflow:hidden;animation:v4MsgIn var(--dur-narr) var(--ease-out-soft)}
 .plan-head{display:flex;align-items:center;gap:8px;padding:11px 14px;border-bottom:1px solid var(--border)}
 .plan-badge{font-size:10.5px;padding:1px 9px;border-radius:var(--radius-full);font-weight:600;
-  transition:background-color var(--dur-comp) var(--ease-out-soft),color var(--dur-comp) var(--ease-out-soft)}
+  transition:opacity var(--dur-micro-out) var(--ease-out-soft),background-color var(--dur-comp) var(--ease-out-soft),color var(--dur-comp) var(--ease-out-soft)}
 .plan-badge.pending{background:var(--warn-bg);color:var(--warn)}
 .plan-badge.running{background:var(--primary-soft);color:var(--primary)}
 .plan-badge.done{background:var(--ok-bg);color:var(--ok)}
@@ -2120,6 +2120,99 @@ body.fx-off .cm-save-btn::after{display:none}
   cursor:pointer;border-radius:var(--radius-xs);font-size:10px;padding:0;line-height:1;
   transition:color var(--dur-micro) var(--ease-out-soft),background-color var(--dur-micro) var(--ease-out-soft)}
 .mc-del:hover{color:var(--err);background:var(--err-bg)}
+
+/* ============================================================
+   v1.9.0 Intent Preview 计划卡 + 检查点三态（2026-10-23 落地）
+   来源：deliverables/design/v19/token-upgrade-plan.md §2.1/§2.2
+   + prototypes/plan-intent-preview.html + checkpoint-dialog.html
+   纯增命名；严过审评审 PASS（五维 24/25）
+   ============================================================ */
+/* ---- Intent Preview：ETA 徽标 / 风险条 / 边界声明 / 累计上下文 ---- */
+.plan-card{position:relative;padding-left:15px}   /* 为风险条让位（左 3px） */
+.plan-eta{font-family:var(--font-mono);font-size:var(--fs-micro);font-weight:500;
+  color:var(--text-3);letter-spacing:.01em;flex-shrink:0;font-variant-numeric:tabular-nums}
+.plan-riskbar{position:absolute;left:0;top:8px;bottom:8px;width:3px;border-radius:var(--radius-full)}
+.plan-riskbar.l0{background:var(--ok)}
+.plan-riskbar.l1{background:var(--primary)}
+.plan-riskbar.l2{background:var(--warn)}
+.plan-scope{margin:6px 0 8px;padding:8px 11px;border:1px dashed var(--border-strong);
+  border-radius:var(--radius-md);font-size:var(--fs-caption);color:var(--text-2);line-height:1.6}
+.plan-scope .sc-head{font-weight:600;color:var(--text);font-size:var(--fs-caption);
+  display:flex;align-items:center;gap:5px;margin-bottom:3px}
+.plan-scope .sc-files{font-family:var(--font-mono);font-size:var(--fs-micro);
+  color:var(--text-3);word-break:break-all;line-height:1.55}
+.plan-ctx{display:flex;align-items:center;gap:8px;margin:4px 0 8px;
+  font-family:var(--font-mono);font-size:var(--fs-micro);color:var(--text-3);
+  font-variant-numeric:tabular-nums}
+.plan-ctx .ctx-bar{flex:1;height:3px;border-radius:var(--radius-full);background:var(--surface-2);overflow:hidden}
+.plan-ctx .ctx-fill{height:100%;background:var(--primary);border-radius:inherit;
+  transition:width var(--dur-comp) var(--ease-out-soft)}
+.plan-acts .pill-btn:active{transform:scale(.97);transition:transform var(--dur-press) var(--ease-out-soft)}
+/* ---- 检查点：摘要入口 + 三态 inline 对话框 ---- */
+.plan-ckpt{margin-top:6px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.plan-ckpt-link{border:none;background:transparent;color:var(--primary);font-size:var(--fs-caption);
+  cursor:pointer;padding:2px 4px;border-radius:var(--radius-xs);font-family:inherit;
+  transition:background-color var(--dur-micro) var(--ease-out-soft)}
+.plan-ckpt-link:hover{background:var(--primary-soft)}
+.plan-ckpt-link.danger{color:var(--err)}
+.plan-ckpt-link.danger:hover{background:var(--err-bg)}
+.ckpt-card{margin-top:8px;padding:12px 14px;border:1px solid var(--border);
+  border-radius:var(--radius-lg);background:var(--surface-2);
+  animation:v4LineIn var(--dur-comp) var(--ease-out-soft)}
+.ckpt-title{font-size:var(--fs-title);font-weight:650;color:var(--text);
+  display:flex;align-items:center;gap:7px;margin-bottom:8px}
+.ckpt-title .ckpt-id{font-family:var(--font-mono);font-size:var(--fs-micro);color:var(--text-3);font-weight:400}
+.ckpt-list{display:flex;flex-direction:column;gap:3px;margin:6px 0}
+.ckpt-row{display:flex;align-items:center;gap:8px;padding:6px 9px;border-radius:var(--radius-md);
+  background:var(--card-bg);border:1px solid var(--border);font-size:var(--fs-caption);
+  animation:v4LineIn var(--dur-comp) var(--ease-out-soft) both}
+.ckpt-row:nth-child(2){animation-delay:var(--stagger-xs)}
+.ckpt-row:nth-child(3){animation-delay:calc(var(--stagger-xs) * 2)}
+.ckpt-row:nth-child(n+4){animation-delay:var(--stagger-max)}
+.ckpt-row .f{font-family:var(--font-mono);font-size:var(--fs-micro);flex:1;min-width:0;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text-2)}
+.ckpt-row .m{flex-shrink:0;font-size:var(--fs-micro);font-weight:600;padding:1px 6px;border-radius:var(--radius-full)}
+.ckpt-row .m.mod{color:var(--warn);background:var(--warn-bg)}
+.ckpt-row .m.add{color:var(--ok);background:var(--ok-bg)}
+.ckpt-row .m.del{color:var(--err);background:var(--err-bg)}
+.ckpt-acts{display:flex;align-items:center;gap:8px;margin-top:10px}
+.ckpt-verify{margin-top:8px;font-size:var(--fs-caption);line-height:1.6;
+  animation:v4LineIn var(--dur-narr) var(--ease-out-soft)}
+.ckpt-verify.ok{color:var(--ok)}
+.ckpt-verify.err{color:var(--err)}
+body.fx-off .ckpt-card,body.fx-off .ckpt-row,body.fx-off .ckpt-verify{animation:none}
+body.theming .ckpt-card,body.theming .ckpt-row,body.theming .plan-ckpt-link{
+  transition-property:background-color,color,border-color}
+
+/* ============================================================
+   v1.9.0 macOS 适配层（69-platform.js，M6.10）
+   策略：body[data-platform="mac"] 下重定义平台相关令牌——Win 缺省现行为，
+   零分支成本。彩格调方案 §2.5（严过审 24/25 PASS）
+   ============================================================ */
+body[data-platform="mac"]{
+  --font-ui:-apple-system,BlinkMacSystemFont,"SF Pro Text","PingFang SC",sans-serif;
+  --radius-ctrl:8px;              /* Win 6px（既有 --radius-sm）——mac 控件略圆 */
+  --scrollbar-w:0px;              /* Win 10px 不变；mac overlay 透明滚动条 */
+  --focus-ring-w:3px;             /* Win 2px——mac 双环外圈 */
+}
+body[data-platform="mac"] ::-webkit-scrollbar{width:8px;background:transparent}
+body[data-platform="mac"] ::-webkit-scrollbar-thumb{background:transparent;border-radius:4px}
+body[data-platform="mac"] :hover::-webkit-scrollbar-thumb{background:var(--border-strong)}
+body[data-platform="mac"] .set-window,
+body[data-platform="mac"] .modal-card,
+body[data-platform="mac"] .toast{border-radius:var(--radius-ctrl)}
+body[data-platform="mac"] :focus-visible{outline:var(--focus-ring-w) solid var(--primary-soft);
+  outline-offset:1px;box-shadow:0 0 0 calc(var(--focus-ring-w) + 1px) var(--primary)}
+.mac-badge{font-size:var(--fs-micro);color:var(--text-3);background:var(--surface-2);
+  border:1px solid var(--border);border-radius:var(--radius-full);padding:2px 9px;
+  margin-left:auto;flex-shrink:0;white-space:nowrap}
+.mac-kbd{font-family:var(--font-ui);font-size:var(--fs-micro);color:var(--text-3);
+  border:1px solid var(--border);border-bottom-width:2px;border-radius:var(--radius-xs);
+  padding:0 5px;background:var(--card-bg);white-space:nowrap}
+body[data-platform="mac"] kbd,body[data-platform="mac"] .kbd{font-family:var(--font-ui)}
+/* 键位双映射：帮助/提示里的 Ctrl 在 mac 下展示 ⌘（72-shortcuts 文案钩子预留） */
+body[data-platform="mac"] .kbd-ctrl::after{content:"⌘"}
+body:not([data-platform="mac"]) .kbd-ctrl::after{content:"Ctrl"}
 </style>
 </head>
 <body>

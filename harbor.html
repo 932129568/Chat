@@ -1255,7 +1255,7 @@ body.fx-off .set-window,body.fx-off .modal-card{animation:none}   /* v4 设置�
   box-shadow:var(--shadow-md);overflow:hidden;animation:v4MsgIn var(--dur-narr) var(--ease-out-soft)}
 .plan-head{display:flex;align-items:center;gap:8px;padding:11px 14px;border-bottom:1px solid var(--border)}
 .plan-badge{font-size:10.5px;padding:1px 9px;border-radius:var(--radius-full);font-weight:600;
-  transition:background-color var(--dur-comp) var(--ease-out-soft),color var(--dur-comp) var(--ease-out-soft)}
+  transition:opacity var(--dur-micro-out) var(--ease-out-soft),background-color var(--dur-comp) var(--ease-out-soft),color var(--dur-comp) var(--ease-out-soft)}
 .plan-badge.pending{background:var(--warn-bg);color:var(--warn)}
 .plan-badge.running{background:var(--primary-soft);color:var(--primary)}
 .plan-badge.done{background:var(--ok-bg);color:var(--ok)}
@@ -2120,6 +2120,99 @@ body.fx-off .cm-save-btn::after{display:none}
   cursor:pointer;border-radius:var(--radius-xs);font-size:10px;padding:0;line-height:1;
   transition:color var(--dur-micro) var(--ease-out-soft),background-color var(--dur-micro) var(--ease-out-soft)}
 .mc-del:hover{color:var(--err);background:var(--err-bg)}
+
+/* ============================================================
+   v1.9.0 Intent Preview 计划卡 + 检查点三态（2026-10-23 落地）
+   来源：deliverables/design/v19/token-upgrade-plan.md §2.1/§2.2
+   + prototypes/plan-intent-preview.html + checkpoint-dialog.html
+   纯增命名；严过审评审 PASS（五维 24/25）
+   ============================================================ */
+/* ---- Intent Preview：ETA 徽标 / 风险条 / 边界声明 / 累计上下文 ---- */
+.plan-card{position:relative;padding-left:15px}   /* 为风险条让位（左 3px） */
+.plan-eta{font-family:var(--font-mono);font-size:var(--fs-micro);font-weight:500;
+  color:var(--text-3);letter-spacing:.01em;flex-shrink:0;font-variant-numeric:tabular-nums}
+.plan-riskbar{position:absolute;left:0;top:8px;bottom:8px;width:3px;border-radius:var(--radius-full)}
+.plan-riskbar.l0{background:var(--ok)}
+.plan-riskbar.l1{background:var(--primary)}
+.plan-riskbar.l2{background:var(--warn)}
+.plan-scope{margin:6px 0 8px;padding:8px 11px;border:1px dashed var(--border-strong);
+  border-radius:var(--radius-md);font-size:var(--fs-caption);color:var(--text-2);line-height:1.6}
+.plan-scope .sc-head{font-weight:600;color:var(--text);font-size:var(--fs-caption);
+  display:flex;align-items:center;gap:5px;margin-bottom:3px}
+.plan-scope .sc-files{font-family:var(--font-mono);font-size:var(--fs-micro);
+  color:var(--text-3);word-break:break-all;line-height:1.55}
+.plan-ctx{display:flex;align-items:center;gap:8px;margin:4px 0 8px;
+  font-family:var(--font-mono);font-size:var(--fs-micro);color:var(--text-3);
+  font-variant-numeric:tabular-nums}
+.plan-ctx .ctx-bar{flex:1;height:3px;border-radius:var(--radius-full);background:var(--surface-2);overflow:hidden}
+.plan-ctx .ctx-fill{height:100%;background:var(--primary);border-radius:inherit;
+  transition:width var(--dur-comp) var(--ease-out-soft)}
+.plan-acts .pill-btn:active{transform:scale(.97);transition:transform var(--dur-press) var(--ease-out-soft)}
+/* ---- 检查点：摘要入口 + 三态 inline 对话框 ---- */
+.plan-ckpt{margin-top:6px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.plan-ckpt-link{border:none;background:transparent;color:var(--primary);font-size:var(--fs-caption);
+  cursor:pointer;padding:2px 4px;border-radius:var(--radius-xs);font-family:inherit;
+  transition:background-color var(--dur-micro) var(--ease-out-soft)}
+.plan-ckpt-link:hover{background:var(--primary-soft)}
+.plan-ckpt-link.danger{color:var(--err)}
+.plan-ckpt-link.danger:hover{background:var(--err-bg)}
+.ckpt-card{margin-top:8px;padding:12px 14px;border:1px solid var(--border);
+  border-radius:var(--radius-lg);background:var(--surface-2);
+  animation:v4LineIn var(--dur-comp) var(--ease-out-soft)}
+.ckpt-title{font-size:var(--fs-title);font-weight:650;color:var(--text);
+  display:flex;align-items:center;gap:7px;margin-bottom:8px}
+.ckpt-title .ckpt-id{font-family:var(--font-mono);font-size:var(--fs-micro);color:var(--text-3);font-weight:400}
+.ckpt-list{display:flex;flex-direction:column;gap:3px;margin:6px 0}
+.ckpt-row{display:flex;align-items:center;gap:8px;padding:6px 9px;border-radius:var(--radius-md);
+  background:var(--card-bg);border:1px solid var(--border);font-size:var(--fs-caption);
+  animation:v4LineIn var(--dur-comp) var(--ease-out-soft) both}
+.ckpt-row:nth-child(2){animation-delay:var(--stagger-xs)}
+.ckpt-row:nth-child(3){animation-delay:calc(var(--stagger-xs) * 2)}
+.ckpt-row:nth-child(n+4){animation-delay:var(--stagger-max)}
+.ckpt-row .f{font-family:var(--font-mono);font-size:var(--fs-micro);flex:1;min-width:0;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text-2)}
+.ckpt-row .m{flex-shrink:0;font-size:var(--fs-micro);font-weight:600;padding:1px 6px;border-radius:var(--radius-full)}
+.ckpt-row .m.mod{color:var(--warn);background:var(--warn-bg)}
+.ckpt-row .m.add{color:var(--ok);background:var(--ok-bg)}
+.ckpt-row .m.del{color:var(--err);background:var(--err-bg)}
+.ckpt-acts{display:flex;align-items:center;gap:8px;margin-top:10px}
+.ckpt-verify{margin-top:8px;font-size:var(--fs-caption);line-height:1.6;
+  animation:v4LineIn var(--dur-narr) var(--ease-out-soft)}
+.ckpt-verify.ok{color:var(--ok)}
+.ckpt-verify.err{color:var(--err)}
+body.fx-off .ckpt-card,body.fx-off .ckpt-row,body.fx-off .ckpt-verify{animation:none}
+body.theming .ckpt-card,body.theming .ckpt-row,body.theming .plan-ckpt-link{
+  transition-property:background-color,color,border-color}
+
+/* ============================================================
+   v1.9.0 macOS 适配层（69-platform.js，M6.10）
+   策略：body[data-platform="mac"] 下重定义平台相关令牌——Win 缺省现行为，
+   零分支成本。彩格调方案 §2.5（严过审 24/25 PASS）
+   ============================================================ */
+body[data-platform="mac"]{
+  --font-ui:-apple-system,BlinkMacSystemFont,"SF Pro Text","PingFang SC",sans-serif;
+  --radius-ctrl:8px;              /* Win 6px（既有 --radius-sm）——mac 控件略圆 */
+  --scrollbar-w:0px;              /* Win 10px 不变；mac overlay 透明滚动条 */
+  --focus-ring-w:3px;             /* Win 2px——mac 双环外圈 */
+}
+body[data-platform="mac"] ::-webkit-scrollbar{width:8px;background:transparent}
+body[data-platform="mac"] ::-webkit-scrollbar-thumb{background:transparent;border-radius:4px}
+body[data-platform="mac"] :hover::-webkit-scrollbar-thumb{background:var(--border-strong)}
+body[data-platform="mac"] .set-window,
+body[data-platform="mac"] .modal-card,
+body[data-platform="mac"] .toast{border-radius:var(--radius-ctrl)}
+body[data-platform="mac"] :focus-visible{outline:var(--focus-ring-w) solid var(--primary-soft);
+  outline-offset:1px;box-shadow:0 0 0 calc(var(--focus-ring-w) + 1px) var(--primary)}
+.mac-badge{font-size:var(--fs-micro);color:var(--text-3);background:var(--surface-2);
+  border:1px solid var(--border);border-radius:var(--radius-full);padding:2px 9px;
+  margin-left:auto;flex-shrink:0;white-space:nowrap}
+.mac-kbd{font-family:var(--font-ui);font-size:var(--fs-micro);color:var(--text-3);
+  border:1px solid var(--border);border-bottom-width:2px;border-radius:var(--radius-xs);
+  padding:0 5px;background:var(--card-bg);white-space:nowrap}
+body[data-platform="mac"] kbd,body[data-platform="mac"] .kbd{font-family:var(--font-ui)}
+/* 键位双映射：帮助/提示里的 Ctrl 在 mac 下展示 ⌘（72-shortcuts 文案钩子预留） */
+body[data-platform="mac"] .kbd-ctrl::after{content:"⌘"}
+body:not([data-platform="mac"]) .kbd-ctrl::after{content:"Ctrl"}
 </style>
 </head>
 <body>
@@ -2823,7 +2916,7 @@ body.fx-off .cm-save-btn::after{display:none}
 <script>
 /* 修复 ㊷（三轮）：APP_VERSION 由 build.js 从 VERSION 文件注入（原前端永无定义，
    导出 MD 页脚恒显硬编码 '1.4'）。占位符仅允许出现 1 次，build 校验。 */
-const APP_VERSION = '1.7.0';
+const APP_VERSION = '1.9.0';
 /* ===== 00-motion.js ===== */
 /* ================= v4 动效常量表（CSS 变量为单一事实源） =================
  * 来源：deliverables/design/v4 设计令牌文档（彩格调）附录 A。
@@ -11501,13 +11594,30 @@ function planCardRender(plan) {
   const card = document.createElement('div');
   card.className = 'plan-card';
   card.id = 'planCard';
-  const files = (plan.files && plan.files.length)
-    ? '<div class="plan-files">涉及：' + plan.files.map(pcEsc).join(' · ') + '</div>' : '';
+  // v1.9 Intent Preview（2026-10-23 落地，token-upgrade-plan §2.1）：
+  // ETA 前端估算（25s/步，mono 明示估算口径）；风险条取最高步骤风险；
+  // 边界声明区（dashed）替代旧「涉及」单行；累计上下文行（步骤/需确认统计）
+  const steps = plan.steps || [];
+  const etaMin = Math.max(1, Math.round(steps.length * 25 / 60));
+  const maxRisk = steps.some(x => x.risk === 'l2') ? 'l2'
+    : (steps.some(x => x.risk === 'l1') ? 'l1' : 'l0');
+  const needConfirm = steps.filter(x => x.risk && x.risk !== 'l0').length;
+  const scope = (plan.files && plan.files.length)
+    ? '<div class="plan-scope"><div class="sc-head">将修改</div>' +
+      '<div class="sc-files">' + plan.files.map(pcEsc).join('\n') + '</div>' +
+      '<div class="sc-files" style="margin-top:4px;color:var(--text-3)">不访问工作区以外的任何位置</div></div>'
+    : '<div class="plan-scope"><div class="sc-head">不访问</div>' +
+      '<div class="sc-files">本计划不涉及文件修改（仅读取/生成内容）</div></div>';
+  const ctxPct = steps.length ? Math.round(100 / steps.length) : 100;
   card.innerHTML =
+    '<span class="plan-riskbar ' + maxRisk + '"></span>' +
     '<div class="plan-head">' +
       '<span class="plan-badge pending" id="planBadge">待批准</span>' +
       '<span class="plan-title">' + pcEsc(plan.title || '任务计划') + '</span>' +
-    '</div>' + files +
+      '<span class="plan-eta">≈' + steps.length + ' 步 · ' + etaMin + ' 分钟</span>' +
+    '</div>' + scope +
+    '<div class="plan-ctx"><span>' + steps.length + ' 步 · ' + needConfirm + ' 需确认</span>' +
+      '<span class="ctx-bar"><span class="ctx-fill" style="width:' + ctxPct + '%"></span></span></div>' +
     '<div class="plan-steps" id="planSteps">' +
       (plan.steps || []).map((s, i) =>
         '<div class="plan-step pending" data-i="' + i + '" style="animation-delay:' +
@@ -11522,7 +11632,8 @@ function planCardRender(plan) {
       '<button class="pill-btn" id="planEditBtn">编辑</button>' +
       '<button class="pill-btn" id="planRejectBtn">拒绝</button>' +
     '</div>' +
-    '<div class="plan-summary" id="planSummary"></div>';
+    '<div class="plan-summary" id="planSummary"></div>' +
+    '<div class="plan-ckpt" id="planCkpt" style="display:none"></div>';
   host.appendChild(card);
   planCardEl = card;
   const ap = pcEl('planApproveBtn');
@@ -11577,7 +11688,100 @@ function planCardApprove() {
   if (typeof pcCall === 'function' && planCurrent) {
     pcCall('plan_update', [planCurrent.task_id, 'running'], 15000).catch(() => {});
   }
+  // v1.9：涉及文件的计划批准即建检查点（M2.8 回滚兜底；best-effort 不阻塞）
+  if (planCurrent && planCurrent.files && planCurrent.files.length) {
+    pcCall('checkpoint_create', [planCurrent.task_id, planCurrent.files.join(','), ''], 30000)
+      .then(raw => {
+        let okCp = false;
+        try { okCp = !!(JSON.parse(raw || '{}').ok); } catch (e) {}
+        ckptRenderEntry(okCp);
+      }).catch(() => ckptRenderEntry(false));
+  }
   r.resolve();
+}
+
+/* ---------- v1.9 检查点三态（M2.8；后端 checkpoint_* 三方法在位） ----------
+ * 入口（摘要区「检查点已创建 · 可回滚」）→ 清单态（ckpt-list stagger）→
+ * 确认（uiConfirm 二次确认，方案：调用方须已完成清单二次确认）→ 回滚 →
+ * 校验态（ok/err 行；rollback 失败形状 {ok:false,restored,failed} 原样呈现） */
+let ckptBusy = false;
+function ckptRenderEntry(created) {
+  const box = pcEl('planCkpt');
+  if (!box) return;
+  if (!created) {
+    box.innerHTML = '<span style="font-size:var(--fs-caption);color:var(--text-3)">检查点不可用（非 git 目录或创建失败）· 本计划无回滚兜底</span>';
+    box.style.display = '';
+    return;
+  }
+  box.innerHTML =
+    '<button type="button" class="plan-ckpt-link" id="ckptRollbackLink">↩ 回滚到计划开始前</button>' +
+    '<span style="font-size:var(--fs-micro);color:var(--text-3)">检查点已创建 · 涉及文件共 ' +
+      pcEsc(String((planCurrent && planCurrent.files || []).length)) + ' 个</span>';
+  box.style.display = '';
+  const link = pcEl('ckptRollbackLink');
+  if (link) link.onclick = () => ckptOpenList();
+}
+async function ckptOpenList() {
+  if (ckptBusy) return;
+  ckptBusy = true;
+  const box = pcEl('planCkpt');
+  if (!box) { ckptBusy = false; return; }
+  let list = [];
+  try {
+    const raw = await pcCall('checkpoint_list', [planCurrent && planCurrent.task_id || ''], 30000);
+    const d = JSON.parse(raw || '{}');
+    list = (d && d.files) || [];
+  } catch (e) {
+    box.innerHTML = '<div class="ckpt-verify err">清单读取失败：' + pcEsc(e.message || e) + '</div>';
+    ckptBusy = false; return;
+  }
+  if (!list.length) {
+    box.innerHTML = '<div class="ckpt-verify ok">无已改动文件 · 计划开始前的状态与当前一致，无需回滚</div>';
+    ckptBusy = false; return;
+  }
+  const rows = list.map(f =>
+    '<div class="ckpt-row"><span class="f">' + pcEsc(f.path || '') + '</span>' +
+    '<span class="m ' + pcEsc(f.kind || 'mod') + '">' +
+    (f.kind === 'add' ? '新增' : f.kind === 'del' ? '删除' : '修改') + '</span></div>').join('');
+  box.innerHTML =
+    '<div class="ckpt-card"><div class="ckpt-title">回滚将恢复以下文件 <span class="ckpt-id">' +
+      pcEsc(String(list.length)) + ' 个</span></div>' +
+    '<div class="ckpt-list">' + rows + '</div>' +
+    '<div class="ckpt-acts">' +
+      '<button type="button" class="pill-btn primary" id="ckptConfirmBtn">确认回滚</button>' +
+      '<button type="button" class="pill-btn" id="ckptCancelBtn">取消</button>' +
+    '</div><div id="ckptVerify"></div></div>';
+  pcScrollChat();
+  const cancel = pcEl('ckptCancelBtn');
+  if (cancel) cancel.onclick = () => ckptRenderEntry(true);
+  const confirm = pcEl('ckptConfirmBtn');
+  if (confirm) confirm.onclick = () => ckptDoRollback();
+  ckptBusy = false;
+}
+async function ckptDoRollback() {
+  const vbox = pcEl('ckptVerify');
+  const confirm = pcEl('ckptConfirmBtn');
+  if (confirm) { confirm.disabled = true; confirm.textContent = '回滚中…'; }
+  try {
+    const raw = await pcCall('checkpoint_rollback', [planCurrent && planCurrent.task_id || '', ''], 60000);
+    const d = JSON.parse(raw || '{}');
+    if (vbox) {
+      if (d && d.ok) {
+        vbox.innerHTML = '<div class="ckpt-verify ok">已恢复至检查点（计划开始前）· 共 ' +
+          pcEsc(String((d.restored || []).length)) + ' 个文件</div>';
+      } else {
+        // 失败形状原样呈现（后端透传 restored/failed，禁拍平——见 api.py 注释）
+        const failed = (d && d.failed) || [];
+        vbox.innerHTML = '<div class="ckpt-verify err">回滚未完全成功：' +
+          pcEsc((d && d.error) || '部分文件恢复失败') +
+          (failed.length ? ' · 失败 ' + pcEsc(String(failed.length)) + ' 个' : '') + '</div>';
+      }
+    }
+  } catch (e) {
+    if (vbox) vbox.innerHTML = '<div class="ckpt-verify err">回滚失败：' + pcEsc(e.message || e) + '</div>';
+  } finally {
+    if (confirm) { confirm.disabled = false; confirm.textContent = '确认回滚'; }
+  }
 }
 
 function planCardReject() {
@@ -12440,6 +12644,57 @@ async function memoryPanelDelete(index) {
     mmBusy = false;
   }
 }
+
+/* ===== 69-platform.js ===== */
+/* ================= v1.9.0 · 平台探测与 macOS 适配层（69-platform.js） =================
+ * M6.10：get_platform_info 后端接口未就绪（B 类移交项）——本模块以
+ * navigator.platform 近似探测先行落地 UI 壳：body[data-platform] 根类驱动
+ * 全部平台差异化（字体/滚动条/圆角/焦点环/键位），后端就绪后仅换数据源。
+ *
+ * 差异化注入策略（token-upgrade-plan §2.5）：一套 v4 令牌，平台差异全部走
+ * body[data-platform="mac"] 下的令牌重定义——零 if 分支成本。
+ * 纯增：新 DOM（mac 徽标）与 data-platform 属性；UI 契约零改动。
+ */
+
+(function () {
+  if (typeof document === 'undefined') return;
+
+  /** 平台探测（近似：后端 get_platform_info 就绪后优先用其返回）。 */
+  function platformDetect() {
+    if (window.__platformInfo && window.__platformInfo.os) return window.__platformInfo.os;
+    const p = (navigator.platform || '').toLowerCase();
+    if (p.indexOf('mac') >= 0) return 'mac';
+    if (p.indexOf('win') >= 0) return 'win';
+    if (p.indexOf('linux') >= 0) return 'linux';
+    return 'win';
+  }
+
+  function platformInit() {
+    const os = platformDetect();
+    document.body.setAttribute('data-platform', os);
+    if (os === 'mac') {
+      document.body.classList.add('mac');
+      // Cmd 键位提示钩子：快捷键帮助里 Ctrl 展示位替换为 ⌘（72-shortcuts 消费）
+      window.__isMac = true;
+      macBadgeMount();
+    }
+  }
+
+  /** 设置区「连接与模型」块头部的平台徽标（caption 级，不抢视觉）。 */
+  function macBadgeMount() {
+    const head = document.querySelector('.cm-head');
+    if (!head || document.getElementById('macBadge')) return;
+    const badge = document.createElement('span');
+    badge.id = 'macBadge';
+    badge.className = 'mac-badge';
+    badge.textContent = 'macOS 模式 · Cmd 已映射';
+    head.appendChild(badge);
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', platformInit);
+  } else platformInit();
+})();
 
 /* ===== 70-config.js ===== */
 /* ================= 配置 ================= */
@@ -15454,6 +15709,8 @@ async function loadAll() {
   try { chatNavInit(); } catch (e) { console.warn('长对话导航初始化失败', e); }
   /* v1.8.0：输入区重构（+ 附件菜单 + 模型选择 chip） */
   try { inputPlusInit(); } catch (e) { console.warn('输入区重构初始化失败', e); }
+  /* v1.9.0：平台探测与 macOS 适配层（自带 readyState 兜底，双安全） */
+  try { if (typeof platformInit === 'function') platformInit(); } catch (e) { console.warn('平台适配初始化失败', e); }
   /* v1.8.0 S 域·外部软件 + H 域·混合路由 + v1.8.5 A 域·任务授权/白名单
    * （纯新增 #softwareBlock / #hybridBlock / #grantIndicator / #grantRulesBlock；
    * 各自 Init 内部幂等 + typeof 守卫，失败不阻塞启动） */
