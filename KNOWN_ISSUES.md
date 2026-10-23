@@ -227,5 +227,10 @@
   - 子代理工具环境间歇性 502（127.0.0.1:7863 代理拒连）——本地命令不走代理；重试一次仍失败则记录「环境故障未执行」并继续后续项，勿反复撞同一失败调用
 - **行为变更备案**：CACHE_TTL_MINUTES 30→60（R30，general 档分级 TTL）——test_v18_search_service 两处 + `_mk_service` 默认 + test_v19_browser 共 4 处断言同步（方案原计两处，grep 实扫补全）；M5 转正后 test_release_discipline 占位断言更新（六 browser 方法正向转正断言 + get_platform_info 唯一剩余占位）
 - **实现偏差登记**：会话池「上限 3 + 排队」实现为「驱逐最旧空闲」（master-plan §149 3.7）——js_api 同步调用无等待语义，LLM 调用方无法等待异步 close 事件；驱逐最旧空闲（Chrome tab discard 同型）+ 60s 空闲回收兜底，语义等价且不阻塞调用方
-- **前端产品移植**：v19 新组件已移植 5 个（grant-budget / audit-chain / reader-status / plan-intent 补齐 / checkpoint confirm 闸门）；browser-driver-panel（brw-mode 面板 UI）与 macos-adaptation 待 UI 会话（后端 browser_sessions/六原语已可用）
-- **处理状态**：🟡 开发中（M1+M2+M3+M5 完成 / M4-M7 macOS 栈待 macOS 真机（需 PyObjC，Windows 不可开发验证）/ M8-M9 性能基准+真机+发布待排；每批过门禁：pytest 全绿 + 契约差分 + build 幂等）
+- **2026-10-24 第二批（批 6/7：M4+M6 理论实现 + M7 打包资产 + M8 静态项 + brw-mode 面板）**：
+  - M4 session_mac.py：WKWebView 六原语**理论实现**（PyObjC 延迟探测 mac_backend_available；WebView 工厂/桥依赖注入——Windows 用 fake 全测；真机链路验证 M9.5）；create_session('mac') 工厂接线（PyObjC 缺失→UNSUPPORTED_PLATFORM 结构化降级）；BrowserService 工厂平台分支 + _settle_ready 上移基类 + navigate 等待先行修正
+  - M6 platform/mac.py：七接口理论实现——Keychain（ctypes Security C API + SSH -25308 人话引导）/ sandbox-exec（**build_sbpl 纯函数**：deny default+最小 profile+网络三档，Windows 全测）/ Quartz 截屏（TCC 人话）/ NSFileManager 废纸篓 / ~/Library/Application Support/Harbor 路径 / ps 进程 / NSUserNotification；get_platform_info js_api 转正（os/machine/七接口就绪度/browser_backend mac 标注）
+  - M7 打包资产：Harbor-mac.spec（BUNDLE+Info.plist 三键+版本注入 M7.9）/ tools/build_mac.sh（icns→PyInstaller→codesign 由内而外→notarytool→DMG 七步）/ mac-entitlements.plist（App Sandbox 不开决策记录）/ mac-unsigned-fallback.md（Gatekeeper Open Anyway 引导）——**理论支持，macOS 真机执行验证 M9**
+  - M8 静态项：会话池预热 preheat()（M8.1，fake 可测）/ 威胁模型文档 deliverables/security/threat-model-v19.md（M8.9：T1-T7 + R42 两级答案归档）
+  - 批 7 前端：71-browser-driver.js（brw-mode 面板：会话池视图/可见隐藏切换 browser_set_mode/手动工具条/UNTRUSTED 警示纹）+ 69-platform.js 接 get_platform_info 权威数据源 + boot 挂载；构建幂等（57 模块）+ UI 契约 PASS
+- **处理状态**：🟡 开发中（M1+M2+M3+M5 完成 / M4+M6 macOS 理论实现（PyObjC 就绪即启用，真机验证 M9.4/9.5）/ M7 打包资产就绪待 mac 构建 / M8.1+8.9 静态项完成（8.5 基准/8.8 逃逸测试集待目标机）/ M9 发布文档草稿在位；每批过门禁：pytest 全绿 + 契约差分 + build 幂等）

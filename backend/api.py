@@ -106,7 +106,7 @@ _V12_EXTRA = frozenset({
     'reader_config_get', 'reader_config_save',
     'pick_save_path', 'save_export_file',
     # v1.9.0 M3/M5 转正后新增（隐身同款）
-    'browser_sessions',
+    'browser_sessions', 'browser_set_mode',
 })
 
 
@@ -391,9 +391,51 @@ class Api:
         同构；brw-mode 面板数据源）。读取类不落审计。"""
         return ok(self._driver.sessions())
 
+    def browser_set_mode(self, mode, session_id=''):
+        """M3.8：可见/隐藏驱动模式切换（brw-mode 面板/人工接管复检入口；
+        win=次窗 show/hide，mac=makeKeyAndOrderFront/orderOut 理论实现）。
+        会话管理类不落审计（幂等 UI 操作）。"""
+        return ok(self._driver.set_mode(mode, session_id))
+
     def get_platform_info(self):
-        """M6.10：平台探测（os/arch/version/services 七接口就绪度）。"""
-        return self._not_implemented('get_platform_info', 'M6.10')
+        """M6.10 转正：平台探测（os/arch/version/services 七接口就绪度 +
+        浏览器后端就绪度）。读取类不落审计（前端 boot/69-platform 数据源：
+        window.__platformInfo 缓存后驱动 data-platform 根类与 Cmd 键位映射）。"""
+        import platform as _pf
+        from .services.browser import detect_platform
+        from .services.browser.platform import get_platform_services
+        services = {}
+        try:
+            ps = get_platform_services()
+            for name in ('secrets', 'sandbox', 'screen', 'trash',
+                         'paths', 'process', 'notify'):
+                try:
+                    svc = getattr(ps, name)()
+                    probe = getattr(svc, 'available', None)
+                    services[name] = {
+                        'ok': bool(probe()) if callable(probe) else True,
+                        'name': getattr(svc, 'name', name)}
+                except Exception as e:
+                    services[name] = {'ok': False, 'error': str(e)[:120]}
+        except Exception as e:
+            services = {'ok': False, 'error': str(e)[:200]}
+        browser = {}
+        try:
+            from .services.browser import create_session
+            from .services.browser.session_mac import mac_backend_available
+            browser = {'platform': detect_platform(),
+                       'win': True, 'headless': True,
+                       'mac': bool(mac_backend_available()),
+                       'note': 'mac 后端为理论实现（PyObjC 就绪即启用；'
+                               '真机链路验证排期 M9.5）'}
+        except Exception as e:
+            browser = {'error': str(e)[:200]}
+        return ok({'ok': True,
+                   'os': detect_platform(),
+                   'machine': _pf.machine(),
+                   'python': _pf.python_version(),
+                   'services': services,
+                   'browser_backend': browser})
 
     def guard_approval_budget(self, limit=None):
         """M2.4 转正：会话级审批预算读/设。

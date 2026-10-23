@@ -43,6 +43,36 @@
     head.appendChild(badge);
   }
 
+  /** M6.10 转正接线：get_platform_info 后端数据源刷新（boot 桥就绪后调用）。
+   * window.__platformInfo 缓存 os/machine/七接口就绪度/browser_backend——
+   * platformDetect 优先消费；mac 真机时 macBadge 附后端就绪度。 */
+  async function refreshPlatformInfo() {
+    if (typeof callApi !== 'function') return null;
+    try {
+      const r = JSON.parse(await callApi('get_platform_info', [], 20000));
+      if (r && r.ok) {
+        window.__platformInfo = r;
+        // 数据源就绪后重跑根类注入（navigator 近似 → 后端权威）
+        const os = r.os === 'mac' ? 'mac' : (r.os === 'win' ? 'win' : r.os);
+        document.body.setAttribute('data-platform', os);
+        if (os === 'mac') {
+          document.body.classList.add('mac');
+          window.__isMac = true;
+          const bb = (r.browser_backend || {});
+          const badge = document.getElementById('macBadge');
+          if (badge) {
+            badge.textContent = 'macOS 模式 · Cmd 已映射' +
+              (bb.mac ? ' · WKWebView 后端就绪' : '');
+          }
+        }
+        return r;
+      }
+    } catch (e) { /* 旧后端无此方法：保持 navigator 近似（行为不劣化） */ }
+    return null;
+  }
+
+  if (typeof window !== 'undefined') window.refreshPlatformInfo = refreshPlatformInfo;
+
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', platformInit);
   } else platformInit();

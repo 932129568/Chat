@@ -1542,6 +1542,30 @@ body.theming .mm-row,body.theming .mm-input{
   text-overflow:ellipsis;white-space:nowrap;vertical-align:middle}
 .plan-approved-at{margin-left:auto;font-size:var(--fs-micro);color:var(--text-3);
   font-family:var(--font-mono)}
+/* ---- v1.9.0（browser-driver-panel 原型移植）：brw-mode 驱动面板 ---- */
+.brw-input{height:28px;padding:0 10px;border:1px solid var(--border);
+  border-radius:var(--radius-sm);background:var(--card-bg);color:var(--text);
+  font-size:12px;font-family:var(--font-mono)}
+.brw-sessions{margin-top:8px;display:flex;flex-direction:column;gap:4px}
+.brw-row{display:flex;align-items:center;gap:8px;padding:6px 10px;border-radius:var(--radius-md);
+  background:var(--surface-2);border:1px solid var(--border);font-size:12px}
+.brw-row.visible{border-color:var(--warn)}
+.brw-mode{flex-shrink:0;width:44px}
+.brw-id{flex-shrink:0;font-family:var(--font-mono);color:var(--text-3)}
+.brw-state{flex-shrink:0;color:var(--text-2)}
+.brw-url{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  color:var(--text-3);font-family:var(--font-mono)}
+.brw-acts{flex-shrink:0;display:flex;gap:4px}
+.brw-act{height:20px;padding:0 7px;font-size:11px;border-radius:var(--radius-full)}
+.brw-out{margin-top:8px;padding:8px 10px;border-radius:var(--radius-sm);
+  background:var(--surface-2);border:1px solid var(--border);font-size:12px;
+  max-height:180px;overflow:auto;word-break:break-all}
+.brw-out.err{border-color:var(--err);color:var(--err)}
+.brw-untrusted{border:1px dashed var(--border-strong);border-left:3px solid var(--warn);
+  background:var(--untrusted-bg,var(--warn-bg));padding:8px 10px;border-radius:var(--radius-sm);
+  font-family:var(--font-mono);font-size:11px;white-space:pre-wrap;color:var(--text-2)}
+.brw-untrusted-cap{font-size:10px;letter-spacing:.4px;color:var(--warn);
+  margin-bottom:6px;font-weight:600}
 .gg-grant-form{border:1px solid var(--border);border-radius:var(--radius-md);padding:12px;background:var(--surface-2);
   animation:v4LineIn var(--dur-comp) var(--ease-out-soft)}
 .gg-rules-empty{padding:14px 12px;text-align:center;font-size:12px;color:var(--text-3);line-height:1.6}

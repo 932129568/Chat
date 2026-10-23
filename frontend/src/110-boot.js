@@ -97,6 +97,12 @@ async function loadAll() {
    * 旧后端无对应 js_api 时自动隐藏（行为不劣化） */
   try { renderGrantBudgetBar(); } catch (e) { console.warn('审批预算条初始化失败', e); }
   try { refreshReaderBadge(); } catch (e) { console.warn('读取器状态灯初始化失败', e); }
+  /* v1.9.0 M3.8/M6.10：浏览器驱动面板（brw-mode）挂载 + 平台探测后端数据源
+   * （get_platform_info → data-platform 根类权威化）；幂等 + typeof 守卫 */
+  try { if (typeof browserDriverPanelInit === 'function') browserDriverPanelInit(); }
+  catch (e) { console.warn('浏览器驱动面板初始化失败', e); }
+  try { if (typeof refreshPlatformInfo === 'function') refreshPlatformInfo(); }
+  catch (e) { console.warn('平台探测刷新失败', e); }
   document.getElementById('enableSearch').addEventListener('change', function () {
     document.getElementById('searchEngineWrap').style.display = this.checked ? 'flex' : 'none';
     queueSaveConfig();
