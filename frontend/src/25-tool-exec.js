@@ -431,7 +431,11 @@ async function agentGuardCheck(op, detail, origin) {
   let token = null;
   try {
     const t = JSON.parse(await callApi('guard_confirm_token', [op, JSON.stringify(detail)], 20000));
-    if (t && t.ok && t.token) token = t.token;
+    // 复核修正（真机实锤）：api 层 ok() 只序列化不加 ok 键——后端返回
+    // {token,ttl}，原 `t.ok && t.token` 判定恒假 → token 永不生效，armed 态
+    // 全部确认流（AI+面板手动）死循环在 CONFIRM_REQUIRED。vm 测试桩返回带
+    // ok 键故测试全绿（环境差异盲区）。只认 token 字段即可。
+    if (t && t.token) token = t.token;
   } catch (e) { /* 无 token：后端武装态会拒，未武装态放行（legacy 兼容） */ }
   return { blocked: null, decision: 'allow', token: token };
 }

@@ -245,3 +245,41 @@ class TestMiscReviewFixes:
         assert r.get('ok') is True
         assert os.path.normcase(api._config.cwd) == \
             os.path.normcase(os.path.abspath(str(ws)))
+
+
+class TestAgentGuardTokenDelivery:
+    """复核批修正回归（真机实锤）：guard_confirm_token 后端返回 {token,ttl}
+    （api 层 ok() 只序列化、无 ok 键）——agentGuardCheck 原 `t.ok && t.token`
+    判定恒假 → token 永不生效 → armed 态全部确认流（AI+面板手动）死循环在
+    CONFIRM_REQUIRED。vm 沙箱以真后端形状（无 ok 键）打桩锁定 token 必达。"""
+
+    def test_agent_guard_token_delivered_without_ok_key(self):
+        from test_round7_adversarial import _run_js
+        stubs = r"""
+// ---- 桩：bridge（真后端形状：guard_confirm_token 无 ok 键）+ uiConfirm ----
+const __resp = {
+  guard_check: JSON.stringify({ action: 'confirm', reason: '需要确认' }),
+  guard_confirm_token: JSON.stringify({ token: 'tok123', ttl: 60 })
+};
+function callApi(name, args, timeoutMs) {
+  if (!(name in __resp)) return Promise.reject(new Error('未打桩: ' + name));
+  return Promise.resolve(__resp[name]);
+}
+function toast() {}
+function uiConfirm() { return Promise.resolve({ ok: true, checkbox: false }); }
+function updateCostEstimate() {}
+"""
+        body = r"""
+async function __main() {
+  const out = { checks: [] };
+  const ok = (n, c) => out.checks.push({ name: n, pass: !!c });
+  const g = await agentGuardCheck('web_search', { query: 'q' });
+  ok('token_delivered_without_ok_key',
+     g && g.blocked === null && g.token === 'tok123');
+  const g2 = await agentGuardCheck('web_search', { query: 'q2' });
+  ok('second_issue_fresh_token',
+     g2 && g2.token === 'tok123');
+  return out;
+}
+"""
+        out = _run_js('agent_guard_token', ['25-tool-exec.js'], stubs, body, 2)
