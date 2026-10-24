@@ -48,8 +48,16 @@ def ensure_dirs():
 
 def setup_webview_env():
     """固定 WebView2 用户数据目录（legacy L133-135：import 即执行；这里改为入口显式调用，
-    使 `import backend` 无副作用、可在无 GUI 环境使用）。"""
+    使 `import backend` 无副作用、可在无 GUI 环境使用）。
+
+    复核批（2026-10-24 真机实证）：WebView2 默认把「无交互窗口」按后台页处置——
+    rAF 停止派发、定时器降频、渲染面挂起（流式生成冻结，直到下一次输入强制
+    重绘）。对话应用必须常驻前台渲染，显式关闭三类后台化行为。"""
     os.environ['WEBVIEW2_USER_DATA_FOLDER'] = WEBVIEW_DATA_DIR
+    os.environ['WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS'] = (
+        '--disable-backgrounding-occluded-windows '
+        '--disable-renderer-backgrounding '
+        '--disable-background-timer-throttling')
 
 
 def get_html_path():

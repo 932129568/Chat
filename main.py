@@ -122,6 +122,34 @@ def main():
     try:   # 修复 S9：启动路径异常兜底（叠加日志后不再零痕迹）
         import webview  # 延迟导入：保证 `import main` 在无 webview 环境可用（可测试性）
 
+        # 复核批（2026-10-24 真机实证）：WebView2 把无交互窗口按后台页处置——
+        # rAF 停止派发/定时器降频/渲染面挂起（流式生成冻结直到下一次输入强制
+        # 重绘）。pywebview 5.4 edgechromium 硬编码 AdditionalBrowserArguments
+        # （覆盖 WEBVIEW2_* 环境变量），只能包一层 BrowserView.__init__ 在
+        # CreationProperties 就位后追加禁用后台化旗标（此时异步初始化尚未
+        # 跑消息循环，无竞态）。失败静默（非 Windows/未来版本兼容）。
+        def _patch_webview2_foreground():
+            try:
+                from webview.platforms import edgechromium as _ec
+                _EXTRA = (' --disable-backgrounding-occluded-windows'
+                          ' --disable-renderer-backgrounding'
+                          ' --disable-background-timer-throttling')
+                _orig_init = _ec.BrowserView.__init__
+
+                def _init(self, *a, **k):
+                    _orig_init(self, *a, **k)
+                    try:
+                        props = self.webview.CreationProperties
+                        props.AdditionalBrowserArguments = \
+                            (props.AdditionalBrowserArguments or '') + _EXTRA
+                        self.webview.CreationProperties = props
+                    except Exception:
+                        pass
+                _ec.BrowserView.__init__ = _init
+            except Exception:
+                pass
+        _patch_webview2_foreground()
+
         html_path = paths.get_html_path()
         api = Api()
         _write_api_log(api)

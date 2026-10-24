@@ -48,7 +48,7 @@ class ModelPrefsService:
                     ck = int(data.get('ctx_k'))
                 except (TypeError, ValueError):
                     ck = 0
-                if CTX_K_MIN <= ck <= CTX_K_MAX:
+                if 0 <= ck <= CTX_K_MAX:
                     out['ctx_k'] = ck
                 return out
             self._log.warning('model_prefs.json 结构异常，按默认处理（已留 .bad 备份）')
