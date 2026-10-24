@@ -60,6 +60,22 @@ def payload_path():
     return os.path.join(root, 'dist', 'Harbor.exe')
 
 
+def embedded_payload_sha256():
+    """构建期嵌入的载荷 sha256（payload.sha256 随 datas 进包，build_setup 写入）。
+
+    开发/直调 install() 场景无此文件 → 返回 ''（调用方跳过强校验，兼容
+    tests/test_installer 的自造载荷）。"""
+    if not getattr(sys, 'frozen', False):
+        return ''
+    p = os.path.join(sys._MEIPASS, 'payload', 'payload.sha256')
+    try:
+        with open(p, 'r', encoding='utf-8') as f:
+            v = str(f.read() or '').strip().lower()
+        return v if len(v) == 64 else ''
+    except OSError:
+        return ''
+
+
 def uninstaller_payload_path():
     """卸载程序载荷（与安装器同批构建，frozen 时内嵌于 uninstall/）。
 
@@ -286,8 +302,8 @@ def install(target, progress_cb=None, desktop_shortcut=True, start_menu=True,
 
     cb(1, '正在复制程序文件…')
     # 复核修正：copy2 原地覆盖无备份无回滚——升级/重装复制中途失败（磁盘满）
-    # 会留下截断的 Harbor.exe 且旧版已毁。改「先写 .new → 校验尺寸 → 原子
-    # replace」，失败保留旧版（自更新 .bat 同款口径）。
+    # 会留下截断的 Harbor.exe 且旧版已毁。改「先写 .new → 校验尺寸/sha256 →
+    # 原子 replace」，失败保留旧版（自更新 .bat 同款口径）。
     _dest_new = dest + '.new'
     try:
         shutil.copy2(payload, _dest_new)
@@ -297,6 +313,19 @@ def install(target, progress_cb=None, desktop_shortcut=True, start_menu=True,
             except OSError:
                 pass
             return {'ok': False, 'error': '文件复制不完整，请重试',
+                    'install_dir': target, 'warnings': warnings}
+        # 载荷完整性强校验：构建期嵌入的 sha256（build_setup 写 payload.sha256
+        # 随 datas 进包）与落地字节对拍——同尺寸损坏载荷不再照装；无嵌入值
+        # （开发/直调场景）跳过，兼容 tests/test_installer 自造载荷
+        _expect = embedded_payload_sha256()
+        if _expect and _sha256(_dest_new) != _expect:
+            try:
+                os.remove(_dest_new)
+            except OSError:
+                pass
+            return {'ok': False,
+                    'error': '载荷完整性校验失败（sha256 与构建期记录不符）——'
+                             '安装包可能损坏，请重新下载',
                     'install_dir': target, 'warnings': warnings}
         os.replace(_dest_new, dest)
     except OSError as e:
@@ -474,11 +503,8 @@ def uninstall(install_dir, purge_data=False, progress_cb=None):
     remove_shortcut(os.path.join(start_menu_dir(), 'Harbor.lnk'))
     remove_shortcut(os.path.join(desktop_dir(), 'Harbor.lnk'))
 
-    cb(2, '正在清理系统注册信息…')
-    if not unregister_uninstall():
-        warnings.append('注册表卸载项清理失败（可手动删除）')
-
-    cb(3, '正在删除程序文件…')
+    cb(2, '正在删除程序文件…')
+    files_ok = True
     if not os.path.isdir(install_dir):
         warnings.append('安装目录不存在（可能已被手动删除，或 --dir 指定有误）：%s'
                         % install_dir)
@@ -486,12 +512,26 @@ def uninstall(install_dir, purge_data=False, progress_cb=None):
         # 卸载器自身在安装目录内：运行时删不掉自己，挂起退出后补删，
         # 跳过即时 rmtree（必然残留且误导 warnings）。
         if not _schedule_delayed_delete(install_dir):
-            if not _rmtree_retry(install_dir):
+            files_ok = _rmtree_retry(install_dir)
+            if not files_ok:
                 warnings.append('部分文件未能删除（可能被占用）：%s' % install_dir)
         else:
             warnings.append('卸载程序自身位于安装目录内，文件将在退出后完成删除。')
-    elif not _rmtree_retry(install_dir):
-        warnings.append('部分文件未能删除（可能被占用）：%s' % install_dir)
+    else:
+        files_ok = _rmtree_retry(install_dir)
+        if not files_ok:
+            warnings.append('部分文件未能删除（可能被占用）：%s' % install_dir)
+
+    cb(3, '正在清理系统注册信息…')
+    # 复核修正：文件删除成功后再反注册——原先先删注册表项再删文件，文件
+    # 删除失败（占用/重试耗尽）时 ARP 入口已消失，残留目录无任何正规卸载
+    # 途径。失败时保留注册项供用户从「应用与功能」重试（_resolve_uninstall_dir
+    # 也可再定位安装目录）；延迟自删路径视为成功（删除已排程，标准卸载器行为）。
+    if files_ok:
+        if not unregister_uninstall():
+            warnings.append('注册表卸载项清理失败（可手动删除）')
+    else:
+        warnings.append('文件未完全删除，已保留注册表卸载项以便重试。')
 
     cb(4, '正在处理用户数据…')
     if purge_data:

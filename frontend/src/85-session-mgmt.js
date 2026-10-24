@@ -283,16 +283,30 @@ function renderSessionList() {
     const head = (g !== lastGroup) ? '<div class="session-group">' + g + '</div>' : '';
     lastGroup = g;
     return head +
-    `<div class="session-item ${s.id === currentSessionId ? 'active' : ''}" onclick="switchSession('${_escId(s.id)}')">
+    // 复核修正：弃内联 onclick（同 32-session-search——HTML 实体在内联事件
+    // JS 串上下文会解码回引号可破串注入）——data 属性 + 容器级委托
+    `<div class="session-item ${s.id === currentSessionId ? 'active' : ''}" data-sid="${escapeHtml(s.id)}">
       <div class="session-title">${escapeHtml(s.title || '新对话')}</div>
       <div class="session-time">${formatTime(s.updatedAt)}</div>
       <span class="session-acts">
-        <button class="session-exp" title="导出为 Markdown" onclick="exportSessionMd('${_escId(s.id)}', event)">⤓</button>
-        <button class="session-del" onclick="deleteSession('${_escId(s.id)}', event)">✕</button>
+        <button class="session-exp" title="导出为 Markdown" data-sid="${escapeHtml(s.id)}">⤓</button>
+        <button class="session-del" data-sid="${escapeHtml(s.id)}">✕</button>
       </span>
     </div>`;
   }).join('');
   box.innerHTML = html;
+  box.querySelectorAll('.session-item[data-sid]').forEach(el => {
+    el.addEventListener('click', (e) => {
+      if (e.target.closest && e.target.closest('.session-acts')) return;   // 动作按钮自带处理
+      switchSession(el.dataset.sid);
+    });
+  });
+  box.querySelectorAll('.session-exp[data-sid]').forEach(el => {
+    el.addEventListener('click', (e) => { e.stopPropagation(); exportSessionMd(el.dataset.sid, e); });
+  });
+  box.querySelectorAll('.session-del[data-sid]').forEach(el => {
+    el.addEventListener('click', (e) => { e.stopPropagation(); deleteSession(el.dataset.sid, e); });
+  });
   updateTokenStat();
 }
 /** 日期分组键：今天/昨天/更早（跨天边界用自然日比对，非 24h 减法）。 */

@@ -67,7 +67,9 @@ function runSessionSearch(kwRaw) {
     const to = Math.min(h.text.length, h.pos + kw.length + SNIP);
     const snippet = (from > 0 ? '…' : '') + _markSnippet(h.text.slice(from, to), kw) + (to < h.text.length ? '…' : '');
     const roleName = { user: '我', assistant: 'AI', tool: '工具', system: '系统' }[h.s.messages[h.idx].role] || h.s.messages[h.idx].role;
-    html += `<div class="search-hit" onclick="jumpToSearchHit('${_escId(h.s.id)}', ${h.idx})">
+    // 复核修正：弃内联 onclick（HTML 实体在内联事件 JS 串上下文会先解码回
+    // 引号，可破串注入）——改 data 属性 + 容器级事件委托
+    html += `<div class="search-hit" data-sid="${escapeHtml(h.s.id)}" data-idx="${h.idx}">
       <div class="search-hit-head">
         <span class="search-hit-title">${escapeHtml(h.s.title || '新对话')}</span>
         <span class="search-hit-meta">${escapeHtml(roleName)} · ${escapeHtml(formatTime(h.s.updatedAt))}</span>
@@ -76,6 +78,11 @@ function runSessionSearch(kwRaw) {
     </div>`;
   }
   box.innerHTML = html + (hits.length >= HIT_CAP ? '<div class="search-empty">结果过多仅显示前 ' + HIT_CAP + ' 条，请用更精确的关键词</div>' : '');
+  box.querySelectorAll('.search-hit[data-sid]').forEach(el => {
+    el.addEventListener('click', () => {
+      jumpToSearchHit(el.dataset.sid, parseInt(el.dataset.idx, 10) || 0);
+    });
+  });
 }
 
 function openSessionSearch() {

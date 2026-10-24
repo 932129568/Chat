@@ -112,6 +112,50 @@ class TestInstall:
     def test_install_missing_payload_fails(self, tmp_path, monkeypatch):
         monkeypatch.setattr(core, 'payload_path', lambda: str(tmp_path / 'nope.exe'))
         res = core.install(str(tmp_path / 'i3'))
+
+    def test_install_payload_sha_mismatch_blocked(self, tmp_path, monkeypatch, reg_cleanup):
+        """复核批修正回归：构建期嵌入的载荷 sha256 与落地字节不符 → 拒装
+        （同尺寸损坏载荷不再照装）；开发态（无嵌入文件）跳过强校验。"""
+        # 开发态：embedded_payload_sha256() 返回 '' → 不拦
+        assert core.embedded_payload_sha256() == ''
+        # 伪造 frozen 环境：_MEIPASS/payload/ 放载荷 + 错误 sha256 清单
+        meipass = tmp_path / 'meipass'
+        (meipass / 'payload').mkdir(parents=True)
+        payload = meipass / 'payload' / 'Harbor.exe'
+        payload.write_bytes(b'FAKE-HARBOR-EXE' * 1000)
+        (meipass / 'payload' / 'payload.sha256').write_text('0' * 64, encoding='utf-8')
+        monkeypatch.setattr(sys, 'frozen', True, raising=False)
+        monkeypatch.setattr(sys, '_MEIPASS', str(meipass), raising=False)
+        monkeypatch.setattr(core, 'uninstaller_payload_path',
+                            lambda: str(tmp_path / 'no-uninstaller.exe'))
+        monkeypatch.setattr(core, '_UNINSTALL_KEY', _REG_TEST_ROOT)
+        target = tmp_path / 'install'
+        res = core.install(str(target), desktop_shortcut=False, start_menu=False)
+        assert res['ok'] is False, res
+        assert '完整性' in res['error'], res
+        assert not (target / 'Harbor.exe').exists()      # 旧版未毁/未落地
+
+    def test_install_payload_sha_match_passes(self, tmp_path, monkeypatch, reg_cleanup):
+        """sha256 匹配（正常构建产物）→ 安装成功，校验不误伤。"""
+        import hashlib
+        meipass = tmp_path / 'meipass'
+        (meipass / 'payload').mkdir(parents=True)
+        payload = meipass / 'payload' / 'Harbor.exe'
+        payload.write_bytes(b'FAKE-HARBOR-EXE' * 1000)
+        (meipass / 'payload' / 'payload.sha256').write_text(
+            hashlib.sha256(payload.read_bytes()).hexdigest(), encoding='utf-8')
+        monkeypatch.setattr(sys, 'frozen', True, raising=False)
+        monkeypatch.setattr(sys, '_MEIPASS', str(meipass), raising=False)
+        monkeypatch.setattr(core, 'uninstaller_payload_path',
+                            lambda: str(tmp_path / 'no-uninstaller.exe'))
+        monkeypatch.setattr(core, '_UNINSTALL_KEY', _REG_TEST_ROOT)
+        res = core.install(str(tmp_path / 'install'), desktop_shortcut=False,
+                           start_menu=False)
+        assert res['ok'] is True, res
+
+    def test_install_missing_payload_fails(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(core, 'payload_path', lambda: str(tmp_path / 'nope.exe'))
+        res = core.install(str(tmp_path / 'i3'))
         assert res['ok'] is False
         assert '载荷' in res['error']
 

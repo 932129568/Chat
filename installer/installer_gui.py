@@ -221,9 +221,15 @@ class InstallerBridge:
 
     def check_dir(self, path):
         ok, warn, need_admin = check_target(path)
+        # 复核修正：need_mb 与 get_defaults 同口径按载荷实算（原硬编码 40，
+        # 大包场景目录页空间提示误导）
+        try:
+            need = os.path.getsize(payload_path()) // (1024 * 1024) + 10
+        except OSError:
+            need = 40
         return json.dumps({'ok': ok, 'warn': warn, 'need_admin': need_admin,
                            'free_mb': free_space_mb(path or 'C:\\'),
-                           'need_mb': 40}, ensure_ascii=False)
+                           'need_mb': need}, ensure_ascii=False)
 
     def pick_dir(self, current):
         """弹出原生目录选择（FileDialog 在 UI 线程由 JS 触发不了时经 webview API）。"""

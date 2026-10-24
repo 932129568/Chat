@@ -22,6 +22,11 @@ if _kind == 'setup':
     _datas.append((os.environ.get('HARBOR_UNINSTALLER',
                                   os.path.join(_ROOT, 'dist', 'Harbor-Uninstall.exe')),
                    'uninstall'))
+    # 载荷完整性强校验：build_setup 计算的 Harbor.exe sha256 随包嵌入，
+    # install() 落地前对拍（同尺寸损坏载荷不再照装）
+    _sha_file = os.environ.get('HARBOR_PAYLOAD_SHA256_FILE', '')
+    if _sha_file and os.path.exists(_sha_file):
+        _datas.append((_sha_file, 'payload'))
     _exe_name = 'Harbor-Setup-%s' % _version
 else:
     _exe_name = 'Harbor-Uninstall'
