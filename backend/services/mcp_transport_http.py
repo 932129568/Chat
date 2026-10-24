@@ -77,6 +77,64 @@ def urlopen_no_redirect(req, timeout=None):
     return _safe_opener.open(req, timeout=timeout)
 
 
+# 凭证类请求头（跨 host 跳转时剥离——S15 语义收窄为「禁凭证跨域」）
+_SENSITIVE_HEADERS = ('authorization', 'cookie', 'x-api-key',
+                      'proxy-authorization', 'mcp-session-id')
+
+
+def urlopen_follow_redirect_safe(req, timeout=None, max_redirects=5):
+    """GET 取数专用的安全跟随重定向（复核批新增，真机实证）。
+
+    urlopen_no_redirect 的 S15 口径（禁自动重定向）本意是防凭证跨域泄漏；
+    对搜索引擎/网页的**无凭证 GET**（搜索栈三通道），引擎 302 区域跳转是
+    常态（bing.com→cn.bing.com），一刀切禁跟随会让搜索在代理/区域用户上
+    必失败。本函数逐跳跟随（封顶 max_redirects）：**跨 host/scheme 时剥
+    凭证类头**（语义收窄为「禁凭证跨域」，同 host 原样保留）；每跳经
+    `_is_public_host` SSRF 复检（防跳转落内网——与驱动管线终态复检同型）。
+    非 GET 请求不适用（调用方限定为取数通道，保持 no-redirect）。
+
+    需延迟导入 _is_public_host（session_base → 本模块存在包级环，调用时
+    再取，与 driver.py open_external 同口径）。"""
+    import urllib.parse
+    if (req.get_method() if hasattr(req, 'get_method') else 'GET') != 'GET':
+        return urlopen_no_redirect(req, timeout=timeout)
+    from .browser.session_base import _is_public_host
+    current_url = req.get_full_url()
+    headers = dict(req.headers or {})
+    data = req.data
+    for _ in range(max_redirects + 1):
+        cur_req = urllib.request.Request(current_url, data=data,
+                                         headers=headers, method='GET')
+        try:
+            return urlopen_no_redirect(cur_req, timeout=timeout)
+        except urllib.error.HTTPError as e:
+            if e.code not in (301, 302, 303, 307, 308):
+                raise
+            loc = e.headers.get('Location') if e.headers else None
+            if not loc:
+                raise
+            new_url = urllib.parse.urljoin(current_url, loc)
+            old = urllib.parse.urlsplit(current_url)
+            new = urllib.parse.urlsplit(new_url)
+            if (new.scheme, new.hostname, new.port) != \
+                    (old.scheme, old.hostname, old.port):
+                # 跨 host/scheme：剥凭证类头（防凭证跨域泄漏）
+                headers = {k: v for k, v in headers.items()
+                           if k.lower() not in _SENSITIVE_HEADERS}
+            from urllib.error import HTTPError as _HTTPError
+            if not _is_public_host(new.hostname or ''):
+                raise _HTTPError(new_url, 403,
+                                 '重定向跳转目标为内网/环回地址，已按 SSRF 拦截',
+                                 None, None)
+            current_url = new_url
+            if e.code == 303:
+                data = None                         # 303 语义转 GET
+            continue
+    raise urllib.error.HTTPError(current_url, 310,
+                                 '重定向次数超上限（%d 跳）' % max_redirects,
+                                 None, None)
+
+
 class HttpTransportError(Exception):
     """HTTP 传输层错误（携带 HTTP 状态码，供上层区分 404 会话过期）。"""
 

@@ -34,7 +34,7 @@ import urllib.request
 
 from ... import paths
 from ...logging_setup import get_logger
-from ..mcp_transport_http import urlopen_no_redirect
+from ..mcp_transport_http import urlopen_follow_redirect_safe
 from .session_base import (BrowserError, BrowserErrorCode, BrowserSession,
                            SessionState, _decode_html, _is_public_host,
                            build_extract_result, html_title, map_error_code)
@@ -292,7 +292,9 @@ class SearchBrowser:
             'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
         })
         try:
-            resp = urlopen_no_redirect(req, timeout=LOAD_TIMEOUT_SECONDS)
+            # 复核批：GET 取数改安全跟随重定向（跨 host 剥凭证 + 每跳 SSRF 复检；
+            # 引擎 302 区域跳转是常态，原一刀切禁跟随让搜索在代理/区域用户必失败）
+            resp = urlopen_follow_redirect_safe(req, timeout=LOAD_TIMEOUT_SECONDS)
         except urllib.error.HTTPError as e:
             hint = '引擎限流，可稍后重试或切换引擎' if e.code == 429 else \
                    '稍后重试或更换搜索引擎' if e.code >= 500 else \

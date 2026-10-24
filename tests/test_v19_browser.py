@@ -485,7 +485,7 @@ class TestHeadlessSession:
             seen['timeout'] = timeout
             return _FakeResp(html)
 
-        monkeypatch.setattr(session_headless, 'urlopen_no_redirect',
+        monkeypatch.setattr(session_headless, 'urlopen_follow_redirect_safe',
                             _fake_urlopen)
         # hermetic：域名解析放行（SSRF 路径由字面 IP 用例覆盖）
         monkeypatch.setattr(session_headless, '_is_public_host',
@@ -512,7 +512,7 @@ class TestHeadlessSession:
     def test_headless_click_unsupported(self, monkeypatch):
         """无头后端 click → PRIMITIVE_UNSUPPORTED（需先到 READY——
         状态机守卫优先：idle 下调原语先拒 SESSION_BUSY）。"""
-        monkeypatch.setattr(session_headless, 'urlopen_no_redirect',
+        monkeypatch.setattr(session_headless, 'urlopen_follow_redirect_safe',
                             lambda req, timeout=None: _FakeResp('<html>x</html>'))
         monkeypatch.setattr(session_headless, '_is_public_host',
                             lambda host: True)
@@ -537,7 +537,7 @@ class TestHeadlessSession:
         def _raise_timeout(req, timeout=None):
             raise urllib.error.URLError(socket_timeout())
 
-        monkeypatch.setattr(session_headless, 'urlopen_no_redirect',
+        monkeypatch.setattr(session_headless, 'urlopen_follow_redirect_safe',
                             _raise_timeout)
         monkeypatch.setattr(session_headless, '_is_public_host',
                             lambda host: True)

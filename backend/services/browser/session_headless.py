@@ -21,7 +21,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-from ..mcp_transport_http import urlopen_no_redirect
+from ..mcp_transport_http import urlopen_follow_redirect_safe
 from .session_base import (BrowserError, BrowserErrorCode, BrowserSession,
                            SessionState, _decode_html, _is_public_host,
                            build_extract_result, html_title)
@@ -77,7 +77,8 @@ class HeadlessSession(BrowserSession):
                 'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
             })
             try:
-                resp = urlopen_no_redirect(req, timeout=timeout)
+                # 复核批：GET 取数改安全跟随重定向（session_win 同口径）
+                resp = urlopen_follow_redirect_safe(req, timeout=timeout)
             except urllib.error.HTTPError as e:
                 raise BrowserError(
                     BrowserErrorCode.INTERNAL,

@@ -247,6 +247,96 @@ class TestMiscReviewFixes:
             os.path.normcase(os.path.abspath(str(ws)))
 
 
+class TestFollowRedirectSafe:
+    """复核批新增：urlopen_follow_redirect_safe——搜索 GET 取数的
+    安全跟随重定向（同 host 原样 / 跨 host 剥凭证 / SSRF 跳转拦截 / 封顶）。"""
+
+    def _svc(self, monkeypatch, hops):
+        """hops: [(status, location)] 依次弹出；返回 (helper, calls)。"""
+        from backend.services import mcp_transport_http as mth
+        calls = []
+        idx = {'n': 0}
+
+        def fake_open(req, timeout=None):
+            calls.append({'url': req.get_full_url(),
+                          'headers': dict(req.headers)})
+            if idx['n'] < len(hops):
+                status, loc = hops[idx['n']]
+                idx['n'] += 1
+                import urllib.error
+                hdrs = {'Location': loc} if loc else {}
+                raise urllib.error.HTTPError(req.get_full_url(), status,
+                                             'redirect', hdrs, None)
+            class _R:
+                def read(self, n=-1):
+                    return b'ok'
+                def __enter__(self):
+                    return self
+                def __exit__(self, *a):
+                    return False
+            return _R()
+
+        monkeypatch.setattr(mth, 'urlopen_no_redirect', fake_open)
+        return mth.urlopen_follow_redirect_safe, calls
+
+    def test_same_host_follow_keeps_headers(self, monkeypatch):
+        h, calls = self._svc(monkeypatch, [(302, '/results')])
+        import urllib.request
+        req = urllib.request.Request(
+            'https://bing.com/search?q=x',
+            headers={'User-agent': 'UA', 'Authorization': 'Bearer t'})
+        r = h(req, timeout=5)
+        assert r.read() == b'ok'
+        assert calls[-1]['url'] == 'https://bing.com/results'
+        assert calls[-1]['headers'].get('Authorization') == 'Bearer t'   # 同 host 原样
+
+    def test_cross_host_follow_strips_credentials(self, monkeypatch):
+        h, calls = self._svc(monkeypatch, [(302, 'https://cn.bing.com/search?q=x')])
+        import urllib.request
+        req = urllib.request.Request(
+            'https://bing.com/search?q=x',
+            headers={'User-agent': 'UA', 'Authorization': 'Bearer t',
+                     'Cookie': 'k=v'})
+        h(req, timeout=5)
+        assert calls[-1]['url'].startswith('https://cn.bing.com')
+        final = calls[-1]['headers']
+        assert 'Authorization' not in final and 'Cookie' not in final    # 凭证剥离
+        assert final.get('User-agent') == 'UA'                            # 非凭证保留
+
+    def test_redirect_to_private_blocked(self, monkeypatch):
+        from backend.services.browser import session_base as sb
+        monkeypatch.setattr(sb, '_is_public_host',
+                            lambda host: not str(host or '').startswith(('127.', '10.')))
+        h, calls = self._svc(monkeypatch, [(302, 'http://10.0.0.9/admin')])
+        import urllib.request
+        req = urllib.request.Request('https://bing.com/search?q=x')
+        import urllib.error
+        with pytest.raises(urllib.error.HTTPError) as ei:
+            h(req, timeout=5)
+        assert ei.value.code == 403 and 'SSRF' in str(ei.value.reason)
+
+    def test_redirect_cap(self, monkeypatch):
+        hops = [(302, '/r%d' % i) for i in range(8)]
+        h, calls = self._svc(monkeypatch, hops)
+        import urllib.request
+        import urllib.error
+        req = urllib.request.Request('https://bing.com/search')
+        with pytest.raises(urllib.error.HTTPError) as ei:
+            h(req, timeout=5)
+        assert ei.value.code == 310 and len(calls) == 6   # max_redirects=5 → 6 次请求
+
+    def test_non_get_stays_no_redirect(self, monkeypatch):
+        """非 GET 不适用（保持 no-redirect 语义——调用方限定取数通道）。"""
+        from backend.services import mcp_transport_http as mth
+        seen = []
+        monkeypatch.setattr(mth, 'urlopen_no_redirect',
+                            lambda req, timeout=None: seen.append(req.get_full_url()) or 'ok')
+        import urllib.request
+        req = urllib.request.Request('https://x/api', data=b'{}', method='POST')
+        assert mth.urlopen_follow_redirect_safe(req, timeout=5) == 'ok'
+        assert seen == ['https://x/api']
+
+
 class TestAgentGuardTokenDelivery:
     """复核批修正回归（真机实锤）：guard_confirm_token 后端返回 {token,ttl}
     （api 层 ok() 只序列化、无 ok 键）——agentGuardCheck 原 `t.ok && t.token`

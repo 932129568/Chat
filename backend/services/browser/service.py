@@ -766,12 +766,13 @@ class SearchService:
         try:
             import urllib.error
             import urllib.request
-            from ..mcp_transport_http import urlopen_no_redirect
+            from ..mcp_transport_http import urlopen_follow_redirect_safe
             from .session_win import USER_AGENT
             req = urllib.request.Request(
                 url, headers={'User-Agent': USER_AGENT,
                               'Accept': 'application/rss+xml, application/xml, text/xml'})
-            with urlopen_no_redirect(req, timeout=15) as resp:
+            # 复核批：GET 取数改安全跟随重定向（session_win 同口径）
+            with urlopen_follow_redirect_safe(req, timeout=15) as resp:
                 body = resp.read(64 * 1024)
         except urllib.error.HTTPError as e:
             if e.code == 429:
