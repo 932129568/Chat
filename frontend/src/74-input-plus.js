@@ -25,6 +25,34 @@ function ipCustomModels() {
 function ipCustomSave(list) {
   try { localStorage.setItem(CN_MODELS_KEY, JSON.stringify(list)); } catch (e) {}
 }
+
+/* ---- 推理偏好（复核批新增：思考强度 + 上下文窗口；model_prefs.json 独立文件） ----
+ * 弹层内嵌两行偏好（用户点选即保存）；60-agent-loop 消费：thinking 非 auto
+ * 手动锁定覆盖智能档，ctx_k 调自动压缩阈值。boot 时 modelPrefsRefresh 预载。 */
+const IP_THINKING_LABELS = { auto: '自动（智能档）', off: '关闭', low: '低', medium: '中', high: '高' };
+const IP_THINKING_ORDER = ['auto', 'off', 'low', 'medium', 'high'];
+const IP_CTX_LABELS = { 0: '默认（200K）', 32: '32K', 128: '128K', 256: '256K', 300: '300K', 1024: '1M' };
+const IP_CTX_ORDER = [0, 32, 128, 256, 300, 1024];
+let __modelPrefs = { thinking: 'auto', ctx_k: 0 };
+
+async function modelPrefsRefresh() {
+  try {
+    const d = JSON.parse(await callApi('model_prefs_get') || '{}');
+    if (d && d.ok) {
+      __modelPrefs = { thinking: d.thinking || 'auto', ctx_k: parseInt(d.ctx_k, 10) || 0 };
+    }
+  } catch (e) { /* 旧 exe 无此方法：保持默认 */ }
+  return __modelPrefs;
+}
+function getModelPrefs() { return __modelPrefs; }
+async function modelPrefsSave(patch) {
+  __modelPrefs = Object.assign({}, __modelPrefs, patch);
+  try {
+    const d = JSON.parse(await callApi('model_prefs_save', [JSON.stringify(__modelPrefs)]) || '{}');
+    if (d && d.error) { toast('推理偏好保存失败: ' + d.error, 'warn'); }
+  } catch (e) { toast('推理偏好保存失败: ' + (e && e.message || e), 'warn'); }
+  return __modelPrefs;
+}
 function ipCustomAdd(name) {
   const list = ipCustomModels();
   if (list.indexOf(name) === -1) { list.unshift(name); ipCustomSave(list); }
@@ -116,7 +144,33 @@ function ipModelRender() {
   pop.innerHTML = '<div class="mc-pop-head">选择模型</div>' +
     '<div class="mc-list">' + rows + '</div>' +
     (customs.length ? '<div class="mc-sec">自定义模型</div><div class="mc-list mc-custom-list">' + customRows + '</div>' : '') +
+    // 复核批新增：推理偏好内嵌行（点击循环切换，即点即存 model_prefs.json）
+    '<div class="mc-sec">推理偏好</div>' +
+    '<div class="mc-item mc-pref" data-pref="thinking" title="点击切换：自动=智能档按任务复杂度调节；关闭/低/中/高=手动锁定（随请求发送）">' +
+      '<span class="mc-name">思考强度</span>' +
+      '<span class="mc-pref-val">' + esc(IP_THINKING_LABELS[__modelPrefs.thinking] || '自动（智能档）') + '</span></div>' +
+    '<div class="mc-item mc-pref" data-pref="ctx_k" title="点击切换：上下文窗口上限（自动压缩阈值随之调整；默认=200K 口径）">' +
+      '<span class="mc-name">上下文窗口</span>' +
+      '<span class="mc-pref-val">' + esc(IP_CTX_LABELS[__modelPrefs.ctx_k] || ((__modelPrefs.ctx_k || 0) + 'K')) + '</span></div>' +
     '<button type="button" class="mc-config">配置自定义模型 →</button>';
+
+  // 推理偏好行：点击循环取值 + 即点即存
+  pop.querySelectorAll('.mc-pref').forEach(row => {
+    row.addEventListener('click', async () => {
+      const key = row.dataset.pref;
+      if (key === 'thinking') {
+        const next = IP_THINKING_ORDER[(IP_THINKING_ORDER.indexOf(__modelPrefs.thinking) + 1) % IP_THINKING_ORDER.length];
+        await modelPrefsSave({ thinking: next });
+        const val = row.querySelector('.mc-pref-val');
+        if (val) val.textContent = IP_THINKING_LABELS[next] || next;
+      } else {
+        const next = IP_CTX_ORDER[(IP_CTX_ORDER.indexOf(__modelPrefs.ctx_k) + 1) % IP_CTX_ORDER.length];
+        await modelPrefsSave({ ctx_k: next });
+        const val = row.querySelector('.mc-pref-val');
+        if (val) val.textContent = IP_CTX_LABELS[next] || (next + 'K');
+      }
+    });
+  });
 
   // 选择（预设区 + 自定义区共用）
   pop.querySelectorAll('.mc-item[data-val]').forEach(btn => {

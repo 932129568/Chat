@@ -33,7 +33,11 @@ async function sendMessage() {
     // 20 万阈值过早触发 force 压缩，破坏前缀缓存并丢历史）
     const _ctxTok = (typeof historyTokens === 'function')
       ? historyTokens(s.messages) : sumSessionTokens(s);
-    if (_ctxTok > 200000 && s.messages.length >= 6) {
+    // 复核批新增：上下文窗口偏好（模型弹层内嵌）——非 0 时压缩阈值随偏好
+    // 调整（0.8 头部余量给本轮输出）；默认 200K 口径不变
+    const _mpC = (typeof getModelPrefs === 'function') ? getModelPrefs() : null;
+    const _ctxCap = (_mpC && _mpC.ctx_k > 0) ? Math.floor(_mpC.ctx_k * 1000 * 0.8) : 200000;
+    if (_ctxTok > _ctxCap && s.messages.length >= 6) {
       await compactNow(s, apiKey, { force: true, quiet: true });
     }
   } catch (e) {}

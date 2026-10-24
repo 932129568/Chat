@@ -39,6 +39,9 @@ async function loadAll() {
   // 原位置在 get_memory await 之后：桥慢/挂起（旧 exe/浏览器调试）时 fx-off
   // 迟迟不应用，开屏极光/入场动画先闪一跳关特效用户的眼。
   initFx();   // v3：特效总开关（.fx-off + localStorage['glm_fx'] 持久化）
+  // 复核批新增：推理偏好预载（模型弹层内嵌思考强度/上下文窗口的缓存数据源；
+  // 旧 exe 无此方法静默保持默认）
+  try { if (typeof modelPrefsRefresh === 'function') await modelPrefsRefresh(); } catch (e) {}
   try { window.__memCache = await callApi('get_memory', []); } catch (e) { window.__memCache = '[]'; }
   setupContextMenu();
   document.querySelectorAll('select').forEach(initCustomSelect);

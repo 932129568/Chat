@@ -379,10 +379,14 @@ async function runAgentLoop(s, apiKey) {
         stream: true, stream_options: { include_usage: true },
         temperature: taskTemp, top_p: taskTopP, max_tokens: taskMaxTok
       };
-      if (taskEffort === 'off') {
+      // 复核批新增：推理偏好（模型弹层内嵌）——thinking 非 auto 手动锁定
+      // 覆盖智能档（auto=沿用 _route.effort 既有行为；非 GLM 端点照旧剥离）
+      const _mp = (typeof getModelPrefs === 'function') ? getModelPrefs() : null;
+      const _eff = (_mp && _mp.thinking && _mp.thinking !== 'auto') ? _mp.thinking : taskEffort;
+      if (_eff === 'off') {
         reqBody.thinking = { type: 'disabled' };
       } else {
-        reqBody.reasoning_effort = taskEffort;
+        reqBody.reasoning_effort = _eff;
       }
       if (!isGlmEndpoint()) {          // v1.2 R6：thinking/reasoning_effort 为 GLM 专属字段，自定义端点一律剥离
         delete reqBody.thinking;

@@ -105,6 +105,8 @@ _V12_EXTRA = frozenset({
     'guard_approval_budget', 'search_reader_stats',
     'reader_config_get', 'reader_config_save',
     'pick_save_path', 'save_export_file',
+    # 复核批：推理偏好（模型弹层内嵌思考强度/上下文窗口；model_prefs.json 独立文件）
+    'model_prefs_get', 'model_prefs_save',
     # v1.9.0 M3/M5 转正后新增（隐身同款）
     'browser_sessions', 'browser_set_mode',
 })
@@ -161,6 +163,10 @@ class Api:
         # v1.9.0 M2.1：dual-LLM-lite 本地读取器（reader.json 独立配置；
         # search_reader_stats 转正 + reader_config_get/save + SearchService 共享注入）
         self._reader = SearchReader(router=self._hybrid)
+        # 复核批：推理偏好（思考强度/上下文窗口；model_prefs.json 独立文件，
+        # config.json 零污染铁律）——模型选择弹层内嵌消费
+        from .services.model_prefs_service import ModelPrefsService
+        self._model_prefs = ModelPrefsService()
         # v1.9.0 M2.7：检查点六军规（plan_service 委托同实例——清单/回滚一口径）
         from .services.checkpoint_service import CheckpointService
         self._checkpoint = CheckpointService()
@@ -485,6 +491,31 @@ class Api:
         r = self._reader.save_config(d)
         if 'error' in r:
             return err(r['error'])
+        return ok(r)
+
+    def model_prefs_get(self):
+        """复核批新增：推理偏好读取（思考强度/上下文窗口）。
+
+        model_prefs.json 独立文件（config.json 零污染铁律）；读取类不落审计
+        （模型弹层每次打开都读，同 search_cache_stats 口径）。"""
+        return ok(self._model_prefs.get())
+
+    def model_prefs_save(self, prefs_json):
+        """复核批新增：推理偏好保存。
+
+        thinking ∈ auto/off/low/medium/high（auto=智能档；off=禁思考；其余
+        手动锁定随请求发 reasoning_effort）；ctx_k=0（默认 200K 口径）或
+        1-2048 KiB（前端据此调自动压缩阈值）。审计 op=model_prefs
+        （decision=save，设置类与其他保存同口径）。"""
+        r = self._model_prefs.save(prefs_json)
+        if r.get('error'):
+            self._guard.audit('model_prefs', {'thinking': str(r.get('thinking', '')),
+                                              'ctx_k': str(r.get('ctx_k', ''))},
+                              'block', 'invalid-prefs')
+            return err(r['error'])
+        self._guard.audit('model_prefs', {'thinking': str(r.get('thinking', '')),
+                                          'ctx_k': str(r.get('ctx_k', ''))},
+                          'decision', 'save')
         return ok(r)
 
     def session_purge(self, sid, task_ids_json='[]'):

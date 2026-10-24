@@ -9000,10 +9000,14 @@ async function runAgentLoop(s, apiKey) {
         stream: true, stream_options: { include_usage: true },
         temperature: taskTemp, top_p: taskTopP, max_tokens: taskMaxTok
       };
-      if (taskEffort === 'off') {
+      // 复核批新增：推理偏好（模型弹层内嵌）——thinking 非 auto 手动锁定
+      // 覆盖智能档（auto=沿用 _route.effort 既有行为；非 GLM 端点照旧剥离）
+      const _mp = (typeof getModelPrefs === 'function') ? getModelPrefs() : null;
+      const _eff = (_mp && _mp.thinking && _mp.thinking !== 'auto') ? _mp.thinking : taskEffort;
+      if (_eff === 'off') {
         reqBody.thinking = { type: 'disabled' };
       } else {
-        reqBody.reasoning_effort = taskEffort;
+        reqBody.reasoning_effort = _eff;
       }
       if (!isGlmEndpoint()) {          // v1.2 R6：thinking/reasoning_effort 为 GLM 专属字段，自定义端点一律剥离
         delete reqBody.thinking;
@@ -13965,6 +13969,34 @@ function ipCustomModels() {
 function ipCustomSave(list) {
   try { localStorage.setItem(CN_MODELS_KEY, JSON.stringify(list)); } catch (e) {}
 }
+
+/* ---- 推理偏好（复核批新增：思考强度 + 上下文窗口；model_prefs.json 独立文件） ----
+ * 弹层内嵌两行偏好（用户点选即保存）；60-agent-loop 消费：thinking 非 auto
+ * 手动锁定覆盖智能档，ctx_k 调自动压缩阈值。boot 时 modelPrefsRefresh 预载。 */
+const IP_THINKING_LABELS = { auto: '自动（智能档）', off: '关闭', low: '低', medium: '中', high: '高' };
+const IP_THINKING_ORDER = ['auto', 'off', 'low', 'medium', 'high'];
+const IP_CTX_LABELS = { 0: '默认（200K）', 32: '32K', 128: '128K', 256: '256K', 300: '300K', 1024: '1M' };
+const IP_CTX_ORDER = [0, 32, 128, 256, 300, 1024];
+let __modelPrefs = { thinking: 'auto', ctx_k: 0 };
+
+async function modelPrefsRefresh() {
+  try {
+    const d = JSON.parse(await callApi('model_prefs_get') || '{}');
+    if (d && d.ok) {
+      __modelPrefs = { thinking: d.thinking || 'auto', ctx_k: parseInt(d.ctx_k, 10) || 0 };
+    }
+  } catch (e) { /* 旧 exe 无此方法：保持默认 */ }
+  return __modelPrefs;
+}
+function getModelPrefs() { return __modelPrefs; }
+async function modelPrefsSave(patch) {
+  __modelPrefs = Object.assign({}, __modelPrefs, patch);
+  try {
+    const d = JSON.parse(await callApi('model_prefs_save', [JSON.stringify(__modelPrefs)]) || '{}');
+    if (d && d.error) { toast('推理偏好保存失败: ' + d.error, 'warn'); }
+  } catch (e) { toast('推理偏好保存失败: ' + (e && e.message || e), 'warn'); }
+  return __modelPrefs;
+}
 function ipCustomAdd(name) {
   const list = ipCustomModels();
   if (list.indexOf(name) === -1) { list.unshift(name); ipCustomSave(list); }
@@ -14056,7 +14088,33 @@ function ipModelRender() {
   pop.innerHTML = '<div class="mc-pop-head">选择模型</div>' +
     '<div class="mc-list">' + rows + '</div>' +
     (customs.length ? '<div class="mc-sec">自定义模型</div><div class="mc-list mc-custom-list">' + customRows + '</div>' : '') +
+    // 复核批新增：推理偏好内嵌行（点击循环切换，即点即存 model_prefs.json）
+    '<div class="mc-sec">推理偏好</div>' +
+    '<div class="mc-item mc-pref" data-pref="thinking" title="点击切换：自动=智能档按任务复杂度调节；关闭/低/中/高=手动锁定（随请求发送）">' +
+      '<span class="mc-name">思考强度</span>' +
+      '<span class="mc-pref-val">' + esc(IP_THINKING_LABELS[__modelPrefs.thinking] || '自动（智能档）') + '</span></div>' +
+    '<div class="mc-item mc-pref" data-pref="ctx_k" title="点击切换：上下文窗口上限（自动压缩阈值随之调整；默认=200K 口径）">' +
+      '<span class="mc-name">上下文窗口</span>' +
+      '<span class="mc-pref-val">' + esc(IP_CTX_LABELS[__modelPrefs.ctx_k] || ((__modelPrefs.ctx_k || 0) + 'K')) + '</span></div>' +
     '<button type="button" class="mc-config">配置自定义模型 →</button>';
+
+  // 推理偏好行：点击循环取值 + 即点即存
+  pop.querySelectorAll('.mc-pref').forEach(row => {
+    row.addEventListener('click', async () => {
+      const key = row.dataset.pref;
+      if (key === 'thinking') {
+        const next = IP_THINKING_ORDER[(IP_THINKING_ORDER.indexOf(__modelPrefs.thinking) + 1) % IP_THINKING_ORDER.length];
+        await modelPrefsSave({ thinking: next });
+        const val = row.querySelector('.mc-pref-val');
+        if (val) val.textContent = IP_THINKING_LABELS[next] || next;
+      } else {
+        const next = IP_CTX_ORDER[(IP_CTX_ORDER.indexOf(__modelPrefs.ctx_k) + 1) % IP_CTX_ORDER.length];
+        await modelPrefsSave({ ctx_k: next });
+        const val = row.querySelector('.mc-pref-val');
+        if (val) val.textContent = IP_CTX_LABELS[next] || (next + 'K');
+      }
+    });
+  });
 
   // 选择（预设区 + 自定义区共用）
   pop.querySelectorAll('.mc-item[data-val]').forEach(btn => {
@@ -15998,7 +16056,11 @@ async function sendMessage() {
     // 20 万阈值过早触发 force 压缩，破坏前缀缓存并丢历史）
     const _ctxTok = (typeof historyTokens === 'function')
       ? historyTokens(s.messages) : sumSessionTokens(s);
-    if (_ctxTok > 200000 && s.messages.length >= 6) {
+    // 复核批新增：上下文窗口偏好（模型弹层内嵌）——非 0 时压缩阈值随偏好
+    // 调整（0.8 头部余量给本轮输出）；默认 200K 口径不变
+    const _mpC = (typeof getModelPrefs === 'function') ? getModelPrefs() : null;
+    const _ctxCap = (_mpC && _mpC.ctx_k > 0) ? Math.floor(_mpC.ctx_k * 1000 * 0.8) : 200000;
+    if (_ctxTok > _ctxCap && s.messages.length >= 6) {
       await compactNow(s, apiKey, { force: true, quiet: true });
     }
   } catch (e) {}
@@ -16411,6 +16473,9 @@ async function loadAll() {
   // 原位置在 get_memory await 之后：桥慢/挂起（旧 exe/浏览器调试）时 fx-off
   // 迟迟不应用，开屏极光/入场动画先闪一跳关特效用户的眼。
   initFx();   // v3：特效总开关（.fx-off + localStorage['glm_fx'] 持久化）
+  // 复核批新增：推理偏好预载（模型弹层内嵌思考强度/上下文窗口的缓存数据源；
+  // 旧 exe 无此方法静默保持默认）
+  try { if (typeof modelPrefsRefresh === 'function') await modelPrefsRefresh(); } catch (e) {}
   try { window.__memCache = await callApi('get_memory', []); } catch (e) { window.__memCache = '[]'; }
   setupContextMenu();
   document.querySelectorAll('select').forEach(initCustomSelect);

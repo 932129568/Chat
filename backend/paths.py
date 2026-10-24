@@ -35,6 +35,7 @@ AUDIT_CHAIN_FILE     = os.path.join(CONFIG_DIR, 'audit_chain.json')         # M2
 CHECKPOINTS_FILE     = os.path.join(CONFIG_DIR, 'checkpoints.json')         # M2.7 清单投影（权威在 checkpoints/<tid>/manifest.json）
 PLATFORM_DIR         = os.path.join(CONFIG_DIR, 'platform')                 # M1.4 secrets.json 等
 BROWSER_PROFILE_DIR  = os.path.join(CONFIG_DIR, 'browser_profile')          # M3 浏览器 profile（与主窗 webview_data 隔离）
+MODEL_PREFS_FILE     = os.path.join(CONFIG_DIR, 'model_prefs.json')         # 复核批：推理偏好（思考强度/上下文窗口）
 
 
 def ensure_dirs():
