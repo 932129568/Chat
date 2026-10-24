@@ -329,8 +329,13 @@ class TestBrowserSearchBasics:
         assert 'JS 渲染' in r['error']['message']
 
     def test_empty_results_ok_shape(self):
-        """非 JS 引擎解析为空 → 成功形状 + 空结果（UI 提示未找到）。"""
-        svc = _mk_service(script=[{'ok': True, 'html': '<html>nothing</html>',
+        """非 JS 引擎解析为空 → 成功形状 + 空结果（UI 提示未找到）。
+
+        复核批：空页需 >16KB——baidu 引擎重试耗尽后的【小页零结果】按验证壳
+        处理交人工接管（test_review_batch2.TestBaiduStubCaptcha 锁定）；大空页
+        才是「真无结果」→ 保持成功形状 + 空结果的既有契约。"""
+        svc = _mk_service(script=[{'ok': True,
+                                   'html': '<html>nothing</html>' + '<!-- pad -->' * 4200,
                                    'channel': 'window'}])
         r = svc.browser_search({'query': 'python'})
         assert r['ok'] is True and r['results'] == []

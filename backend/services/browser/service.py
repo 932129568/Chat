@@ -75,7 +75,7 @@ _CAPTCHA_TITLE_RE = re.compile(
     r'captcha|verify|人机验证|安全验证|验证码', re.IGNORECASE)
 _CAPTCHA_BODY_RE = re.compile(
     r'人机验证|安全验证|验证码|are you a robot|are you human|'
-    r'unusual traffic|robot check|captcha', re.IGNORECASE)
+    r'unusual traffic|robot check|captcha|wappass\.baidu\.com', re.IGNORECASE)
 # URL 归一：去跟踪参数（§4.4 归一化 key 口径）
 _TRACKING_PARAMS = frozenset({
     'utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content',
@@ -559,6 +559,8 @@ class SearchService:
         # ---- 验证页特征检测（fail-fast：CAPTCHA_REQUIRED + takeover_id）----
         # v1.9.0 M2.9：RSS 通道已在采用前完成验证特征检测（_fetch_rss 内
         # _captcha_signal + parse_rss 非空双条件）——此处仅 HTML 兜底路径。
+        # （复核批：Baidu 无标记验证壳页的判定在重试耗尽后的终态分支——
+        # 放在零解析即触发会抢占 engine_retry 链。）
         if html:
             sig = _captcha_signal(html)
             results = parse_results(engine, html)
@@ -594,6 +596,15 @@ class SearchService:
                             'search', 'error')
                 return _error('ENGINE_UNREACHABLE', msg,
                               '建议切换 Bing/DuckDuckGo')
+            # 复核批（2026-10-24 真机实证）：重试耗尽后终态——用户所选 baidu
+            # 引擎小页（<16KB；真 SERP 均 100KB+）零结果 = 无 Cookie 首访的
+            # 验证壳页（无标记 meta-refresh，特征表扫不到）→ 交人工接管（用户
+            # 在可见窗口完成验证后续跑），而非误报「未找到相关内容」。用
+            # orig_engine 判定：重试链轮到 baidu 的合成流不触发。
+            if orig_engine == 'baidu' and html and len(html) < 16 * 1024:
+                return self._enter_captcha(task_id, params, engine, url,
+                                           q_echo, 'stub:baidu-verify-tiny-page',
+                                           takeover)
             # 其余：成功形状 + 空结果（UI 提示「未找到相关内容」）
             self._end_task(task_id, 'done', '未找到相关内容')
             self._audit('web_search', {'query': q_echo, 'engine': engine,

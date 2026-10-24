@@ -283,6 +283,44 @@ class TestDedupeZeroHitDrop:
         assert SearchBrowser._dedupe_and_rank(miss, '你好') == []
 
 
+class TestBaiduStubCaptcha:
+    """复核批修正回归：Baidu 无 Cookie 首访回无标记 meta-refresh 壳页
+    （~4KB、零解析结果）→ 按验证页处理交人工接管（原走「未找到相关内容」）。"""
+
+    def test_captcha_signal_wappass(self):
+        from backend.services.browser.service import _captcha_signal
+        stub = ('<html><head><title></title></head><body>'
+                '<script>location.replace("https://wappass.baidu.com/passport/'
+                '?login&u=...")</script></body></html>')
+        assert _captcha_signal(stub) is not None          # wappass 特征命中
+        assert _captcha_signal('<html><title>正常页</title></html>') is None
+
+    def test_captcha_signal_title_match(self):
+        from backend.services.browser.service import _captcha_signal
+        assert _captcha_signal('<title>百度安全验证</title>') is not None
+
+    def test_baidu_tiny_stub_browser_search(self, tmp_path, fresh_home, monkeypatch):
+        """端到端：baidu 引擎【重试耗尽】后抓到 4KB 零结果壳页 →
+        CAPTCHA_REQUIRED 交接管（重试链中不抢跑；原走「未找到相关内容」）。
+        fresh_home 隔离（防读到真机缓存里的历史垃圾结果）；窗口通道无 GUI 自动
+        回落 urllib，在传输缝打桩返回壳页（hermetic，不触真网）。"""
+        from backend.api import Api
+        from backend.services.browser import session_win
+        import io as _io
+        stub_html = ('<html><head><title></title></head><body><div>x</div></body>'
+                     '</html>' + '<!-- padding -->' * 10)
+
+        def fake_fetch(req, timeout=None):
+            return _io.BytesIO(stub_html.encode('utf-8'))   # urlopen 形状（.read()）
+
+        monkeypatch.setattr(session_win, 'urlopen_follow_redirect_safe', fake_fetch)
+        api = Api()
+        r = json.loads(api.browser_search({'query': '4399', 'engine': 'baidu'}))
+        assert r.get('ok') is False, r
+        assert r['error']['code'] == 'CAPTCHA_REQUIRED', r
+        assert r['error'].get('takeover_id'), r
+
+
 class TestFollowRedirectSafe:
     """复核批新增：urlopen_follow_redirect_safe——搜索 GET 取数的
     安全跟随重定向（同 host 原样 / 跨 host 剥凭证 / SSRF 跳转拦截 / 封顶）。"""
