@@ -109,6 +109,8 @@ _V12_EXTRA = frozenset({
     'model_prefs_get', 'model_prefs_save',
     # v1.9.0 M3/M5 转正后新增（隐身同款）
     'browser_sessions', 'browser_set_mode',
+    # 复核批：流式渲染逼帧兜底（WebView2 后台化残余场景；前端流式期间轮询）
+    'ui_nudge',
 })
 
 
@@ -127,6 +129,7 @@ class Api:
         self._guard.set_trace_hook(self._current_trace)
         self._trace_id = None
         self._trace_lock = threading.Lock()   # trace 懒生成互斥（复核修正）
+        self._ui_vis_logged = set()           # visibilityState 诊断去重（ui_nudge）
         self._update = UpdateService()
         self._provider = ProviderService()
         self._files = FileService(self._runtime, self._workspace)
@@ -517,6 +520,36 @@ class Api:
                                           'ctx_k': str(r.get('ctx_k', ''))},
                           'decision', 'save')
         return ok(r)
+
+    def ui_nudge(self, visibility='visible'):
+        """复核批新增：流式渲染逼帧兜底——前端流式期间每 ~800ms 调用一次，
+        对宿主窗口（含 WebView2 子窗口）做一次原生 RedrawWindow，强制合成器
+        present 最新帧（对抗 WebView2 后台化残余的渲染面冻结）。
+
+        visibility：前端 document.visibilityState 原样透传（诊断：首次出现的
+        状态记 harbor.log，为「页面被误判 hidden」提供证据）。高频轮询不落
+        审计（search_status 同口径）。_V12_EXTRA 隐身。"""
+        try:
+            win = getattr(self, '_win', None)
+            native = getattr(win, 'native', None) if win is not None else None
+            hwnd = getattr(native, 'Handle', None) if native is not None else None
+            if not hwnd:
+                return ok({'nudged': False, 'reason': 'window-not-ready'})
+            if visibility not in getattr(self, '_ui_vis_logged', set()):
+                try:
+                    self._ui_vis_logged.add(visibility)
+                    self._log.warning('WebView2 visibilityState=%s（逼帧兜底激活）', visibility)
+                except Exception:
+                    pass
+            import ctypes
+            u32 = ctypes.windll.user32
+            RDW_INVALIDATE, RDW_ERASE = 0x1, 0x4
+            RDW_ALLCHILDREN, RDW_UPDATENOW = 0x80, 0x100
+            u32.RedrawWindow(ctypes.c_void_p(int(hwnd)), None, None,
+                             RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN | RDW_UPDATENOW)
+            return ok({'nudged': True})
+        except Exception as e:
+            return ok({'nudged': False, 'error': str(e)})
 
     def session_purge(self, sid, task_ids_json='[]'):
         """真删一条会话的全部痕迹：sessions.json 条目 + session_ws 绑定 +

@@ -125,27 +125,38 @@ def main():
         # 复核批（2026-10-24 真机实证）：WebView2 把无交互窗口按后台页处置——
         # rAF 停止派发/定时器降频/渲染面挂起（流式生成冻结直到下一次输入强制
         # 重绘）。pywebview 5.4 edgechromium 硬编码 AdditionalBrowserArguments
-        # （覆盖 WEBVIEW2_* 环境变量），只能包一层 BrowserView.__init__ 在
-        # CreationProperties 就位后追加禁用后台化旗标（此时异步初始化尚未
-        # 跑消息循环，无竞态）。失败静默（非 Windows/未来版本兼容）。
+        # （覆盖 WEBVIEW2_* 环境变量）且 EnsureCoreWebView2Async(None) 异步
+        # 创建环境（post-init 补参有竞态）——确定性注入：子类化 WebView2 控件，
+        # ① Ensure 启动前把禁后台化旗标追加进 CreationProperties；② 就绪回调
+        # 强制 Controller.IsVisible=True（对抗遮挡误判）。失败静默。
         def _patch_webview2_foreground():
             try:
                 from webview.platforms import edgechromium as _ec
                 _EXTRA = (' --disable-backgrounding-occluded-windows'
                           ' --disable-renderer-backgrounding'
                           ' --disable-background-timer-throttling')
-                _orig_init = _ec.BrowserView.__init__
+                _BaseControl = _ec.WebView2
 
-                def _init(self, *a, **k):
-                    _orig_init(self, *a, **k)
-                    try:
-                        props = self.webview.CreationProperties
-                        props.AdditionalBrowserArguments = \
-                            (props.AdditionalBrowserArguments or '') + _EXTRA
-                        self.webview.CreationProperties = props
-                    except Exception:
-                        pass
-                _ec.BrowserView.__init__ = _init
+                class _HarborWebView2(_BaseControl):
+                    def EnsureCoreWebView2Async(self, env=None):
+                        try:
+                            props = self.CreationProperties
+                            props.AdditionalBrowserArguments = \
+                                (props.AdditionalBrowserArguments or '') + _EXTRA
+                            self.CreationProperties = props
+                            self.CoreWebView2InitializationCompleted += \
+                                self._harbor_force_visible
+                        except Exception:
+                            pass
+                        return _BaseControl.EnsureCoreWebView2Async(self, env)
+
+                    def _harbor_force_visible(self, sender, args):
+                        try:
+                            self.CoreWebView2Controller.IsVisible = True
+                        except Exception:
+                            pass
+
+                _ec.WebView2 = _HarborWebView2
             except Exception:
                 pass
         _patch_webview2_foreground()

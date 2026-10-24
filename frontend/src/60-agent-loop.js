@@ -127,6 +127,7 @@ async function runAgentLoop(s, apiKey) {
   let aiContent = null;   // 修复 ㉗：前置代码移入 try，catch 需要访问 → 提升声明
   let partialContent = '';   // 修复 W21（二轮）：流中部分正文的函数级镜像——abort 时固化入历史（UI 与持久化不分叉）
   let _localWaitTimer = null;   // 修复 B3（v1.5）：本地首字节等待态计时器（函数级声明，异常路径也要清理）
+  let _nudgeTimer = null;       // 复核批：流式逼帧兜底计时器（见 finally 清理）
   try {   // 修复 ㉗：原前 27 行在 try 外，任一 throw 变 unhandled rejection 且 isStreaming 卡死
     try { await callApi('set_current_sid', [currentSessionId]); } catch (e) {}
     try { await callApi('begin_task', []); } catch (e) {}   // 修复 W2（三轮）：任务开始重置后端命令去重器（前端 deduper 为 per-task，两层生命周期对齐；旧 exe 无此方法静默跳过）
@@ -145,6 +146,14 @@ async function runAgentLoop(s, apiKey) {
       try { if (typeof toast === 'function') toast('正在停止…（当前工具执行完即停）', 'warn'); } catch (e) {}
     };
     document.getElementById('streamBar').classList.add('on');
+    // 复核批：流式渲染逼帧兜底——WebView2 后台化残余时整窗不重绘，流式期间
+    // 每 800ms 请后端对宿主窗口做一次原生 RedrawWindow（强制合成器 present）。
+    // visibilityState 原样透传（后端首次记录 harbor.log 作诊断证据）。
+    try {
+      _nudgeTimer = setInterval(() => {
+        callApi('ui_nudge', [document.visibilityState || 'visible']).catch(() => {});
+      }, 800);
+    } catch (e) {}
     { const _sp0 = document.getElementById('streamSpeed'); if (_sp0) _sp0.textContent = ''; }   // 实现 v1.6 T10③：每轮开始清空上轮速度
     aiContent = addMessage('assistant', '');
     aiContent.innerHTML = '<div class="md-body"><div class="typing-dots"><span></span><span></span><span></span></div></div>';
@@ -1047,6 +1056,7 @@ async function runAgentLoop(s, apiKey) {
     }
   } finally {
     isStreaming = false;
+    if (_nudgeTimer) { clearInterval(_nudgeTimer); _nudgeTimer = null; }   // 复核批：逼帧兜底清理
     document.getElementById('streamBar').classList.remove('on');
     const btn = document.getElementById('sendBtn');
     btn.textContent = '➤';
