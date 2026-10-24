@@ -216,6 +216,19 @@ class BrowserSession(ABC):
 
 # ================= 公共 helper（自 search_browser.py 原样上移，代码零改） =================
 
+# 198.18.0.0/15（RFC 2544 基准段）= Clash/Surge fake-ip 标准地址池——模块级
+# 预编译（纯计算零 IO）；按公网放行的依据见 _is_public_host docstring。
+_FAKEIP_BENCHMARK_NET = ipaddress.ip_network('198.18.0.0/15')
+
+
+def _is_fakeip_benchmark(ip):
+    """IP 是否落在 fake-ip 基准段（198.18.0.0/15；按公网放行）。"""
+    try:
+        return ip in _FAKEIP_BENCHMARK_NET
+    except Exception:
+        return False
+
+
 def _is_public_host(host):
     """host 是否解析到公网地址（SSRF 防护；ipaddress + getaddrinfo）。
 
@@ -229,6 +242,12 @@ def _is_public_host(host):
     全部正常搜索（fetch 会经同一解析器自然失败，拦截无增益），且令调用方
     依赖实时 DNS 产生抖动。已知边界：DNS rebinding（检查时公网、抓取时
     私网）不在此威胁模型内。
+
+    口径（2026-10-24 修订，真机实证）：**198.18.0.0/15（RFC 2544 基准段）
+    按公网放行**——该段保留给基准测试，无任何内网服务/云元数据（云元数据
+    在 169.254 link-local，照拦），是 Clash/Surge fake-ip 模式的标准地址池；
+    代理用户全部域名解析至此段，按私网拒绝等于代理环境下全部浏览被 SSRF
+    误杀。其余私网/环回/链路本地语义不变。
     """
     h = str(host or '').strip().lower().rstrip('.')
     if not h:
@@ -236,6 +255,8 @@ def _is_public_host(host):
     # 字面 IP（v4/v6，可带 zone id）：不触 DNS，直接判定
     try:
         ip = ipaddress.ip_address(h.split('%', 1)[0])
+        if _is_fakeip_benchmark(ip):
+            return True
         return not (ip.is_private or ip.is_loopback or ip.is_link_local or
                     ip.is_reserved or ip.is_multicast or ip.is_unspecified)
     except ValueError:
@@ -252,6 +273,8 @@ def _is_public_host(host):
         except ValueError:
             return False
         saw_addr = True
+        if _is_fakeip_benchmark(ip):
+            continue          # fake-ip 基准段：按公网放行（见 docstring）
         if ip.is_private or ip.is_loopback or ip.is_link_local or \
                 ip.is_reserved or ip.is_multicast or ip.is_unspecified:
             return False

@@ -420,6 +420,28 @@ class TestWinSession:
                     s.navigate(t)
                 assert ei.value.code is BrowserErrorCode.SSRF_BLOCKED, t
 
+    def test_ssrf_fakeip_benchmark_allowed(self, monkeypatch):
+        """复核批修正回归：198.18.0.0/15（RFC 2544 基准段 = Clash/Surge
+        fake-ip 标准地址池）按公网放行；真实私网/元数据照拦。"""
+        from backend.services.browser.session_base import _is_public_host
+        assert _is_public_host('198.18.5.5') is True          # fake-ip 字面 IP
+        assert _is_public_host('198.19.255.1') is True        # /15 上半段
+        assert _is_public_host('169.254.169.254') is False    # 云元数据照拦
+        assert _is_public_host('10.0.0.1') is False
+        assert _is_public_host('192.168.1.1') is False
+        assert _is_public_host('127.0.0.1') is False
+        # 解析路径：全部落 fake-ip 段的域名放行；落真实私网/元数据照拒
+        import socket as _socket
+        monkeypatch.setattr(_socket, 'getaddrinfo',
+                            lambda h, *a, **k: [(2, 0, 0, '', ('198.18.0.7', 0))])
+        assert _is_public_host('example.com') is True
+        monkeypatch.setattr(_socket, 'getaddrinfo',
+                            lambda h, *a, **k: [(2, 0, 0, '', ('169.254.169.254', 0))])
+        assert _is_public_host('evil.example') is False
+        monkeypatch.setattr(_socket, 'getaddrinfo',
+                            lambda h, *a, **k: [(2, 0, 0, '', ('192.168.1.9', 0))])
+        assert _is_public_host('intranet.example') is False
+
     def test_win_session_navigate_channel_error_maps_taxonomy(self):
         """通道层失败 → taxonomy 码映射（open_url 只回 NAV_BLOCKED，
         WinSession 预校验已先行；此处验 INTERNAL 兜底 + http_status 保留）。"""
