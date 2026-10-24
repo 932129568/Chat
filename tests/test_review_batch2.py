@@ -247,6 +247,42 @@ class TestMiscReviewFixes:
             os.path.normcase(os.path.abspath(str(ws)))
 
 
+class TestDedupeZeroHitDrop:
+    """复核批修正回归：query 有核心词但全部结果零命中（反爬壳页噪声）→
+    清空结果交由上层换引擎重试（原降级到尾部照常呈现垃圾）。"""
+
+    def test_zero_hit_results_dropped(self):
+        from backend.services.browser.service import SearchService as SearchBrowser
+        garbage = [
+            {'title': '谷歌浏览器如何更改默认显示比例_百度知道',
+             'url': 'https://zhidao.baidu.com/question/1', 'snippet': '点击设置'},
+            {'title': '为什么Jeff Dean从Google离职引起这么大的轰动？ - 知乎',
+             'url': 'https://www.zhihu.com/question/2', 'snippet': '怎么说呢'},
+        ]
+        out = SearchBrowser._dedupe_and_rank(garbage, '4399')
+        assert out == []                              # 全零命中 → 清空
+
+    def test_hit_results_kept_and_ranked(self):
+        from backend.services.browser.service import SearchService as SearchBrowser
+        items = [
+            {'title': 'Jeff Dean 动态', 'url': 'https://x/1', 'snippet': '与查询无关'},
+            {'title': '4399手机游戏网', 'url': 'https://x/2', 'snippet': '4399 官方'},
+            {'title': '4399 游戏盒子下载', 'url': 'https://x/3', 'snippet': '4399 游戏盒'},
+        ]
+        out = SearchBrowser._dedupe_and_rank(items, '4399')
+        # 相关命中升前 + 零命中降尾（部分零命中保留——原设计口径）
+        assert [r['url'] for r in out] == ['https://x/2', 'https://x/3', 'https://x/1']
+        assert [r['position'] for r in out] == [1, 2, 3]
+
+    def test_cjk_query_bigram_match(self):
+        """CJK 查询按二元组匹配（你好 → 你好 命中；无关结果清空）。"""
+        from backend.services.browser.service import SearchService as SearchBrowser
+        hit = [{'title': '你好，世界', 'url': 'https://x/1', 'snippet': ''}]
+        miss = [{'title': '天气预报', 'url': 'https://x/2', 'snippet': ''}]
+        assert len(SearchBrowser._dedupe_and_rank(hit, '你好')) == 1
+        assert SearchBrowser._dedupe_and_rank(miss, '你好') == []
+
+
 class TestFollowRedirectSafe:
     """复核批新增：urlopen_follow_redirect_safe——搜索 GET 取数的
     安全跟随重定向（同 host 原样 / 跨 host 剥凭证 / SSRF 跳转拦截 / 封顶）。"""

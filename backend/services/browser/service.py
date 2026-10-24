@@ -710,6 +710,12 @@ class SearchService:
             miss_items = [r for r in ordered if _hits(r) == 0]
             if hit_items:
                 ordered = hit_items + miss_items
+            elif miss_items:
+                # 复核批修正（真机实锤）：query 有核心词但**全部结果零命中**
+                # = 反爬壳页/病态响应被锚点提取器凑出的纯噪声（如 Bing bot-wall
+                # 上与查询完全无关的热搜链接）——呈现垃圾比诚实报错更糟，清空
+                # 交由上层换引擎重试（engine_retry ≤2，另有结果为空的人话出口）
+                ordered = []
 
         seen = set()
         out = []
