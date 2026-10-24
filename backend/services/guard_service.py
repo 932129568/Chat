@@ -74,7 +74,8 @@ DEFAULT_TIERS = {
     'run_powershell': 'off',
     'run_admin_command': 'off',
     'open_app': 'off',   # 修复 W9（三轮）：默认 off 保持既有行为，提档后弹窗/ token 生效
-    'web_search': 'session',      # v1.8.0 §3.3：浏览器搜索默认 session 档
+    'web_search': 'off',          # 用户裁决（2026-10-24）：搜索只读无本地副作用、
+                                  # 全程留审计——默认放行免每次确认；可在护栏设置提档
     'software_call': 'session',   # v1.8.0 §4.4：软件调用默认 session 档
     # v1.9.0 M5.2（master-plan §181）：click/fill=always（前后态截图审计在
     # 会话层 best-effort）；其余 session

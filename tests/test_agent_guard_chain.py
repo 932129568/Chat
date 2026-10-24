@@ -14,13 +14,16 @@ class TestGuardMatrix:
     def test_new_ops_in_matrix(self):
         from backend.services.guard_service import GUARD_OPS, DEFAULT_TIERS
         assert 'web_search' in GUARD_OPS and 'software_call' in GUARD_OPS
-        assert DEFAULT_TIERS['web_search'] == 'session'
+        # 用户裁决（2026-10-24）：搜索只读无本地副作用、全程留审计——默认放行
+        # 免每次确认（原 session 档）；护栏设置可提档 session/always 加固
+        assert DEFAULT_TIERS['web_search'] == 'off'
         assert DEFAULT_TIERS['software_call'] == 'session'
 
     def test_check_confirm_default(self, fresh_home):
         from backend.services.guard_service import GuardService
         g = GuardService()
-        r = g.check('web_search', {'query': 'x'})
+        assert g.check('web_search', {'query': 'x'})['action'] == 'allow'
+        r = g.check('software_call', {'software': 'git', 'action': 'status'})
         assert r['action'] == 'confirm'      # session 档默认需确认
 
     def test_off_tier_allow(self, fresh_home):
@@ -31,11 +34,20 @@ class TestGuardMatrix:
 
 
 class TestApiEnforce:
-    def test_browser_search_needs_token_armed(self, fresh_home):
-        """武装态（桌面 UI 会话）：session 档强制 token——未武装是 legacy 放行。"""
+    def test_browser_search_default_off_armed(self, fresh_home):
+        """默认 off 档（用户裁决 2026-10-24）：armed 态直接放行，不再逐次确认。"""
         from backend.api import Api
         api = Api()
         api._guard.arm()
+        r = json.loads(api.browser_search({'query': 'python'}))
+        assert 'error' not in r or r.get('error', {}).get('code') != 'CONFIRM_REQUIRED'
+
+    def test_browser_search_session_tier_token_armed(self, fresh_home):
+        """提档 session（用户可自行加固）：armed 态强制 token 的机制回归。"""
+        from backend.api import Api
+        api = Api()
+        api._guard.arm()
+        api._guard.save_config(json.dumps({'tiers': {'web_search': 'session'}}))
         r = json.loads(api.browser_search({'query': 'python'}))
         assert r['ok'] is False
         assert r['error']['code'] == 'CONFIRM_REQUIRED'
