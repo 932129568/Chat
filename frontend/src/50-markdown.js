@@ -23,7 +23,19 @@ const _rafPendingSet = new WeakSet();   // 修复 W28：按 el 记录待渲染�
 function scheduleRender(el, fn) {
   if (_rafPendingSet.has(el)) return;
   _rafPendingSet.add(el);
-  requestAnimationFrame(() => { _rafPendingSet.delete(el); try { el.innerHTML = fn(); } catch (e) {} });
+  // 复核批修正（真机实证）：WebView2 合成器空闲时 rAF 回调可能不派发——
+  // 状态栏 textContent 正常跳动而气泡流式渲染冻结，直到下一次输入强制
+  // 重绘才把积压回调全部冲出。rAF + 120ms 定时器双路竞速：正常环境 rAF
+  // 先达（定时器经 done 闸成为 no-op），rAF 挂起环境定时器兜底必达。
+  let _done = false;
+  const _paint = () => {
+    if (_done) return;
+    _done = true;
+    _rafPendingSet.delete(el);
+    try { el.innerHTML = fn(); } catch (e) {}
+  };
+  if (typeof requestAnimationFrame === 'function') requestAnimationFrame(_paint);
+  setTimeout(_paint, 120);
 }
 function enhanceCodeBlocks(container) {
   container.querySelectorAll('pre').forEach(pre => {
