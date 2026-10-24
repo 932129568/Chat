@@ -11,8 +11,13 @@ pip install pywebview==5.4 pyinstaller
 ## 本地运行
 python main.py
 
-## 打包正常版
-python -m PyInstaller --onefile --windowed --clean --name "Harbor" --icon "harbor.ico" --add-data "harbor.html;." --add-data "libs;libs" main.py --noconfirm
+## 打包正常版（2026-10-24 修正：必须用 vendor Python 3.13）
+REM 依赖为 cp313 编译版（_cffi_backend/pywin32/PIL pyd），3.15 下编译扩展
+REM 全部不可加载——3.15 只能跑纯 Python 测试，构建必须用 vendor 3.13：
+set PYTHONPATH=C:\Users\陈\.workbuddy\binaries\python\envs\default\Lib\site-packages
+C:\Users\陈\.workbuddy\binaries\python\versions\current\python.exe -m PyInstaller --onefile --windowed --clean --name "Harbor" --icon "harbor.ico" --add-data "harbor.html;." --add-data "libs;libs" main.py --noconfirm
+REM 一键三 exe（应用+卸载器+安装器，含载荷 sha256 强校验）：
+REM   versions\current\python.exe installer\build_setup.py
 
 ## 打包调试版
 python -m PyInstaller --onefile --clean --name "Harbor-Debug" --icon "harbor.ico" --add-data "harbor.html;." --add-data "libs;libs" main.py --noconfirm

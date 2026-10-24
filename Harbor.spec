@@ -10,7 +10,11 @@ a = Analysis(
            ('backend/prompts', 'backend/prompts')],
     # 修复 W2：懒加载依赖显式声明（原 frozen 包中 send2trash/PIL 静默缺失，
     # delete_path 回收站模式与 take_screenshot 在打包版失效）
-    hiddenimports=['send2trash', 'PIL.ImageGrab'],
+    # 复核批补：pywebview winforms 后端的 .NET 桥（clr → pythonnet →
+    # clr_loader → cffi/_cffi_backend）显式入图——2026-10-24 真机启动失败
+    # 实证 _cffi_backend 缺失（ModuleNotFoundError → coreclr 初始化失败）
+    hiddenimports=['send2trash', 'PIL.ImageGrab',
+                   'pythonnet', 'clr_loader', 'cffi', '_cffi_backend'],
     # 复核修正：pywin32 在 Py3.15 构建环境不可加载（pywin32-312 只带 313 DLL，
     # send2trash 的 COM 路径把 pythoncom 拉入图触发 hook-pythoncom 崩溃）——
     # 排除 pywin32 族，运行时 send2trash 自动回落 ctypes legacy 路径

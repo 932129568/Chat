@@ -87,6 +87,16 @@ def build_setup():
 
 
 def main():
+    # 构建版本护栏：依赖为 cp313 编译版（_cffi_backend.cp313/pywin32-313 DLL），
+    # 必须用 vendor Python 3.13 构建——3.15 下编译扩展全部不可加载，产物启动
+    # 即崩（2026-10-24 真机实证）。测试可跑 3.15（纯 Python 路径），构建不行。
+    if sys.version_info[:2] != (3, 13) and \
+            not os.environ.get('HARBOR_BUILD_ALLOW_PY'):
+        print('异常：构建必须使用 vendor Python 3.13（当前 %s.%s）。' % sys.version_info[:2])
+        print('  用法：C:/Users/陈/.workbuddy/binaries/python/versions/current/python.exe '
+              'installer/build_setup.py')
+        print('  （确要覆盖：设 HARBOR_BUILD_ALLOW_PY=1）')
+        sys.exit(1)
     v = version()
     print('Harbor 安装器构建 · VERSION=%s' % v)
     if '--app-only' in sys.argv:
