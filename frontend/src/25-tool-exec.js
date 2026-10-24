@@ -338,7 +338,11 @@ function harborRenderValidation(result, toolDiv) {
  *   force_always 兜底（token 必须有效一次性）。
  */
 const agentTrusted = new Set();
-async function agentGuardCheck(op, detail) {
+/* 复核批修正：origin 参数——'ai'（Agent 发起，默认）|'user'（设置面板手动
+ * 按钮）。手动入口与 AI 走同一护栏链（armed 态 session 档必须换 token），
+ * 但确认框措辞不再是「AI 请求」——用户是确认主体。 */
+async function agentGuardCheck(op, detail, origin) {
+  origin = origin || 'ai';
   detail = detail || {};
   // v1.9.0 M5：浏览器驱动六原语的 target 取值（URL/目标元素/选择器）；
   // 信任键按 op 粒度（session 档语义=同类操作会话内首次确认，非按 URL 逐条）
@@ -371,9 +375,10 @@ async function agentGuardCheck(op, detail) {
 
   // action=confirm：弹窗（目标全文 + 档位 + 风险说明）
   const tierName = { always: '每次确认', session: '会话内首次确认', off: '不确认' };
+  const _ask = (origin === 'ai') ? 'AI 请求' : '';   // 手动入口：用户即确认主体
   let body;
   if (op === 'web_search') {
-    body = 'AI 请求执行浏览器搜索：\n检索词：' + target +
+    body = _ask + '执行浏览器搜索：\n检索词：' + target +
       '\n档位：' + (tierName[verdict.tier] || verdict.tier || '?') +
       '\n\n将通过内置浏览器窗口访问搜索引擎并提取结果（外联走应用进程，审计可见）。';
   } else if (_isBrowserOp) {
@@ -381,13 +386,13 @@ async function agentGuardCheck(op, detail) {
     const _bLabel = { browser_navigate: '导航到页面', browser_extract: '提取页面内容',
       browser_click: '点击页面元素', browser_fill: '填充表单字段',
       browser_screenshot: '截取页面', browser_close: '关闭浏览器会话' };
-    body = 'AI 请求浏览器操作：' + (_bLabel[op] || op) +
+    body = _ask + '浏览器操作：' + (_bLabel[op] || op) +
       (target ? '\n目标：' + target : '') +
       '\n档位：' + (tierName[verdict.tier] || verdict.tier || '?') +
       ((op === 'browser_click' || op === 'browser_fill')
         ? '\n\n页面交互会作用于真实网站（点击/提交/输入），请确认目标无误。' : '');
   } else {
-    body = 'AI 请求调用外部软件：\n软件：' + String(detail.software || '') +
+    body = _ask + '调用外部软件：\n软件：' + String(detail.software || '') +
       '\n动作：' + String(detail.action || '') +
       (dangerous ? '\n风险：高危动作（dangerous）——每次都需要确认' : '') +
       '\n参数：\n' + JSON.stringify(detail.args || {}, null, 2).slice(0, 2000) +

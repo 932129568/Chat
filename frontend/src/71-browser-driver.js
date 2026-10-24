@@ -76,6 +76,22 @@
     return JSON.parse(await callApi(name, args, timeout || 90000));
   }
 
+  async function brwGuard(op, detail) {
+    /* 复核修正（真机实证）：手动原语与 AI 同走护栏链——armed 态 session 档
+     * 无 token 即 CONFIRM_REQUIRED。origin='user'：用户即确认主体。 */
+    if (typeof agentGuardCheck === 'function') {
+      const g = await agentGuardCheck(op, detail || {}, 'user');
+      if (g.blocked) {
+        let b = {};
+        try { b = JSON.parse(g.blocked); } catch (e2) {}
+        brwOut('已取消：' + brwEsc((b && (b.info || b.error)) || '用户未确认'), true);
+        return null;
+      }
+      return g.token;
+    }
+    return null;                                  // 沙箱/旧后端：后端未武装自然放行
+  }
+
   async function brwNavigate(mode) {
     const inp = brwEl('brwUrl');
     const url = (inp && inp.value || '').trim();
@@ -85,7 +101,9 @@
     }
     brwOut('导航中…（' + (mode === 'visible' ? '可见' : '后台') + '）');
     try {
-      const r = await brwApi('browser_navigate', [url, '', 45, mode, null]);
+      const token = await brwGuard('browser_navigate', { url: url.slice(0, 200) });
+      if (token === null) return;
+      const r = await brwApi('browser_navigate', [url, '', 45, mode, token]);
       if (r.ok) {
         brwOut('已导航：<b>' + brwEsc(r.title || url) + '</b> · 会话 ' +
           brwEsc(String(r.session_id || '').slice(0, 14)) +
@@ -102,7 +120,9 @@
   async function brwExtract() {
     brwOut('提取中…');
     try {
-      const r = await brwApi('browser_extract', ['', 'text']);
+      const token = await brwGuard('browser_extract', {});
+      if (token === null) return;
+      const r = await brwApi('browser_extract', ['', 'text', token]);
       if (r.ok) {
         // 注入警示纹：页面内容=UNTRUSTED DATA（琥珀斜纹边 + 来源 caption）
         const text = String(r.text || r.markdown || '');
@@ -123,7 +143,9 @@
   async function brwScreenshot() {
     brwOut('截图中…');
     try {
-      const r = await brwApi('browser_screenshot', [false]);
+      const token = await brwGuard('browser_screenshot', {});
+      if (token === null) return;
+      const r = await brwApi('browser_screenshot', [false, token]);
       if (r.ok) {
         brwOut('截图成功（' + r.width + '×' + r.height + ' · b64 ' +
           String(r.b64 || '').length + ' 字符）');

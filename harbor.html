@@ -3967,7 +3967,11 @@ function harborRenderValidation(result, toolDiv) {
  *   force_always 兜底（token 必须有效一次性）。
  */
 const agentTrusted = new Set();
-async function agentGuardCheck(op, detail) {
+/* 复核批修正：origin 参数——'ai'（Agent 发起，默认）|'user'（设置面板手动
+ * 按钮）。手动入口与 AI 走同一护栏链（armed 态 session 档必须换 token），
+ * 但确认框措辞不再是「AI 请求」——用户是确认主体。 */
+async function agentGuardCheck(op, detail, origin) {
+  origin = origin || 'ai';
   detail = detail || {};
   // v1.9.0 M5：浏览器驱动六原语的 target 取值（URL/目标元素/选择器）；
   // 信任键按 op 粒度（session 档语义=同类操作会话内首次确认，非按 URL 逐条）
@@ -4000,9 +4004,10 @@ async function agentGuardCheck(op, detail) {
 
   // action=confirm：弹窗（目标全文 + 档位 + 风险说明）
   const tierName = { always: '每次确认', session: '会话内首次确认', off: '不确认' };
+  const _ask = (origin === 'ai') ? 'AI 请求' : '';   // 手动入口：用户即确认主体
   let body;
   if (op === 'web_search') {
-    body = 'AI 请求执行浏览器搜索：\n检索词：' + target +
+    body = _ask + '执行浏览器搜索：\n检索词：' + target +
       '\n档位：' + (tierName[verdict.tier] || verdict.tier || '?') +
       '\n\n将通过内置浏览器窗口访问搜索引擎并提取结果（外联走应用进程，审计可见）。';
   } else if (_isBrowserOp) {
@@ -4010,13 +4015,13 @@ async function agentGuardCheck(op, detail) {
     const _bLabel = { browser_navigate: '导航到页面', browser_extract: '提取页面内容',
       browser_click: '点击页面元素', browser_fill: '填充表单字段',
       browser_screenshot: '截取页面', browser_close: '关闭浏览器会话' };
-    body = 'AI 请求浏览器操作：' + (_bLabel[op] || op) +
+    body = _ask + '浏览器操作：' + (_bLabel[op] || op) +
       (target ? '\n目标：' + target : '') +
       '\n档位：' + (tierName[verdict.tier] || verdict.tier || '?') +
       ((op === 'browser_click' || op === 'browser_fill')
         ? '\n\n页面交互会作用于真实网站（点击/提交/输入），请确认目标无误。' : '');
   } else {
-    body = 'AI 请求调用外部软件：\n软件：' + String(detail.software || '') +
+    body = _ask + '调用外部软件：\n软件：' + String(detail.software || '') +
       '\n动作：' + String(detail.action || '') +
       (dangerous ? '\n风险：高危动作（dangerous）——每次都需要确认' : '') +
       '\n参数：\n' + JSON.stringify(detail.args || {}, null, 2).slice(0, 2000) +
@@ -10030,7 +10035,24 @@ async function searchPanelRunSearch(params) {
   const bar = spEl('spProgressBar');
   if (bar) { bar.classList.add('indet'); bar.style.transform = ''; }   // 不确定进度扫光
   try {
-    const raw = await spCallApi('browser_search', [params || {}],
+    // 复核修正（真机实证）：手动「搜索」与 AI 同走护栏链——armed 态 session
+    // 档无 token 即 CONFIRM_REQUIRED。origin='user'：用户即确认主体，措辞
+    // 去「AI 请求」；拒绝/异常按面板错误态渲染。
+    if (typeof agentGuardCheck === 'function') {
+      const g = await agentGuardCheck('web_search',
+        { query: String((params && params.query) || '').slice(0, 120) }, 'user');
+      if (seq !== searchReqSeq) return;
+      if (g.blocked) {
+        let b = {};
+        try { b = JSON.parse(g.blocked); } catch (e2) {}
+        searchPanelRenderError({ code: 'USER_DENIED',
+          message: (b && (b.info || b.error)) || '用户取消了本次搜索' });
+        searchPanelSetState('error');
+        return;
+      }
+      var spGuardToken = g.token;
+    }
+    const raw = await spCallApi('browser_search', [params || {}, spGuardToken],
       (params && params.extract === 'full') ? 150000 : SP_SEARCH_TIMEOUT_MS);  // ③竞速
     if (seq !== searchReqSeq) return;               // ④last-wins：旧请求静默失效
     const d = JSON.parse(raw || '{}');
@@ -10718,6 +10740,25 @@ async function softwarePanelRunTest(name) {
   // 测试调用可跑数百秒），旧实现共用 softwareReqSeq → 探测完成即使在途测试
   // 的返回被判陈旧而静默丢弃——调用已真实执行（有副作用）却无任何输出渲染，
   // 用户重复点击即重复执行。独立序号后测试流只被更新的测试流淘汰。
+  // 复核修正（真机实证）：手动「执行」与 AI 同走护栏链——armed 态无 token
+  // 即 CONFIRM_REQUIRED。origin='user'：用户即确认主体。
+  let swGuardToken = null;
+  if (typeof agentGuardCheck === 'function') {
+    const g = await agentGuardCheck('software_call', {
+      software: String(name || ''),
+      action: String(action || ''),
+      args: args,
+      force_always: args && args.__dangerous === true,
+    }, 'user');
+    if (g.blocked) {
+      let b = {};
+      try { b = JSON.parse(g.blocked); } catch (e2) {}
+      softwarePanelRenderTestOut({ ok: false, error: { code: 'USER_DENIED',
+        message: (b && (b.info || b.error)) || '用户取消了本次调用' } });
+      return;                                    // swTesting 未置位（护栏在途前）
+    }
+    swGuardToken = g.token;
+  }
   const seq = ++swTestSeq;
   const runBtn = swEl('swTestRun');
   if (runBtn) runBtn.disabled = true;
@@ -10736,7 +10777,8 @@ async function softwarePanelRunTest(name) {
   softwarePanelSetState('pending');
   try {
     const raw = await swCallApi('software_call',
-      [{ software: name, action: action, args: args, source: 'manual_test' }],
+      [{ software: name, action: action, args: args, source: 'manual_test' },
+       swGuardToken],
       SW_CALL_TIMEOUT_MS);
     if (seq !== swTestSeq) return;               // 连点 last-wins：旧返回丢弃
     const d = JSON.parse(raw || '{}');
@@ -13234,6 +13276,22 @@ async function saveConfig() {
     return JSON.parse(await callApi(name, args, timeout || 90000));
   }
 
+  async function brwGuard(op, detail) {
+    /* 复核修正（真机实证）：手动原语与 AI 同走护栏链——armed 态 session 档
+     * 无 token 即 CONFIRM_REQUIRED。origin='user'：用户即确认主体。 */
+    if (typeof agentGuardCheck === 'function') {
+      const g = await agentGuardCheck(op, detail || {}, 'user');
+      if (g.blocked) {
+        let b = {};
+        try { b = JSON.parse(g.blocked); } catch (e2) {}
+        brwOut('已取消：' + brwEsc((b && (b.info || b.error)) || '用户未确认'), true);
+        return null;
+      }
+      return g.token;
+    }
+    return null;                                  // 沙箱/旧后端：后端未武装自然放行
+  }
+
   async function brwNavigate(mode) {
     const inp = brwEl('brwUrl');
     const url = (inp && inp.value || '').trim();
@@ -13243,7 +13301,9 @@ async function saveConfig() {
     }
     brwOut('导航中…（' + (mode === 'visible' ? '可见' : '后台') + '）');
     try {
-      const r = await brwApi('browser_navigate', [url, '', 45, mode, null]);
+      const token = await brwGuard('browser_navigate', { url: url.slice(0, 200) });
+      if (token === null) return;
+      const r = await brwApi('browser_navigate', [url, '', 45, mode, token]);
       if (r.ok) {
         brwOut('已导航：<b>' + brwEsc(r.title || url) + '</b> · 会话 ' +
           brwEsc(String(r.session_id || '').slice(0, 14)) +
@@ -13260,7 +13320,9 @@ async function saveConfig() {
   async function brwExtract() {
     brwOut('提取中…');
     try {
-      const r = await brwApi('browser_extract', ['', 'text']);
+      const token = await brwGuard('browser_extract', {});
+      if (token === null) return;
+      const r = await brwApi('browser_extract', ['', 'text', token]);
       if (r.ok) {
         // 注入警示纹：页面内容=UNTRUSTED DATA（琥珀斜纹边 + 来源 caption）
         const text = String(r.text || r.markdown || '');
@@ -13281,7 +13343,9 @@ async function saveConfig() {
   async function brwScreenshot() {
     brwOut('截图中…');
     try {
-      const r = await brwApi('browser_screenshot', [false]);
+      const token = await brwGuard('browser_screenshot', {});
+      if (token === null) return;
+      const r = await brwApi('browser_screenshot', [false, token]);
       if (r.ok) {
         brwOut('截图成功（' + r.width + '×' + r.height + ' · b64 ' +
           String(r.b64 || '').length + ' 字符）');

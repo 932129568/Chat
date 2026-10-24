@@ -228,7 +228,24 @@ async function searchPanelRunSearch(params) {
   const bar = spEl('spProgressBar');
   if (bar) { bar.classList.add('indet'); bar.style.transform = ''; }   // 不确定进度扫光
   try {
-    const raw = await spCallApi('browser_search', [params || {}],
+    // 复核修正（真机实证）：手动「搜索」与 AI 同走护栏链——armed 态 session
+    // 档无 token 即 CONFIRM_REQUIRED。origin='user'：用户即确认主体，措辞
+    // 去「AI 请求」；拒绝/异常按面板错误态渲染。
+    if (typeof agentGuardCheck === 'function') {
+      const g = await agentGuardCheck('web_search',
+        { query: String((params && params.query) || '').slice(0, 120) }, 'user');
+      if (seq !== searchReqSeq) return;
+      if (g.blocked) {
+        let b = {};
+        try { b = JSON.parse(g.blocked); } catch (e2) {}
+        searchPanelRenderError({ code: 'USER_DENIED',
+          message: (b && (b.info || b.error)) || '用户取消了本次搜索' });
+        searchPanelSetState('error');
+        return;
+      }
+      var spGuardToken = g.token;
+    }
+    const raw = await spCallApi('browser_search', [params || {}, spGuardToken],
       (params && params.extract === 'full') ? 150000 : SP_SEARCH_TIMEOUT_MS);  // ③竞速
     if (seq !== searchReqSeq) return;               // ④last-wins：旧请求静默失效
     const d = JSON.parse(raw || '{}');

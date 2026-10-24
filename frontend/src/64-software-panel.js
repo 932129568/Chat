@@ -327,6 +327,25 @@ async function softwarePanelRunTest(name) {
   // 测试调用可跑数百秒），旧实现共用 softwareReqSeq → 探测完成即使在途测试
   // 的返回被判陈旧而静默丢弃——调用已真实执行（有副作用）却无任何输出渲染，
   // 用户重复点击即重复执行。独立序号后测试流只被更新的测试流淘汰。
+  // 复核修正（真机实证）：手动「执行」与 AI 同走护栏链——armed 态无 token
+  // 即 CONFIRM_REQUIRED。origin='user'：用户即确认主体。
+  let swGuardToken = null;
+  if (typeof agentGuardCheck === 'function') {
+    const g = await agentGuardCheck('software_call', {
+      software: String(name || ''),
+      action: String(action || ''),
+      args: args,
+      force_always: args && args.__dangerous === true,
+    }, 'user');
+    if (g.blocked) {
+      let b = {};
+      try { b = JSON.parse(g.blocked); } catch (e2) {}
+      softwarePanelRenderTestOut({ ok: false, error: { code: 'USER_DENIED',
+        message: (b && (b.info || b.error)) || '用户取消了本次调用' } });
+      return;                                    // swTesting 未置位（护栏在途前）
+    }
+    swGuardToken = g.token;
+  }
   const seq = ++swTestSeq;
   const runBtn = swEl('swTestRun');
   if (runBtn) runBtn.disabled = true;
@@ -345,7 +364,8 @@ async function softwarePanelRunTest(name) {
   softwarePanelSetState('pending');
   try {
     const raw = await swCallApi('software_call',
-      [{ software: name, action: action, args: args, source: 'manual_test' }],
+      [{ software: name, action: action, args: args, source: 'manual_test' },
+       swGuardToken],
       SW_CALL_TIMEOUT_MS);
     if (seq !== swTestSeq) return;               // 连点 last-wins：旧返回丢弃
     const d = JSON.parse(raw || '{}');
